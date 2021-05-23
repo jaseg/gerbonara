@@ -1,0 +1,80 @@
+stages:
+  - test
+  - coverage
+  - build
+  - upload
+
+image: python:3-alpine
+
+variables:
+  TWINE_NON_INTERACTIVE: "true"
+  CONFIG_FILE: ".pypirc"
+
+cache:
+  paths:
+    - .pipcache/
+
+before_script:
+  - apk --no-cache add make
+  - pip --cache-dir .pipcache install -r test-requirements.txt
+  - cat /etc/alpine-release
+  - python -V
+
+.test:
+  stage: test
+  script:
+    - make test
+
+test:3.6:
+    extends: .test
+    image: python:3.6-alpine
+
+test:3.7:
+    extends: .test
+    image: python:3.7-alpine
+
+test:3.8:
+    extends: .test
+    image: python:3.8-alpine
+
+test:3.9:
+    extends: .test
+    image: python:3.9-alpine
+
+# 3.10
+test:rc:
+    extends: .test
+    allow_failure: true
+    image: python:rc-alpine
+
+testpypi:
+  stage: upload
+  script:
+    - pip --cache-dir .pipcache install twine
+    - python setup.py sdist bdist_wheel
+    - twine upload --skip-existing --repository testpypi dist/*
+  only:
+    - master
+
+pypi:
+  stage: upload
+  script:
+    - pip --cache-dir .pipcache install twine
+    - python setup.py sdist bdist_wheel
+    - twine upload --skip-existing --repository pypi dist/*
+  only:
+    - tags
+
+aur_git:
+  stage: upload
+  script:
+    - echo "build pygerber-git"
+  only:
+    - master
+
+aur:
+  stage: upload
+  script:
+    - echo "build pygerber"
+  only:
+    - tags
