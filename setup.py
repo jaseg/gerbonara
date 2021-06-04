@@ -13,7 +13,7 @@ def long_description():
 
 
 def version():
-    with open(join(abspath(dirname(__file__)), 'gerber/__init__.py')) as fh:
+    with open(join(abspath(dirname(__file__)), 'gerbonara/__init__.py')) as fh:
         for line in fh:
             if line.startswith('__version__'):
                 ver = line.split("'")[1]
@@ -43,7 +43,12 @@ setup(
         'Tracker': 'https://gitlab.com/gerbonara/gerbonara/issues',
     },
     packages=find_packages(exclude=['tests']),
-    install_requires=[],
+    install_requires=['click'],
+    entry_points={
+        'console_scripts': [
+            'gerbonara = gerbonara.cli:cli',
+        ],
+    },
     classifiers=[
         'Development Status :: 1 - Planning',
         #'Development Status :: 3 - Alpha',
