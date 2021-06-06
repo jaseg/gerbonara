@@ -1,16 +1,27 @@
-PROJECT = "desec_dns_api"
 
-.PHONY: all clean sdist bdist_wheel test coverage html upload testupload
+PYTHON ?= python
+PYTEST ?= pytest
 
-all: sdist bdist_wheel
+.PHONY: clean
+clean: doc-clean
+	find . -name '*.pyc' -delete
+	rm -rf *.egg-info
+	rm -f .coverage
+	rm -f coverage.xml
 
-clean:
-	rm -rf .pytest_cache/
-	rm -rf build/
-	rm -rf ${PROJECT}.egg-info/
-	rm -rf dist/
-	rm -rf htmlcov/
-	rm -rf .coverage
+.PHONY: test
+test:
+	$(PYTEST)
+
+.PHONY: test-coverage
+test-coverage:
+	rm -f .coverage
+	rm -f coverage.xml
+	$(PYTEST) --cov=./ --cov-report=xml 
+
+.PHONY: install
+install:
+	PYTHONPATH=. $(PYTHON) setup.py install
 
 sdist:
 	python3 setup.py sdist
@@ -18,17 +29,9 @@ sdist:
 bdist_wheel:
 	python3 setup.py bdist_wheel
 
-test:
-	pytest --flake8 tests/
-
-coverage:
-	pytest --cov=${PROJECT} tests/
-
-html:
-	pytest --cov-report html:htmlcov --cov=${PROJECT} tests/
-
 upload: sdist bdist_wheel
 	twine upload -s -i contact@gerbonara.io --config-file ~/.pypirc --skip-existing --repository pypi dist/*
 
 testupload: sdist bdist_wheel
 	twine upload --config-file ~/.pypirc --skip-existing --repository testpypi dist/*
+

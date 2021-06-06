@@ -7,6 +7,11 @@
 
 Tools to handle Gerber and Excellon files in Python.
 
+This repository is a friendly fork of [phsilva's pcb-tools](https://github.com/curtacircuitos/pcb-tools) with
+[extensions from opiopan](https://github.com/opiopan/pcb-tools-extension) integrated. We decided to fork pcb-tools since
+we need it as a dependency for [gerbolyze](https://gitlab.com/gerbolyze/gerbolyze) and pcb-tools was sometimes very
+behind on bug fixes.
+
 # Installation
 
 Arch Linux:
@@ -44,3 +49,5 @@ nc_drill.render(ctx, 'composite.svg')
 ---
 
 Made with ❤️ and 🐍.
+=======
+pcb-tools
