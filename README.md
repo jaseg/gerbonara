@@ -49,5 +49,3 @@ nc_drill.render(ctx, 'composite.svg')
 ---
 
 Made with ❤️ and 🐍.
-=======
-pcb-tools
