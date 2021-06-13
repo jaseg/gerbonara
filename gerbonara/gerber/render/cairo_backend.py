@@ -136,8 +136,10 @@ class GerberCairoContext(GerberContext):
             is_svg = os.path.splitext(filename.lower())[1] == '.svg'
         except:
             is_svg = False
+
         if verbose:
             print('[Render]: Writing image to {}'.format(filename))
+
         if is_svg:
             self.surface.finish()
             self.surface_buffer.flush()

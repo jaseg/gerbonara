@@ -17,7 +17,7 @@ NCDRILL_FILE = os.path.join(os.path.dirname(__file__), "resources/ncdrill.DRD")
 def test_format_detection():
     """ Test file type detection
     """
-    with open(NCDRILL_FILE, "rU") as f:
+    with open(NCDRILL_FILE, "r") as f:
         data = f.read()
     settings = detect_excellon_format(data)
     assert settings["format"] == (2, 4)
@@ -36,9 +36,9 @@ def test_read():
 def test_write():
     ncdrill = read(NCDRILL_FILE)
     ncdrill.write("test.ncd")
-    with open(NCDRILL_FILE, "rU") as src:
+    with open(NCDRILL_FILE, "r") as src:
         srclines = src.readlines()
-    with open("test.ncd", "rU") as res:
+    with open("test.ncd", "r") as res:
         for idx, line in enumerate(res):
             assert line.strip() == srclines[idx].strip()
     os.remove("test.ncd")

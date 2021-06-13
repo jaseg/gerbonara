@@ -221,7 +221,7 @@ def _test_render(gerber_path, png_expected_path, create_output_path=None):
     ctx = GerberCairoContext()
     gerber.render(ctx)
 
-    actual_bytes = ctx.dump(None)
+    actual_bytes = ctx.dump_str()
 
     # If we want to write the file bytes, do it now. This happens
     if create_output_path:

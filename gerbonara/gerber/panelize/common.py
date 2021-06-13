@@ -15,7 +15,7 @@ from . import excellon
 from . import dxf
 
 def read(filename, format=None):
-    with open(filename, 'rU') as f:
+    with open(filename, 'r') as f:
         data = f.read()
     return loads(data, filename, format=format)
 

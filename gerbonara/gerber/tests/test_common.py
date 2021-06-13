@@ -24,9 +24,9 @@ def test_file_type_detection():
 
 
 def test_load_from_string():
-    with open(NCDRILL_FILE, "rU") as f:
+    with open(NCDRILL_FILE, "r") as f:
         ncdrill = loads(f.read())
-    with open(TOP_COPPER_FILE, "rU") as f:
+    with open(TOP_COPPER_FILE, "r") as f:
         top_copper = loads(f.read())
     assert isinstance(ncdrill, ExcellonFile)
     assert isinstance(top_copper, GerberFile)

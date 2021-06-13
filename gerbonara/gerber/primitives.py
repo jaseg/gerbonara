@@ -1687,6 +1687,7 @@ class Slot(Primitive):
 class TestRecord(Primitive):
     """ Netlist Test record
     """
+    __test__ = False # This is not a PyTest unit test.
 
     def __init__(self, position, net_name, layer, **kwargs):
         super(TestRecord, self).__init__(**kwargs)
