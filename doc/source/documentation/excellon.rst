@@ -11,7 +11,7 @@ information. The Excellon format is used to program CNC drilling macines for
 drilling holes in PCBs. As such, excellon files are sometimes refererred to as
 NC-drill files.  The Excellon format reference is available 
 `here <http://www.excellon.com/manuals/program.htm>`_. The :mod:`excellon`
-submodule implements calsses to read and write excellon files without having
+submodule implements classes to read and write excellon files without having
 to know the precise details of the format.
 
 The :mod:`excellon` submodule's :func:`read` function serves as a
