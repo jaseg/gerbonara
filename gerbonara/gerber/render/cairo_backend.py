@@ -23,6 +23,7 @@ except ImportError:
 
 from operator import mul
 import tempfile
+import warnings
 import os
 
 from .render import GerberContext, RenderSettings
@@ -235,7 +236,11 @@ class GerberCairoContext(GerberContext):
         two_pi = 2 * math.pi
         angle1 = (arc.start_angle + two_pi) % two_pi
         angle2 = (arc.end_angle + two_pi) % two_pi
-        if angle1 == angle2 and arc.quadrant_mode != 'single-quadrant':
+
+        if arc.quadrant_mode == 'single-quadrant':
+            warnings.warn('Cairo backend does not support single-quadrant arcs.')
+
+        if angle1 == angle2:
             # Make the angles slightly different otherwise Cario will draw nothing
             angle2 -= 0.000000001
         if isinstance(arc.aperture, Circle):
@@ -255,8 +260,7 @@ class GerberCairoContext(GerberContext):
                 if arc.direction == 'counterclockwise':
                     mask.ctx.arc(center[0], center[1], radius, angle1, angle2)
                 else:
-                    mask.ctx.arc_negative(center[0], center[1], radius,
-                                          angle1, angle2)
+                    mask.ctx.arc_negative(center[0], center[1], radius, angle1, angle2)
                 mask.ctx.move_to(*end)  # ...lame
                 mask.ctx.stroke()
 

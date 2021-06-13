@@ -43,11 +43,6 @@ def test_render_two_boxes():
     _test_render("resources/example_two_square_boxes.gbr", "golden/example_two_square_boxes.png")
 
 
-def _DISABLED_test_render_single_quadrant():
-    """Umaco exapmle of a single quadrant arc"""
-    _test_render("resources/example_single_quadrant.gbr", "golden/example_single_quadrant.png")
-
-
 def test_render_simple_contour():
     """Umaco exapmle of a simple arrow-shaped contour"""
     gerber = _test_render("resources/example_simple_contour.gbr", "golden/example_simple_contour.png")
