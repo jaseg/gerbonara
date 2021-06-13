@@ -513,6 +513,10 @@ class GerberCairoContext(GerberContext):
                 self.ctx.mask_surface(mask.surface, self.origin_in_pixels[0])
 
     def _render_amgroup(self, amgroup, color):
+        # Since holes/clear areas in the mask group must be drawn as clear, we need to render the primitives of this
+        # group into a mask context first, then composite this mask context on top of our output surface. This means
+        # that a clear primitive inside the group will cover/draw over dark primitives inside the group, but it will
+        # *not* cover/draw over dark primitives outside the group.
 
         mask_surface = cairo.SVGSurface(None, self.size_in_pixels[0], self.size_in_pixels[1])
         mask_ctx = cairo.Context(mask_surface)
