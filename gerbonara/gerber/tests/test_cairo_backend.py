@@ -39,23 +39,17 @@ def cleanup(request):
 
 def test_render_two_boxes():
     """Umaco exapmle of two boxes"""
-    _test_render(
-        "resources/example_two_square_boxes.gbr", "golden/example_two_square_boxes.png"
-    )
+    _test_render("resources/example_two_square_boxes.gbr", "golden/example_two_square_boxes.png")
 
 
 def _DISABLED_test_render_single_quadrant():
     """Umaco exapmle of a single quadrant arc"""
-    _test_render(
-        "resources/example_single_quadrant.gbr", "golden/example_single_quadrant.png"
-    )
+    _test_render("resources/example_single_quadrant.gbr", "golden/example_single_quadrant.png")
 
 
 def test_render_simple_contour():
     """Umaco exapmle of a simple arrow-shaped contour"""
-    gerber = _test_render(
-        "resources/example_simple_contour.gbr", "golden/example_simple_contour.png"
-    )
+    gerber = _test_render("resources/example_simple_contour.gbr", "golden/example_simple_contour.png")
 
     # Check the resulting dimensions
     assert ((2.0, 11.0), (1.0, 9.0)) == gerber.bounding_box
@@ -221,14 +215,59 @@ def test_render_svg_simple_contour():
     _test_simple_render_svg("resources/example_simple_contour.gbr")
 
 
+def test_fine_lines_x():
+    """ Regression test for pcb-tools upstream PR #199 """
+    for fn, axis in [
+        ('resources/test_fine_lines_x.gbr', 1),
+        ('resources/test_fine_lines_y.gbr', 0) ]:
+        gerber_path = _resolve_path(fn)
+
+        gerber = read(gerber_path)
+
+        # Create PNG image to the memory stream
+        ctx = GerberCairoContext(scale=51)
+        gerber.render(ctx)
+
+        global output_dir
+        with output_dir.create(suffix='.png') as outfile:
+            actual_bytes = ctx.dump(outfile)
+
+            out = Image.open(outfile)
+            out = np.array(out)
+            out = out.astype(float).mean(axis=2) / 255
+
+            means = out[10:-10,10:-10].mean(axis=axis)
+
+            print(means.mean(), means.max(), means.min(), means.std())
+            #print(means_y.mean(), means_y.max(), means_y.min(), means_y.std())
+            # means_x broken: 0.3240598567858516 0.3443678513071895 0.2778033088235294 0.017457710324088545
+            # means_x fixed:  0.33338519639882097 0.3443678513071895 0.3183159722222221 0.006792500045785638
+            # means_y broken: 0.3240598567858518 0.3247468922209409 0.1660387030629246 0.009953477851147686
+            # means_y fixed:  0.33338519639882114 0.3340766371908242 0.17388184031782652 0.010043400730860096
+
+            assert means.std() < 0.01
+
+# TODO add scale tests: Export with different scale=... params and compare against bitmap-scaled reference image
+
 def _resolve_path(path):
     return os.path.join(os.path.dirname(__file__), path)
 
 def images_match(reference, output, max_delta):
+    global output_dir
+
     ref, out = Image.open(reference), Image.open(output)
     ref, out = np.array(ref), np.array(out)
     # convert to grayscale
     ref, out = ref.astype(float).mean(axis=2), out.astype(float).mean(axis=2)
+
+    if ref.shape != out.shape:
+        print(f'Rendering image size mismatch')
+        print(f'Reference image: {Path(reference).absolute()}')
+        print(f'Actual output: {output}')
+
+        output_dir.keep()
+
+        return False
 
     delta = np.abs(out - ref).astype(float) / 255
     
@@ -241,7 +280,6 @@ def images_match(reference, output, max_delta):
         print_stats('reference', ref)
         print_stats('actual', out)
 
-        global output_dir
         output_dir.keep()
 
         return False
@@ -249,7 +287,7 @@ def images_match(reference, output, max_delta):
     return True
 
 
-def _test_render(gerber_path, png_expected_path, max_delta=1e-6):
+def _test_render(gerber_path, png_expected_path, max_delta=1e-6, scale=300):
     """Render the gerber file and compare to the expected PNG output.
 
     Parameters
@@ -269,7 +307,7 @@ def _test_render(gerber_path, png_expected_path, max_delta=1e-6):
     gerber = read(gerber_path)
 
     # Create PNG image to the memory stream
-    ctx = GerberCairoContext()
+    ctx = GerberCairoContext(scale=scale)
     gerber.render(ctx)
 
     global output_dir
