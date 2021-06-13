@@ -7,6 +7,7 @@ import shutil
 import io
 import tempfile
 import uuid
+import cv2
 from pathlib import Path
 
 import pytest
@@ -201,12 +202,16 @@ def test_holes_dont_clear():
     )
 
 
-def _DISABLED_test_render_am_exposure_modifier():
+def test_render_am_exposure_modifier():
     """Umaco example that an aperture macro with a hole does not clear the area"""
 
     _test_render(
         "resources/example_am_exposure_modifier.gbr",
         "golden/example_am_exposure_modifier.png",
+        scale = 50,
+        autocrop_golden = True,
+        auto_contrast = True,
+        max_delta = 0.005 # Take artifacts due to differences in anti-aliasing and thresholding into account
     )
 
 
@@ -252,19 +257,59 @@ def test_fine_lines_x():
 def _resolve_path(path):
     return os.path.join(os.path.dirname(__file__), path)
 
-def images_match(reference, output, max_delta):
+def images_match(reference, output, max_delta, autocrop_golden=False, auto_contrast=False):
     global output_dir
 
     ref, out = Image.open(reference), Image.open(output)
+    if ref.mode == 'P': # palette mode
+        ref = ref.convert('RGB')
+
     ref, out = np.array(ref), np.array(out)
     # convert to grayscale
     ref, out = ref.astype(float).mean(axis=2), out.astype(float).mean(axis=2)
+    
+    if autocrop_golden:
+        rows = ref.sum(axis=1)
+        cols = ref.sum(axis=0)
+        
+        x0 = np.argmax(cols > 0)
+        y0 = np.argmax(rows > 0)
+        x1 = len(cols) - np.argmax(cols[::-1] > 0)
+        y1 = len(rows) - np.argmax(rows[::-1] > 0)
+        print(f'{x0=} {y0=} {x1=} {y1=}')
+
+        ref = ref[y0:y1, x0:x1]
+        ref = cv2.resize(ref, dsize=out.shape[::-1], interpolation=cv2.INTER_LINEAR)
+
+    def print_stats(name, ref):
+        print(name, 'stats:', ref.min(), ref.mean(), ref.max(), 'std:', ref.std())
+
+    if auto_contrast:
+        print_stats('ref pre proc', ref)
+        print_stats('out pre proc', out)
+
+        ref -= ref.min()
+        ref /= ref.max()
+        ref *= 255
+
+        out -= out.min()
+        out /= out.max()
+        out *= 255
+
+    def write_refout():
+        nonlocal autocrop_golden, ref
+        if autocrop_golden:
+            global output_dir
+            with output_dir.create(suffix='.png') as ref_out:
+                cv2.imwrite(str(ref_out), ref)
+                print('Processed reference image:', ref_out)
 
     if ref.shape != out.shape:
-        print(f'Rendering image size mismatch')
+        print(f'Rendering image size mismatch: {ref.shape} != {out.shape}')
         print(f'Reference image: {Path(reference).absolute()}')
         print(f'Actual output: {output}')
 
+        write_refout()
         output_dir.keep()
 
         return False
@@ -275,11 +320,13 @@ def images_match(reference, output, max_delta):
         print(f'Renderings mismatch: {delta.mean()=}, {max_delta=}')
         print(f'Reference image: {Path(reference).absolute()}')
         print(f'Actual output: {output}')
-        def print_stats(name, ref):
-            print(name, 'stats:', ref.min(), ref.mean(), ref.max(), 'std:', ref.std())
+        with output_dir.create(suffix='.png') as proc_out:
+            cv2.imwrite(str(proc_out), out)
+            print('Processed output image:', proc_out)
         print_stats('reference', ref)
         print_stats('actual', out)
 
+        write_refout()
         output_dir.keep()
 
         return False
@@ -287,7 +334,7 @@ def images_match(reference, output, max_delta):
     return True
 
 
-def _test_render(gerber_path, png_expected_path, max_delta=1e-6, scale=300):
+def _test_render(gerber_path, png_expected_path, max_delta=1e-6, scale=300, autocrop_golden=False, auto_contrast=False):
     """Render the gerber file and compare to the expected PNG output.
 
     Parameters
@@ -314,7 +361,7 @@ def _test_render(gerber_path, png_expected_path, max_delta=1e-6, scale=300):
     with output_dir.create(suffix='.png') as outfile:
         actual_bytes = ctx.dump(outfile)
 
-        assert images_match(png_expected_path, outfile, max_delta)
+        assert images_match(png_expected_path, outfile, max_delta, autocrop_golden, auto_contrast)
 
     return gerber
 

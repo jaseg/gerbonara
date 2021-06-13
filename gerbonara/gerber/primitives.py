@@ -1064,9 +1064,6 @@ class RoundRectangle(Primitive):
 
 
 class Obround(Primitive):
-    """
-    """
-
     def __init__(self, position, width, height, hole_diameter=0,
                  hole_width=0,hole_height=0, **kwargs):
         super(Obround, self).__init__(**kwargs)

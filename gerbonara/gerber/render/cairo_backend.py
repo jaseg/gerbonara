@@ -513,8 +513,20 @@ class GerberCairoContext(GerberContext):
                 self.ctx.mask_surface(mask.surface, self.origin_in_pixels[0])
 
     def _render_amgroup(self, amgroup, color):
+
+        mask_surface = cairo.SVGSurface(None, self.size_in_pixels[0], self.size_in_pixels[1])
+        mask_ctx = cairo.Context(mask_surface)
+        mask_ctx.set_matrix(self.ctx.get_matrix())
+
+        old_surface, self.surface = self.surface, mask_surface
+        old_ctx, self.ctx = self.ctx, mask_ctx
+
         for primitive in amgroup.primitives:
             self.render(primitive)
+
+        old_ctx.mask_surface(mask_surface, self.origin_in_pixels[0])
+        mask_surface.finish()
+        self.surface, self.ctx = old_surface, old_ctx
 
     def _render_test_record(self, primitive, color):
         position = [pos + origin for pos, origin in
