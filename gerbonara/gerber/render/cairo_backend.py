@@ -295,6 +295,10 @@ class GerberCairoContext(GerberContext):
                         radius = self.scale[0] * prim.radius
                         angle1 = prim.start_angle
                         angle2 = prim.end_angle
+
+                        if angle1 == angle2:
+                            # Make the angles slightly different otherwise Cario will draw nothing
+                            angle2 -= 0.000000001
                         if prim.direction == 'counterclockwise':
                             mask.ctx.arc(center[0], center[1], radius,
                                          angle1, angle2)

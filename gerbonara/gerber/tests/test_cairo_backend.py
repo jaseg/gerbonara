@@ -105,31 +105,19 @@ def test_render_overlapping_touching():
 
 def test_render_overlapping_contour():
     """Umaco example of D02 staring a second contour"""
-    _test_render(
-        "resources/example_overlapping_contour.gbr",
-        "golden/example_overlapping_contour.png",
-    )
+    _test_render("resources/example_overlapping_contour.gbr", "golden/example_overlapping_contour.png")
 
 
-def _DISABLED_test_render_level_holes():
+def test_render_level_holes():
     """Umaco example of using multiple levels to create multiple holes"""
-
-    # TODO This is clearly rendering wrong. I'm temporarily checking this in because there are more
-    # rendering fixes in the related repository that may resolve these.
-    _test_render(
-        "resources/example_level_holes.gbr", "golden/example_overlapping_contour.png"
-    )
+    _test_render("resources/example_level_holes.gbr", "golden/example_level_holes.png",
+            autocrop_golden=True, auto_contrast=True, scale=50, max_delta=0.005)
 
 
-def _DISABLED_test_render_cutin():
+def test_render_cutin():
     """Umaco example of using a cutin"""
-
-    # TODO This is clearly rendering wrong.
-    _test_render(
-        "resources/example_cutin.gbr",
-        "golden/example_cutin.png",
-        "/Users/ham/Desktop/cutin.png",
-    )
+    _test_render("resources/example_cutin.gbr", "golden/example_cutin.png",
+            autocrop_golden=True, auto_contrast=True, max_delta=0.005)
 
 
 def test_render_fully_coincident():
@@ -284,11 +272,11 @@ def images_match(reference, output, max_delta, autocrop_golden=False, auto_contr
         print_stats('out pre proc', out)
 
         ref -= ref.min()
-        ref /= ref.max()
+        ref /= ref.max() + 1e-9
         ref *= 255
 
         out -= out.min()
-        out /= out.max()
+        out /= out.max() + 1e-9
         out *= 255
 
     def write_refout():
