@@ -29,8 +29,8 @@ def version():
 setup(
     name='gerbonara',
     version=version(),
-    author='XenGi, Jaseg',
-    author_email='contact@gerbonara.io',
+    author='XenGi, jaseg',
+    author_email='contact@gerbonara.jaseg.de',
     description='Tools to handle Gerber and Excellon files in Python',
     long_description=long_description(),
     long_description_content_type='text/markdown',

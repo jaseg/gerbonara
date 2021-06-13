@@ -3,9 +3,9 @@
 
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 
-from gerber.utils import *
-from gerber.am_eval import OpCode
-from gerber.am_statements import *
+from ..utils import *
+from ..am_eval import OpCode
+from ..am_statements import *
 
 class AMExpression(object):
     CONSTANT = 1

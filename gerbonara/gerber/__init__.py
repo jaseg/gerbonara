@@ -15,11 +15,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Gerber Tools
-============
-**Gerber Tools**
+Gerbonara
+=========
 
-gerber-tools provides utilities for working with Gerber (RS-274X) and Excellon
+gerbonara provides utilities for working with Gerber (RS-274X) and Excellon
 files in python.
 """
 

@@ -3,10 +3,10 @@
 
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 
-from gerber.utils import inch, metric, write_gerber_value
-from gerber.cam import FileSettings
-from gerberex.utility import is_equal_point, is_equal_value, normalize_vec2d, dot_vec2d
-from gerberex.excellon import CoordinateStmtEx
+from ..utils import inch, metric, write_gerber_value
+from ..cam import FileSettings
+from .utility import is_equal_point, is_equal_value, normalize_vec2d, dot_vec2d
+from .excellon import CoordinateStmtEx
 
 class DxfPath(object):
     def __init__(self, statements, error_range=0):
@@ -176,7 +176,7 @@ class DxfPath(object):
             return True
 
     def to_gerber(self, settings=FileSettings(), pitch=0, width=0):
-        from gerberex.dxf import DxfArcStatement
+        from .dxf import DxfArcStatement
         if pitch == 0:
             x0, y0 = self.statements[0].start
             gerber = 'G01*\nX{0}Y{1}D02*\nG75*'.format(
@@ -222,7 +222,7 @@ class DxfPath(object):
         return gerber
 
     def to_excellon(self, settings=FileSettings(), pitch=0, width=0):
-        from gerberex.dxf import DxfArcStatement
+        from .dxf import DxfArcStatement
         if pitch == 0:
             x0, y0 = self.statements[0].start
             excellon = 'G00{0}\nM15\n'.format(
@@ -322,7 +322,7 @@ class DxfPath(object):
         raise Exception('inconsistensy is detected while cross judgement between paths')
             
 def generate_paths(statements, error_range=0):
-    from gerberex.dxf import DxfPolylineStatement
+    from .dxf import DxfPolylineStatement
 
     paths = []
     for statement in filter(lambda s: isinstance(s, DxfPolylineStatement), statements):
@@ -365,7 +365,7 @@ def generate_paths(statements, error_range=0):
     return (closed_path, open_path)
 
 def judge_containment(path1, path2, error_range=0):
-    from gerberex.dxf import DxfArcStatement, DxfLineStatement
+    from .dxf import DxfArcStatement, DxfLineStatement
 
     nocontainment = (None, None)
     if not path1.may_be_in_collision(path2):

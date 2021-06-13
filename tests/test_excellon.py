@@ -5,7 +5,7 @@
 
 import os
 import unittest
-import gerberex
+from gerbonara.gerber import panelize
 
 
 class TestExcellon(unittest.TestCase):
@@ -33,13 +33,13 @@ class TestExcellon(unittest.TestCase):
 
     def test_save(self):
         outfile = os.path.join(self.OUTDIR, self.OUTPREFIX + 'save.txt')
-        drill = gerberex.read(self.METRIC_FILE)
+        drill = panelize.read(self.METRIC_FILE)
         drill.write(outfile)
         self._checkResult(outfile)
 
     def test_to_inch(self):
         outfile = os.path.join(self.OUTDIR, self.OUTPREFIX + 'to_inch.txt')
-        drill = gerberex.read(self.METRIC_FILE)
+        drill = panelize.read(self.METRIC_FILE)
         drill.to_inch()
         drill.format = (2, 4)
         drill.write(outfile)
@@ -47,7 +47,7 @@ class TestExcellon(unittest.TestCase):
 
     def test_to_metric(self):
         outfile = os.path.join(self.OUTDIR, self.OUTPREFIX + 'to_metric.txt')
-        drill = gerberex.read(self.INCH_FILE)
+        drill = panelize.read(self.INCH_FILE)
         drill.to_metric()
         drill.format = (3, 3)
         drill.write(outfile)
@@ -55,14 +55,14 @@ class TestExcellon(unittest.TestCase):
 
     def test_offset(self):
         outfile = os.path.join(self.OUTDIR, self.OUTPREFIX + 'offset.txt')
-        drill = gerberex.read(self.METRIC_FILE)
+        drill = panelize.read(self.METRIC_FILE)
         drill.offset(11, 5)
         drill.write(outfile)
         self._checkResult(outfile)
 
     def test_rotate(self):
         outfile = os.path.join(self.OUTDIR, self.OUTPREFIX + 'rotate.txt')
-        drill = gerberex.read(self.METRIC_FILE)
+        drill = panelize.read(self.METRIC_FILE)
         drill.rotate(20, (10, 10))
         drill.write(outfile)
         self._checkResult(outfile)

@@ -3,9 +3,9 @@
 
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 
-from gerber.gerber_statements import AMParamStmt, ADParamStmt
-from gerber.utils import inch, metric
-from gerberex.am_primitive import to_primitive_defs
+from ..gerber_statements import AMParamStmt, ADParamStmt
+from ..utils import inch, metric
+from .am_primitive import to_primitive_defs
 
 class AMParamStmtEx(AMParamStmt):
     @classmethod

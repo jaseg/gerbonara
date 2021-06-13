@@ -3,11 +3,11 @@
 
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 
-from gerber.utils import *
-from gerber.am_statements import *
-from gerber.am_eval import OpCode
+from ..utils import *
+from ..am_statements import *
+from ..am_eval import OpCode
 
-from gerberex.am_expression import eval_macro, AMConstantExpression, AMOperatorExpression
+from .am_expression import eval_macro, AMConstantExpression, AMOperatorExpression
 
 class AMPrimitiveDef(AMPrimitive):
     def __init__(self, code, exposure=None, rotation=None):

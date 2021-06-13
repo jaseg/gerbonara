@@ -5,7 +5,7 @@
 
 import unittest
 
-from gerberex.utility import *
+from gerbonara.gerber.panelize.utility import *
 from math import sqrt
 
 class TestUtility(unittest.TestCase):

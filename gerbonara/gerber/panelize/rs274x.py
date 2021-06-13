@@ -3,15 +3,15 @@
 
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 
-from gerber.cam import FileSettings
-import gerber.rs274x
-from gerber.gerber_statements import *
-from gerberex.gerber_statements import AMParamStmt, AMParamStmtEx, ADParamStmtEx
-from gerberex.utility import rotate
+from ..cam import FileSettings
+from .. import rs274x
+from ..gerber_statements import *
+from .gerber_statements import AMParamStmt, AMParamStmtEx, ADParamStmtEx
+from .utility import rotate
 import re
 
 def loads(data, filename=None):
-    cls = gerber.rs274x.GerberParser
+    cls = rs274x.GerberParser
     cls.SF = \
         r"(?P<param>SF)(A(?P<a>{decimal}))?(B(?P<b>{decimal}))?".format(decimal=cls.DECIMAL)
     cls.PARAMS = (cls.FS, cls.MO, cls.LP, cls.AD_CIRCLE, 
@@ -27,11 +27,11 @@ def write_gerber_header(file, settings):
                FSParamStmt('FS', settings.zero_suppression, 
                            settings.notation, settings.format).to_gerber(settings)))
 
-class GerberFile(gerber.rs274x.GerberFile):
+class GerberFile(rs274x.GerberFile):
     @classmethod
     def from_gerber_file(cls, gerber_file):
-        if not isinstance(gerber_file, gerber.rs274x.GerberFile):
-            raise Exception('only gerber.rs274x.GerberFile object is specified')
+        if not isinstance(gerber_file, rs274x.GerberFile):
+            raise Exception('only gerbonara.gerber.rs274x.GerberFile object is specified')
         
         return cls(gerber_file.statements, gerber_file.settings, gerber_file.primitives,\
                    gerber_file.apertures, gerber_file.filename)

@@ -4,13 +4,13 @@
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 import os
 from functools import reduce
-from gerber.cam import FileSettings
-from gerber.gerber_statements import EofStmt
-from gerber.excellon_statements import *
-from gerber.excellon import DrillSlot, DrillHit
-import gerberex.rs274x
-import gerberex.excellon
-import gerberex.dxf
+from ..cam import FileSettings
+from ..gerber_statements import EofStmt
+from ..excellon_statements import *
+from ..excellon import DrillSlot, DrillHit
+from . import rs274x
+from . import excellon
+from . import dxf
 
 class Composition(object):
     def __init__(self, settings = None, comments = None):
@@ -27,9 +27,9 @@ class GerberComposition(Composition):
         self.drawings = []
 
     def merge(self, file):
-        if isinstance(file, gerberex.rs274x.GerberFile):
+        if isinstance(file, rs274x.GerberFile):
             self._merge_gerber(file)
-        elif isinstance(file, gerberex.dxf.DxfFile):
+        elif isinstance(file, dxf.DxfFile):
             self._merge_dxf(file)
         else:
             raise Exception('unsupported file type')
@@ -46,7 +46,7 @@ class GerberComposition(Composition):
         self.settings.notation = 'absolute'
         self.settings.zeros = 'trailing'
         with open(path, 'w') as f:
-            gerberex.rs274x.write_gerber_header(f, self.settings)
+            rs274x.write_gerber_header(f, self.settings)
             for statement in statements():
                 f.write(statement.to_gerber(self.settings) + '\n')
 
@@ -120,9 +120,9 @@ class DrillComposition(Composition):
         self.dxf_statements = []
     
     def merge(self, file):
-        if isinstance(file, gerberex.excellon.ExcellonFileEx):
+        if isinstance(file, excellon.ExcellonFileEx):
             self._merge_excellon(file)
-        elif isinstance(file, gerberex.DxfFile):
+        elif isinstance(file, DxfFile):
             self._merge_dxf(file)
         else:
             raise Exception('unsupported file type')
@@ -142,7 +142,7 @@ class DrillComposition(Composition):
         self.settings.notation = 'absolute'
         self.settings.zeros = 'trailing'
         with open(path, 'w') as f:
-            gerberex.excellon.write_excellon_header(f, self.settings, self.tools)
+            excellon.write_excellon_header(f, self.settings, self.tools)
             for statement in statements():
                 f.write(statement + '\n')
 

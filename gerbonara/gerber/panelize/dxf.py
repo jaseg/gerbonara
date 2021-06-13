@@ -6,15 +6,15 @@
 import io, sys
 from math import pi, cos, sin, tan, atan, atan2, acos, asin, sqrt
 import dxfgrabber
-from gerber.cam import CamFile, FileSettings
-from gerber.utils import inch, metric, write_gerber_value, rotate_point
-from gerber.gerber_statements import ADParamStmt
-from gerber.excellon_statements import ExcellonTool
-from gerber.excellon_statements import CoordinateStmt
-from gerberex.utility import is_equal_point, is_equal_value
-from gerberex.dxf_path import generate_paths, judge_containment
-from gerberex.excellon import write_excellon_header
-from gerberex.rs274x import write_gerber_header
+from ..cam import CamFile, FileSettings
+from ..utils import inch, metric, write_gerber_value, rotate_point
+from ..gerber_statements import ADParamStmt
+from ..excellon_statements import ExcellonTool
+from ..excellon_statements import CoordinateStmt
+from .utility import is_equal_point, is_equal_value
+from .dxf_path import generate_paths, judge_containment
+from .excellon import write_excellon_header
+from .rs274x import write_gerber_header
 
 ACCEPTABLE_ERROR = 0.001
 

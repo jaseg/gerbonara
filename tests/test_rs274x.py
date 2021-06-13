@@ -5,7 +5,7 @@
 
 import os
 import unittest
-import gerberex
+from gerbonara.gerber import panelize
 
 class TestRs274x(unittest.TestCase):
     @classmethod
@@ -32,13 +32,13 @@ class TestRs274x(unittest.TestCase):
 
     def test_save(self):
         outfile=os.path.join(self.OUTDIR, self.OUTPREFIX + 'save.gtl')
-        gerber = gerberex.read(self.METRIC_FILE)
+        gerber = panelize.read(self.METRIC_FILE)
         gerber.write(outfile)
         self._checkResult(outfile)
 
     def test_to_inch(self):
         outfile = os.path.join(self.OUTDIR, self.OUTPREFIX + 'to_inch.gtl')
-        gerber = gerberex.read(self.METRIC_FILE)
+        gerber = panelize.read(self.METRIC_FILE)
         gerber.to_inch()
         gerber.format = (2,5)
         gerber.write(outfile)
@@ -46,7 +46,7 @@ class TestRs274x(unittest.TestCase):
 
     def test_to_metric(self):
         outfile = os.path.join(self.OUTDIR, self.OUTPREFIX + 'to_metric.gtl')
-        gerber = gerberex.read(self.INCH_FILE)
+        gerber = panelize.read(self.INCH_FILE)
         gerber.to_metric()
         gerber.format = (3, 4)
         gerber.write(outfile)
@@ -54,21 +54,21 @@ class TestRs274x(unittest.TestCase):
 
     def test_offset(self):
         outfile = os.path.join(self.OUTDIR, self.OUTPREFIX + 'offset.gtl')
-        gerber = gerberex.read(self.METRIC_FILE)
+        gerber = panelize.read(self.METRIC_FILE)
         gerber.offset(11, 5)
         gerber.write(outfile)
         self._checkResult(outfile)
 
     def test_rotate(self):
         outfile = os.path.join(self.OUTDIR, self.OUTPREFIX + 'rotate.gtl')
-        gerber = gerberex.read(self.METRIC_FILE)
+        gerber = panelize.read(self.METRIC_FILE)
         gerber.rotate(20, (10,10))
         gerber.write(outfile)
         self._checkResult(outfile)
 
     def test_single_quadrant(self):
         outfile = os.path.join(self.OUTDIR, self.OUTPREFIX + 'single_quadrant.gtl')
-        gerber = gerberex.read(self.SQ_FILE)
+        gerber = panelize.read(self.SQ_FILE)
         gerber.write(outfile)
         self._checkResult(outfile)
 

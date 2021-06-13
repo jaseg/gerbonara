@@ -4,14 +4,15 @@
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 
 import os
-from gerber.common import loads as loads_org
-from gerber.exceptions import ParseError
-from gerber.utils import detect_file_format
-import gerber.rs274x
-import gerber.ipc356
-import gerberex.rs274x
-import gerberex.excellon
-import gerberex.dxf
+from ..common import loads as loads_org
+from ..exceptions import ParseError
+from ..utils import detect_file_format
+from .. import rs274x
+from .. import ipc356
+
+from . import rs274x as ex_rs274x
+from . import excellon
+from . import dxf
 
 def read(filename, format=None):
     with open(filename, 'rU') as f:
@@ -21,14 +22,14 @@ def read(filename, format=None):
 
 def loads(data, filename=None, format=None):
     if os.path.splitext(filename if filename else '')[1].lower() == '.dxf':
-        return gerberex.dxf.loads(data, filename)
+        return dxf.loads(data, filename)
 
     fmt = detect_file_format(data)
     if fmt == 'rs274x':
-        file = gerberex.rs274x.loads(data, filename=filename)
-        return gerberex.rs274x.GerberFile.from_gerber_file(file)
+        file = ex_rs274x.loads(data, filename=filename)
+        return ex_rs274x.GerberFile.from_gerber_file(file)
     elif fmt == 'excellon':
-        return gerberex.excellon.loads(data, filename=filename, format=format)
+        return excellon.loads(data, filename=filename, format=format)
     elif fmt == 'ipc_d_356':
         return ipc356.loads(data, filename=filename)
     else:
@@ -36,5 +37,5 @@ def loads(data, filename=None, format=None):
 
 
 def rectangle(width, height, left=0, bottom=0, units='metric', draw_mode=None, filename=None):
-    return gerberex.dxf.DxfFile.rectangle(
+    return dxf.DxfFile.rectangle(
         width, height, left, bottom, units, draw_mode, filename)

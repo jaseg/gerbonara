@@ -5,24 +5,24 @@
 
 import operator
 
-import gerber.excellon
-from gerber.excellon import ExcellonParser, detect_excellon_format, ExcellonFile, DrillHit, DrillSlot
-from gerber.excellon_statements import ExcellonStatement, UnitStmt, CoordinateStmt, UnknownStmt, \
+from .. import excellon
+from ..excellon import ExcellonParser, detect_excellon_format, ExcellonFile, DrillHit, DrillSlot
+from ..excellon_statements import ExcellonStatement, UnitStmt, CoordinateStmt, UnknownStmt, \
                                        SlotStmt, DrillModeStmt, RouteModeStmt, LinearModeStmt, \
                                        ToolSelectionStmt, ZAxisRoutPositionStmt, \
                                        RetractWithClampingStmt, RetractWithoutClampingStmt, \
                                        EndOfProgramStmt
-from gerber.cam import FileSettings
-from gerber.utils import inch, metric, write_gerber_value, parse_gerber_value
-from gerberex.utility import rotate
+from ..cam import FileSettings
+from ..utils import inch, metric, write_gerber_value, parse_gerber_value
+from .utility import rotate
 
 def loads(data, filename=None, settings=None, tools=None, format=None):
     if not settings:
         settings = FileSettings(**detect_excellon_format(data))
         if format:
             settings.format = format
-    gerber.excellon.CoordinateStmt = CoordinateStmtEx
-    gerber.excellon.UnitStmt = UnitStmtEx
+    excellon.CoordinateStmt = CoordinateStmtEx
+    excellon.UnitStmt = UnitStmtEx
     file = ExcellonParser(settings, tools).parse_raw(data, filename)
     return ExcellonFileEx.from_file(file)
 

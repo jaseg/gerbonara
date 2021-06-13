@@ -4,10 +4,10 @@
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 
 import unittest
-from gerberex.am_expression import *
-from gerberex.am_expression import AMOperatorExpression as Op
-from gerber.utils import inch, metric
-from gerber.am_read import read_macro
+from gerbonara.gerber.panelize.am_expression import *
+from gerbonara.gerber.panelize.am_expression import AMOperatorExpression as Op
+from gerbonara.gerber.utils import inch, metric
+from gerbonara.gerber.am_read import read_macro
 
 class TestAMConstantExpression(unittest.TestCase):
     def setUp(self):
