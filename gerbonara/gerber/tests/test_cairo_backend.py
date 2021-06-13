@@ -4,13 +4,40 @@
 # Author: Garret Fick <garret@ficksworkshop.com>
 import os
 import shutil
+import io
 import tempfile
+import uuid
+from pathlib import Path
+
+import pytest
+from PIL import Image
+import numpy as np
 
 from ..render.cairo_backend import GerberCairoContext
 from ..rs274x import read
 
+class Tempdir:
+    def __init__(self):
+        self.path = tempfile.mkdtemp(prefix='gerbonara-test-')
+        self.delete = True
 
-def _DISABLED_test_render_two_boxes():
+    def cleanup(self):
+        if self.delete:
+            shutil.rmtree(self.path)
+
+    def create(self, prefix='fail-', suffix=''):
+        return Path(self.path) / f'{prefix}{uuid.uuid4()}{suffix}'
+
+    def keep(self):
+        self.delete = False
+
+output_dir = Tempdir()
+@pytest.fixture(scope='session', autouse=True)
+def cleanup(request):
+    global output_dir
+    request.addfinalizer(output_dir.cleanup)
+
+def test_render_two_boxes():
     """Umaco exapmle of two boxes"""
     _test_render(
         "resources/example_two_square_boxes.gbr", "golden/example_two_square_boxes.png"
@@ -24,7 +51,7 @@ def _DISABLED_test_render_single_quadrant():
     )
 
 
-def _DISABLED_test_render_simple_contour():
+def test_render_simple_contour():
     """Umaco exapmle of a simple arrow-shaped contour"""
     gerber = _test_render(
         "resources/example_simple_contour.gbr", "golden/example_simple_contour.png"
@@ -34,32 +61,35 @@ def _DISABLED_test_render_simple_contour():
     assert ((2.0, 11.0), (1.0, 9.0)) == gerber.bounding_box
 
 
-def _DISABLED_test_render_single_contour_1():
+def test_render_single_contour_1():
     """Umaco example of a single contour
 
     The resulting image for this test is used by other tests because they must generate the same output."""
     _test_render(
-        "resources/example_single_contour_1.gbr", "golden/example_single_contour.png"
+        "resources/example_single_contour_1.gbr", "golden/example_single_contour.png",
+        0.001 # TODO: It looks like we have some aliasing artifacts here. Make sure this is not caused by an actual error.
     )
 
 
-def _DISABLED_test_render_single_contour_2():
+def test_render_single_contour_2():
     """Umaco exapmle of a single contour, alternate contour end order
 
     The resulting image for this test is used by other tests because they must generate the same output."""
     _test_render(
-        "resources/example_single_contour_2.gbr", "golden/example_single_contour.png"
+        "resources/example_single_contour_2.gbr", "golden/example_single_contour.png",
+        0.001 # TODO: It looks like we have some aliasing artifacts here. Make sure this is not caused by an actual error.
     )
 
 
-def _DISABLED_test_render_single_contour_3():
+def test_render_single_contour_3():
     """Umaco exapmle of a single contour with extra line"""
     _test_render(
-        "resources/example_single_contour_3.gbr", "golden/example_single_contour_3.png"
+        "resources/example_single_contour_3.gbr", "golden/example_single_contour_3.png",
+        0.001 # TODO: It looks like we have some aliasing artifacts here. Make sure this is not caused by an actual error.
     )
 
 
-def _DISABLED_test_render_not_overlapping_contour():
+def test_render_not_overlapping_contour():
     """Umaco example of D02 staring a second contour"""
     _test_render(
         "resources/example_not_overlapping_contour.gbr",
@@ -67,7 +97,7 @@ def _DISABLED_test_render_not_overlapping_contour():
     )
 
 
-def _DISABLED_test_render_not_overlapping_touching():
+def test_render_not_overlapping_touching():
     """Umaco example of D02 staring a second contour"""
     _test_render(
         "resources/example_not_overlapping_touching.gbr",
@@ -112,7 +142,7 @@ def _DISABLED_test_render_cutin():
     )
 
 
-def _DISABLED_test_render_fully_coincident():
+def test_render_fully_coincident():
     """Umaco example of coincident lines rendering two contours"""
 
     _test_render(
@@ -120,7 +150,7 @@ def _DISABLED_test_render_fully_coincident():
     )
 
 
-def _DISABLED_test_render_coincident_hole():
+def test_render_coincident_hole():
     """Umaco example of coincident lines rendering a hole in the contour"""
 
     _test_render(
@@ -136,17 +166,16 @@ def test_render_cutin_multiple():
     )
 
 
-def _DISABLED_test_flash_circle():
+def test_flash_circle():
     """Umaco example a simple circular flash with and without a hole"""
 
     _test_render(
         "resources/example_flash_circle.gbr",
         "golden/example_flash_circle.png",
-        "/Users/ham/Desktop/flashcircle.png",
     )
 
 
-def _DISABLED_test_flash_rectangle():
+def test_flash_rectangle():
     """Umaco example a simple rectangular flash with and without a hole"""
 
     _test_render(
@@ -154,7 +183,7 @@ def _DISABLED_test_flash_rectangle():
     )
 
 
-def _DISABLED_test_flash_obround():
+def test_flash_obround():
     """Umaco example a simple obround flash with and without a hole"""
 
     _test_render(
@@ -162,7 +191,7 @@ def _DISABLED_test_flash_obround():
     )
 
 
-def _DISABLED_test_flash_polygon():
+def test_flash_polygon():
     """Umaco example a simple polygon flash with and without a hole"""
 
     _test_render(
@@ -170,7 +199,7 @@ def _DISABLED_test_flash_polygon():
     )
 
 
-def _DISABLED_test_holes_dont_clear():
+def test_holes_dont_clear():
     """Umaco example that an aperture with a hole does not clear the area"""
 
     _test_render(
@@ -195,8 +224,32 @@ def test_render_svg_simple_contour():
 def _resolve_path(path):
     return os.path.join(os.path.dirname(__file__), path)
 
+def images_match(reference, output, max_delta):
+    ref, out = Image.open(reference), Image.open(output)
+    ref, out = np.array(ref), np.array(out)
+    # convert to grayscale
+    ref, out = ref.astype(float).mean(axis=2), out.astype(float).mean(axis=2)
 
-def _test_render(gerber_path, png_expected_path, create_output_path=None):
+    delta = np.abs(out - ref).astype(float) / 255
+    
+    if delta.mean() > max_delta:
+        print(f'Renderings mismatch: {delta.mean()=}, {max_delta=}')
+        print(f'Reference image: {Path(reference).absolute()}')
+        print(f'Actual output: {output}')
+        def print_stats(name, ref):
+            print(name, 'stats:', ref.min(), ref.mean(), ref.max(), 'std:', ref.std())
+        print_stats('reference', ref)
+        print_stats('actual', out)
+
+        global output_dir
+        output_dir.keep()
+
+        return False
+
+    return True
+
+
+def _test_render(gerber_path, png_expected_path, max_delta=1e-6):
     """Render the gerber file and compare to the expected PNG output.
 
     Parameters
@@ -212,8 +265,6 @@ def _test_render(gerber_path, png_expected_path, create_output_path=None):
 
     gerber_path = _resolve_path(gerber_path)
     png_expected_path = _resolve_path(png_expected_path)
-    if create_output_path:
-        create_output_path = _resolve_path(create_output_path)
 
     gerber = read(gerber_path)
 
@@ -221,28 +272,11 @@ def _test_render(gerber_path, png_expected_path, create_output_path=None):
     ctx = GerberCairoContext()
     gerber.render(ctx)
 
-    actual_bytes = ctx.dump_str()
+    global output_dir
+    with output_dir.create(suffix='.png') as outfile:
+        actual_bytes = ctx.dump(outfile)
 
-    # If we want to write the file bytes, do it now. This happens
-    if create_output_path:
-        with open(create_output_path, "wb") as out_file:
-            out_file.write(actual_bytes)
-        # Creating the output is dangerous - it could overwrite the expected result.
-        # So if we are creating the output, we make the test fail on purpose so you
-        # won't forget to disable this
-        assert not True, (
-            "Test created the output %s. This needs to be disabled to make sure the test behaves correctly"
-            % (create_output_path,)
-        )
-
-    # Read the expected PNG file
-
-    with open(png_expected_path, "rb") as expected_file:
-        expected_bytes = expected_file.read()
-
-    # Don't directly use assert_equal otherwise any failure pollutes the test results
-    equal = expected_bytes == actual_bytes
-    assert equal
+        assert images_match(png_expected_path, outfile, max_delta)
 
     return gerber
 
@@ -277,3 +311,4 @@ def _test_simple_render_svg(gerber_path):
     assert expected_bytes[:38] == '<?xml version="1.0" encoding="UTF-8"?>'
 
     shutil.rmtree(temp_dir)
+
