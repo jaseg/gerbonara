@@ -5,7 +5,7 @@
 
 import unittest
 
-from gerbonara.gerber.panelize.utility import *
+from ...panelize.utility import *
 from math import sqrt
 
 class TestUtility(unittest.TestCase):
@@ -61,5 +61,3 @@ class TestUtility(unittest.TestCase):
         self.assertFalse(is_equal_point(p1, p0, 0.001))
         self.assertFalse(is_equal_point(p1, p0))
 
-if __name__ == '__main__':
-    unittest.main()

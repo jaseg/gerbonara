@@ -4,10 +4,10 @@
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 
 import unittest
-from gerbonara.gerber.panelize.am_expression import *
-from gerbonara.gerber.panelize.am_expression import AMOperatorExpression as Op
-from gerbonara.gerber.utils import inch, metric
-from gerbonara.gerber.am_read import read_macro
+from ...panelize.am_expression import *
+from ...panelize.am_expression import AMOperatorExpression as Op
+from ...utils import inch, metric
+from ...am_read import read_macro
 
 class TestAMConstantExpression(unittest.TestCase):
     def setUp(self):
@@ -204,5 +204,3 @@ class TestEvalMacro(unittest.TestCase):
                 gerber += '${0}={1}*'.format(-number, expressions[0].to_gerber())
         return gerber
 
-if __name__ == '__main__':
-    unittest.main()
