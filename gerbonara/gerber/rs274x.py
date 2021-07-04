@@ -1,7 +1,9 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# copyright 2014 Hamilton Kibbe <ham@hamiltonkib.be>
+# Copyright 2014 Hamilton Kibbe <ham@hamiltonkib.be>
+# Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
+# Copyright 2021 Jan Götte <code@jaseg.de>
 # Modified from parser.py by Paulo Henrique Silva <ph.silva@gmail.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,6 +25,7 @@ import json
 import os
 import re
 import sys
+from itertools import count, chain
 
 try:
     from cStringIO import StringIO
@@ -32,7 +35,7 @@ except(ImportError):
 from .gerber_statements import *
 from .primitives import *
 from .cam import CamFile, FileSettings
-from .utils import sq_distance
+from .utils import sq_distance, rotate_point
 
 
 def read(filename):
@@ -105,76 +108,166 @@ class GerberFile(CamFile):
 
         self.apertures = apertures
 
+        # always explicitly set polarity
+        self.statements.insert(0, LPParamStmt('LP', 'dark'))
+
+        self.aperture_macros = {}
+        self.aperture_defs = []
+        self.main_statements = []
+
+        self.context = GerberContext.from_settings(self.settings)
+
+        for stmt in self.statements:
+            self.context.update_from_statement(stmt)
+
+            if isinstance(stmt, CoordStmt):
+                self.context.normalize_coordinates(stmt)
+
+            if isinstance(stmt, AMParamStmt):
+                for mdef in stmts:
+                    self.aperture_macros[mdef.name] = mdef
+
+            elif isinstance(stmt, ADParamStmt):
+                self.aperture_defs.extend(stmts)
+
+            else:
+                # ignore FS, MO, AS, IN, IP, IR, MI, OF, SF, LN statements
+                if isinstance(stmt, ParamStmt) and not isinstance(stmt, LPParamStmt):
+                    continue
+
+                if isinstance(stmt, (CommentStmt, EofStmt)):
+                    continue
+
+                self.main_statements.extend(stmts)
+
+        if self.context.angle != 0:
+            self.rotate(self.context.angle) # TODO is this correct/useful?
+
+        if self.context.is_negative:
+            self.negate_polarity() # TODO is this correct/useful?
+
+        self.context.notation = 'absolute'
+        self.context.zeros = 'trailing'
+
     @property
     def comments(self):
-        return [comment.comment for comment in self.statements
-                if isinstance(comment, CommentStmt)]
+        return [comment.comment for comment in self.statements if isinstance(comment, CommentStmt)]
 
     @property
     def size(self):
-        xbounds, ybounds = self.bounds
-        return (xbounds[1] - xbounds[0], ybounds[1] - ybounds[0])
-
-    @property
-    def bounds(self):
-        min_x = min_y = 1000000
-        max_x = max_y = -1000000
-
-        for stmt in [stmt for stmt in self.statements if isinstance(stmt, CoordStmt)]:
-            if stmt.x is not None:
-                min_x = min(stmt.x, min_x)
-                max_x = max(stmt.x, max_x)
-
-            if stmt.y is not None:
-                min_y = min(stmt.y, min_y)
-                max_y = max(stmt.y, max_y)
-
-        return ((min_x, max_x), (min_y, max_y))
+        (x0, y0), (x1, y1)= self.bounding_box
+        return (x1 - x0, y1 - y0)
 
     @property
     def bounding_box(self):
-        min_x = min_y = 1000000
-        max_x = max_y = -1000000
+        bounds = [ p.bounding_box for p in self.primitives ]
 
-        for prim in self.primitives:
-            bounds = prim.bounding_box
-            min_x = min(bounds[0][0], min_x)
-            max_x = max(bounds[0][1], max_x)
-
-            min_y = min(bounds[1][0], min_y)
-            max_y = max(bounds[1][1], max_y)
+        min_x = min(x0 for (x0, y0), (x1, y1) in bounds)
+        min_y = min(y0 for (x0, y0), (x1, y1) in bounds)
+        max_x = max(x1 for (x0, y0), (x1, y1) in bounds)
+        max_y = max(y1 for (x0, y0), (x1, y1) in bounds)
 
         return ((min_x, max_x), (min_y, max_y))
 
-    def write(self, filename, settings=None):
-        """ Write data out to a gerber file.
-        """
-        with open(filename, 'w') as f:
-            for statement in self.statements:
-                f.write(statement.to_gerber(settings or self.settings))
-                f.write("\n")
+    # TODO: re-add settings arg
+    def write(self, filename=None):
+        self.context.notation = 'absolute'
+        self.context.zeros = 'trailing'
+        self.context.format = self.format
+        self.units = self.units
+
+        with open(filename or self.filename, 'w') as f:
+            print(MOParamStmt('MO', self.context.units).to_gerber(self.context), file=f)
+            print(FSParamStmt('FS', self.context.zero_suppression, self.context.notation, self.context.format).to_gerber(self.context), file=f)
+            print('%IPPOS*%', file=f)
+
+            for thing in chain(self.aperture_macros.values(), self.aperture_defs, self.main_statements):
+                print(thing.to_gerber(self.context), file=f)
+
+            print('M02*', file=f)
 
     def to_inch(self):
-        if self.units != 'inch':
+        if self.units == 'metric':
+            for thing in chain(self.aperture_macros.values(), self.aperture_defs, self.statements, self.primitives):
+                thing.to_inch()
             self.units = 'inch'
-            for statement in self.statements:
-                statement.to_inch()
-            for primitive in self.primitives:
-                primitive.to_inch()
+            self.context.units = 'inch'
 
     def to_metric(self):
-        if self.units != 'metric':
-            self.units = 'metric'
-            for statement in self.statements:
-                statement.to_metric()
-            for primitive in self.primitives:
-                primitive.to_metric()
+        if self.units == 'inch':
+            for thing in chain(self.aperture_macros.values(), self.aperture_defs, self.statements, self.primitives):
+                thing.to_metric()
+            self.units='metric'
+            self.context.units='metric'
 
     def offset(self, x_offset=0,  y_offset=0):
-        for statement in self.statements:
-            statement.offset(x_offset, y_offset)
-        for primitive in self.primitives:
-            primitive.offset(x_offset, y_offset)
+        for thing in chain(self.main_statements, self.primitives):
+            thing.offset(x_offset, y_offset)
+
+    def rotate(self, angle, center=(0,0)):
+        if angle % 360 == 0:
+            return
+
+        self._generalize_apertures()
+
+        last_x = 0
+        last_y = 0
+        last_rx = 0
+        last_ry = 0
+
+        for macro in self.aperture_macros.values():
+            macro.rotate(angle, center)
+
+        for statement in self.main_statements:
+            if isinstance(statement, CoordStmt) and statement.x != None and statement.y != None:
+
+                if statement.i is not None and statement.j is not None:
+                    cx, cy = last_x + statement.i, last_y + statement.j
+                    cx, cy = rotate_point((cx, cy), angle, center)
+                    statement.i, statement.j = cx - last_rx, cy - last_ry
+
+                last_x, last_y = statement.x, statement.y
+                last_rx, last_ry = rotate_point((statement.x, statement.y), angle, center)
+                statement.x, statement.y = last_rx, last_ry
+    
+    def negate_polarity(self):
+        for statement in self.main_statements:
+            if isinstance(statement, LPParamStmt):
+                statement.lp = 'dark' if statement.lp == 'clear' else 'clear'
+    
+    def _generalize_apertures(self):
+        # For rotation, replace standard apertures with macro apertures.
+
+        if not any(isinstance(stm, ADParamStmt) and stm.shape in 'ROP' for stm in self.aperture_defs):
+            return
+
+        # find an unused macro name with the given prefix
+        def free_name(prefix):
+            return next(f'{prefix}_{i}' for i in count() if f'{prefix}_{i}' not in self.aperture_macros)
+        
+        rect = free_name('MACR')
+        self.aperture_macros[rect] = AMParamStmtEx.rectangle(rect, self.units)
+
+        obround_landscape = free_name('MACLO')
+        self.aperture_macros[obround_landscape] = AMParamStmtEx.landscape_obround(obround_landscape, self.units)
+
+        obround_portrait = free_name('MACPO')
+        self.aperture_macros[obround_portrait] = AMParamStmtEx.portrait_obround(obround_portrait, self.units)
+
+        polygon = free_name('MACP')
+        self.aperture_macros[polygon] = AMParamStmtEx.polygon(polygon, self.units)
+
+        for statement in self.aperture_defs:
+            if isinstance(statement, ADParamStmt):
+                if statement.shape == 'R':
+                    statement.shape = rect
+
+                elif statement.shape == 'O':
+                    x, y, *_ = *statement.modifiers[0], 0, 0
+                    statement.shape = obround_landscape if x > y else obround_portrait
+
+                elif statement.shape == 'P':
+                    statement.shape = polygon
 
 
 class GerberParser(object):
@@ -205,7 +298,7 @@ class GerberParser(object):
     IR = r"(?P<param>IR)(?P<angle>{number})".format(number=NUMBER)
     MI = r"(?P<param>MI)(A(?P<a>0|1))?(B(?P<b>0|1))?"
     OF = r"(?P<param>OF)(A(?P<a>{decimal}))?(B(?P<b>{decimal}))?".format(decimal=DECIMAL)
-    SF = r"(?P<param>SF)(?P<discarded>.*)"
+    SF = r"(?P<param>SF)(A(?P<a>{decimal}))?(B(?P<b>{decimal}))?".format(decimal=cls.DECIMAL)
     LN = r"(?P<param>LN)(?P<name>.*)"
     DEPRECATED_UNIT = re.compile(r'(?P<mode>G7[01])\*')
     DEPRECATED_FORMAT = re.compile(r'(?P<format>G9[01])\*')
@@ -308,14 +401,10 @@ class GerberParser(object):
                 in_header = False
 
     def dump_json(self):
-        stmts = {"statements": [stmt.__dict__ for stmt in self.statements]}
-        return json.dumps(stmts)
+        return json.dumps({"statements": [stmt.__dict__ for stmt in self.statements]})
 
     def dump_str(self):
-        string = ""
-        for stmt in self.statements:
-            string += str(stmt) + "\n"
-        return string
+        return '\n'.join(str(stmt) for stmt in self.statements) + '\n'
 
     def _parse(self, data):
         oldline = ''
@@ -798,3 +887,133 @@ def _match_one_from_many(exprs, data):
             return (match.groupdict(), data[match.end(0):])
 
     return ({}, None)
+
+class GerberContext(FileSettings):
+    TYPE_NONE = 'none'
+    TYPE_AM = 'am'
+    TYPE_AD = 'ad'
+    TYPE_MAIN = 'main'
+    IP_LINEAR = 'linear'
+    IP_ARC = 'arc'
+    DIR_CLOCKWISE = 'cw'
+    DIR_COUNTERCLOCKWISE = 'ccw'
+
+    @classmethod
+    def from_settings(cls, settings):
+        return cls(settings.notation, settings.units, settings.zero_suppression,
+                   settings.format, settings.zeros, settings.angle_units)
+
+    def __init__(self, notation='absolute', units='inch',
+                 zero_suppression=None, format=(2, 5), zeros=None,
+                 angle_units='degrees',
+                 mirror=(False, False), offset=(0., 0.), scale=(1., 1.),
+                 angle=0., axis='xy'):
+        super(GerberContext, self).__init__(notation, units, zero_suppression, 
+                                      format, zeros, angle_units)
+        self.mirror = mirror
+        self.offset = offset
+        self.scale = scale
+        self.angle = angle
+        self.axis = axis
+
+        self.is_negative = False
+        self.no_polarity = True
+        self.in_single_quadrant_mode = False
+        self.op = None
+        self.interpolation = self.IP_LINEAR
+        self.direction = self.DIR_CLOCKWISE
+        self.x, self.y = 0, 0
+
+    def update_from_statement(self, stmt):
+        elif isinstance(stmt, MIParamStmt):
+            self.mirror = (stmt.a, stmt.b)
+
+        elif isinstance(stmt, OFParamStmt):
+            self.offset = (stmt.a, stmt.b)
+
+        elif isinstance(stmt, SFParamStmt):
+            self.scale = (stmt.a, stmt.b)
+
+        elif isinstance(stmt, ASParamStmt):
+            self.axis = 'yx' if stmt.mode == 'AYBX' else 'xy'
+
+        elif isinstance(stmt, IRParamStmt):
+            self.angle = stmt.angle
+
+        elif isinstance(stmt, QuadrantModeStmt):
+            self.in_single_quadrant_mode = stmt.mode == 'single-quadrant'
+            stmt.mode = 'multi-quadrant'
+
+        elif isinstance(stmt, IPParamStmt):
+            self.is_negative = stmt.ip == 'negative'
+
+        elif isinstance(stmt, LPParamStmt):
+            self.no_polarity = False
+
+    @property
+    def matrix(self):
+        if self.axis == 'xy':
+            mx = -1 if self.mirror[0] else 1
+            my = -1 if self.mirror[1] else 1
+            return (
+                self.scale[0] * mx, self.offset[0],
+                self.scale[1] * my, self.offset[1],
+                self.scale[0] * mx, self.scale[1] * my)
+        else:
+            mx = -1 if self.mirror[1] else 1
+            my = -1 if self.mirror[0] else 1
+            return (
+                self.scale[1] * mx, self.offset[1],
+                self.scale[0] * my, self.offset[0],
+                self.scale[1] * mx, self.scale[0] * my)
+
+    def normalize_coordinates(self, stmt):
+        if stmt.function == 'G01' or stmt.function == 'G1':
+            self.interpolation = self.IP_LINEAR
+
+        elif stmt.function == 'G02' or stmt.function == 'G2':
+            self.interpolation = self.IP_ARC
+            self.direction = self.DIR_CLOCKWISE
+            if self.mirror[0] != self.mirror[1]:
+                stmt.function = 'G03'
+
+        elif stmt.function == 'G03' or stmt.function == 'G3':
+            self.interpolation = self.IP_ARC
+            self.direction = self.DIR_COUNTERCLOCKWISE
+            if self.mirror[0] != self.mirror[1]:
+                stmt.function = 'G02'
+
+        if stmt.only_function:
+            return
+
+        last_x, last_y = self.x, self.y
+        if self.notation == 'absolute':
+            x = stmt.x if stmt.x is not None else self.x
+            y = stmt.y if stmt.y is not None else self.y
+
+        else:
+            x = self.x + stmt.x if stmt.x is not None else 0
+            y = self.y + stmt.y if stmt.y is not None else 0
+
+        self.x, self.y = x, y
+        self.op = stmt.op if stmt.op is not None else self.op
+
+        stmt.op = self.op
+        stmt.x = self.matrix[0] * x + self.matrix[1]
+        stmt.y = self.matrix[2] * y + self.matrix[3]
+
+        if stmt.op == 'D01' and self.interpolation == self.IP_ARC:
+            qx, qy = 1, 1
+            if self.in_single_quadrant_mode:
+                if self.direction == self.DIR_CLOCKWISE:
+                    qx = 1 if y > last_y else -1
+                    qy = 1 if x < last_x else -1
+                else:
+                    qx = 1 if y < last_y else -1
+                    qy = 1 if x > last_x else -1
+                if last_x == x and last_y == y:
+                    qx, qy = 0, 0
+
+            stmt.i = qx * self.matrix[4] * stmt.i if stmt.i is not None else 0
+            stmt.j = qy * self.matrix[5] * stmt.j if stmt.j is not None else 0
+

@@ -5,12 +5,13 @@
 
 from math import cos, sin, pi, sqrt
 
-def rotate(x, y, angle, center):
-    x0 = x - center[0]
-    y0 = y - center[1]
-    angle = angle * pi / 180.0
-    return (cos(angle) * x0 - sin(angle) * y0 + center[0],
-            sin(angle) * x0 + cos(angle) * y0 + center[1])
+# TODO: replace with ..utils.rotate
+#def rotate(x, y, angle, center):
+#    x0 = x - center[0]
+#    y0 = y - center[1]
+#    angle = angle * pi / 180.0
+#    return (cos(angle) * x0 - sin(angle) * y0 + center[0],
+#            sin(angle) * x0 + cos(angle) * y0 + center[1])
 
 def is_equal_value(a, b, error_range=0):
     return (a - b) * (a - b) <= error_range * error_range

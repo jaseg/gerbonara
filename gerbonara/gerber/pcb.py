@@ -118,7 +118,9 @@ class PCB(object):
     def board_bounds(self):
         for layer in self.layers:
             if layer.layer_class == 'outline':
-                return layer.bounds
+                return layer.bounding_box
+
         for layer in self.layers:
             if layer.layer_class == 'top':
-                return layer.bounds
+                return layer.bounding_box
+

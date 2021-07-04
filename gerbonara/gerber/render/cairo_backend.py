@@ -608,9 +608,7 @@ class GerberCairoContext(GerberContext):
         """
         class Clip:
             def __init__(clp, primitive):
-                x_range, y_range = primitive.bounding_box
-                xmin, xmax = x_range
-                ymin, ymax = y_range
+                (xmin, ymin), (xmax, ymax) = primitive.bounding_box
 
                 # Round bounds to the nearest pixel outside of the primitive
                 clp.xmin = math.floor(self.scale[0] * xmin)

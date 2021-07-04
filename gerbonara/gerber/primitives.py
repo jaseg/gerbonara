@@ -120,7 +120,7 @@ class Primitive(object):
         for most objects, this is the same as the bounding_box, but is different for
         Lines and Arcs (which are not flashed)
 
-        Return ((min x, max x), (min y, max y))
+        Return ((min x, min y), (max x, max y))
         """
         return self.bounding_box
 
@@ -154,8 +154,7 @@ class Primitive(object):
         """
         if self.units == 'inch':
             self.units = 'metric'
-            for attr, value in [(attr, getattr(self, attr))
-                                for attr in self._to_convert]:
+            for attr, value in [(attr, getattr(self, attr)) for attr in self._to_convert]:
                 if hasattr(value, 'to_metric'):
                     value.to_metric()
                 else:
@@ -256,7 +255,7 @@ class Line(Primitive):
             max_x = max(self.start[0], self.end[0]) + width_2
             min_y = min(self.start[1], self.end[1]) - height_2
             max_y = max(self.start[1], self.end[1]) + height_2
-            self._bounding_box = ((min_x, max_x), (min_y, max_y))
+            self._bounding_box = ((min_x, min_y), (max_x, max_y))
         return self._bounding_box
 
     @property
@@ -266,7 +265,7 @@ class Line(Primitive):
         max_x = max(self.start[0], self.end[0])
         min_y = min(self.start[1], self.end[1])
         max_y = max(self.start[1], self.end[1])
-        return ((min_x, max_x), (min_y, max_y))
+        return ((min_x, min_y), (max_x, max_y))
 
     @property
     def vertices(self):
@@ -457,7 +456,7 @@ class Arc(Primitive):
                 min_y = min(y) - self.aperture.height
                 max_y = max(y) + self.aperture.height
 
-            self._bounding_box = ((min_x, max_x), (min_y, max_y))
+            self._bounding_box = ((min_x, min_y), (max_x, max_y))
         return self._bounding_box
 
     @property
@@ -510,7 +509,7 @@ class Arc(Primitive):
         max_x = max(x)
         min_y = min(y)
         max_y = max(y)
-        return ((min_x, max_x), (min_y, max_y))
+        return ((min_x, min_y), (max_x, max_y))
 
     def offset(self, x_offset=0, y_offset=0):
         self._changed()
@@ -573,7 +572,7 @@ class Circle(Primitive):
             max_x = self.position[0] + self.radius
             min_y = self.position[1] - self.radius
             max_y = self.position[1] + self.radius
-            self._bounding_box = ((min_x, max_x), (min_y, max_y))
+            self._bounding_box = ((min_x, min_y), (max_x, max_y))
         return self._bounding_box
 
     def offset(self, x_offset=0, y_offset=0):
@@ -642,7 +641,7 @@ class Ellipse(Primitive):
             max_x = self.position[0] + (self.axis_aligned_width / 2.0)
             min_y = self.position[1] - (self.axis_aligned_height / 2.0)
             max_y = self.position[1] + (self.axis_aligned_height / 2.0)
-            self._bounding_box = ((min_x, max_x), (min_y, max_y))
+            self._bounding_box = ((min_x, min_y), (max_x, max_y))
         return self._bounding_box
 
     @property
@@ -739,7 +738,7 @@ class Rectangle(Primitive):
                   self.position[1] - (self.axis_aligned_height / 2.))
             ur = (self.position[0] + (self.axis_aligned_width / 2.),
                   self.position[1] + (self.axis_aligned_height / 2.))
-            self._bounding_box = ((ll[0], ur[0]), (ll[1], ur[1]))
+            self._bounding_box = ((ll[0], ll[1]), (ur[0], ur[1]))
         return self._bounding_box
 
     @property
@@ -834,7 +833,7 @@ class Diamond(Primitive):
                   self.position[1] - (self.axis_aligned_height / 2.))
             ur = (self.position[0] + (self.axis_aligned_width / 2.),
                   self.position[1] + (self.axis_aligned_height / 2.))
-            self._bounding_box = ((ll[0], ur[0]), (ll[1], ur[1]))
+            self._bounding_box = ((ll[0], ll[1]), (ur[0], ur[1]))
         return self._bounding_box
 
     @property
@@ -929,7 +928,7 @@ class ChamferRectangle(Primitive):
                   self.position[1] - (self.axis_aligned_height / 2.))
             ur = (self.position[0] + (self.axis_aligned_width / 2.),
                   self.position[1] + (self.axis_aligned_height / 2.))
-            self._bounding_box = ((ll[0], ur[0]), (ll[1], ur[1]))
+            self._bounding_box = ((ll[0], ll[1]), (ur[1], ur[1]))
         return self._bounding_box
 
     @property
@@ -1049,7 +1048,7 @@ class RoundRectangle(Primitive):
                   self.position[1] - (self.axis_aligned_height / 2.))
             ur = (self.position[0] + (self.axis_aligned_width / 2.),
                   self.position[1] + (self.axis_aligned_height / 2.))
-            self._bounding_box = ((ll[0], ur[0]), (ll[1], ur[1]))
+            self._bounding_box = ((ll[0], ll[1]), (ur[0], ur[1]))
         return self._bounding_box
 
     @property
@@ -1127,7 +1126,7 @@ class Obround(Primitive):
                   self.position[1] - (self.axis_aligned_height / 2.))
             ur = (self.position[0] + (self.axis_aligned_width / 2.),
                   self.position[1] + (self.axis_aligned_height / 2.))
-            self._bounding_box = ((ll[0], ur[0]), (ll[1], ur[1]))
+            self._bounding_box = ((ll[0], ll[1]), (ur[0], ur[1]))
         return self._bounding_box
 
     @property
@@ -1217,7 +1216,7 @@ class Polygon(Primitive):
             max_x = self.position[0] + self.radius
             min_y = self.position[1] - self.radius
             max_y = self.position[1] + self.radius
-            self._bounding_box = ((min_x, max_x), (min_y, max_y))
+            self._bounding_box = ((min_x, min_y), (max_x, max_y))
         return self._bounding_box
 
     def offset(self, x_offset=0, y_offset=0):
@@ -1401,7 +1400,7 @@ class Outline(Primitive):
     @property
     def width(self):
         bounding_box = self.bounding_box()
-        return bounding_box[0][1] - bounding_box[0][0]
+        return bounding_box[1][0] - bounding_box[0][0]
 
     def equivalent(self, other, offset):
         '''
@@ -1441,7 +1440,7 @@ class Region(Primitive):
             max_x = max(maxx)
             min_y = min(miny)
             max_y = max(maxy)
-            self._bounding_box = ((min_x, max_x), (min_y, max_y))
+            self._bounding_box = ((min_x, min_y), (max_x, max_y))
         return self._bounding_box
 
     def offset(self, x_offset=0, y_offset=0):
@@ -1478,7 +1477,7 @@ class RoundButterfly(Primitive):
             max_x = self.position[0] + self.radius
             min_y = self.position[1] - self.radius
             max_y = self.position[1] + self.radius
-            self._bounding_box = ((min_x, max_x), (min_y, max_y))
+            self._bounding_box = ((min_x, min_y), (max_x, max_y))
         return self._bounding_box
 
 
@@ -1506,7 +1505,7 @@ class SquareButterfly(Primitive):
             max_x = self.position[0] + (self.side / 2.)
             min_y = self.position[1] - (self.side / 2.)
             max_y = self.position[1] + (self.side / 2.)
-            self._bounding_box = ((min_x, max_x), (min_y, max_y))
+            self._bounding_box = ((min_x, min_y), (max_x, max_y))
         return self._bounding_box
 
 
@@ -1562,7 +1561,7 @@ class Donut(Primitive):
                   self.position[1] - (self.height / 2.))
             ur = (self.position[0] + (self.width / 2.),
                   self.position[1] + (self.height / 2.))
-            self._bounding_box = ((ll[0], ur[0]), (ll[1], ur[1]))
+            self._bounding_box = (ll, ur)
         return self._bounding_box
 
 
@@ -1590,7 +1589,7 @@ class SquareRoundDonut(Primitive):
         if self._bounding_box is None:
             ll = tuple([c - self.outer_diameter / 2. for c in self.position])
             ur = tuple([c + self.outer_diameter / 2. for c in self.position])
-            self._bounding_box = ((ll[0], ur[0]), (ll[1], ur[1]))
+            self._bounding_box = (ll, ur)
         return self._bounding_box
 
 
@@ -1637,7 +1636,7 @@ class Drill(Primitive):
             max_x = self.position[0] + self.radius
             min_y = self.position[1] - self.radius
             max_y = self.position[1] + self.radius
-            self._bounding_box = ((min_x, max_x), (min_y, max_y))
+            self._bounding_box = ((min_x, min_y), (max_x, max_y))
         return self._bounding_box
 
     def offset(self, x_offset=0, y_offset=0):
@@ -1673,7 +1672,7 @@ class Slot(Primitive):
             max_x = max(self.start[0], self.end[0]) + radius
             min_y = min(self.start[1], self.end[1]) - radius
             max_y = max(self.start[1], self.end[1]) + radius
-            self._bounding_box = ((min_x, max_x), (min_y, max_y))
+            self._bounding_box = ((min_x, min_y), (max_x, max_y))
         return self._bounding_box
 
     def offset(self, x_offset=0, y_offset=0):

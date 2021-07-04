@@ -408,8 +408,8 @@ class Rs274xContext(GerberContext):
             hash += primitive.__class__.__name__[0]
 
             bbox = primitive.bounding_box
-            hash += str((bbox[0][1] - bbox[0][0]) * 100000)[0:2]
-            hash += str((bbox[1][1] - bbox[1][0]) * 100000)[0:2]
+            hash += str((bbox[1][0] - bbox[0][0]) * 100000)[0:2]
+            hash += str((bbox[1][1] - bbox[0][1]) * 100000)[0:2]
 
             if hasattr(primitive, 'primitives'):
                 hash += str(len(primitive.primitives))
