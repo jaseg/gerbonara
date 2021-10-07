@@ -391,10 +391,10 @@ class AMParamStmt(ParamStmt):
     """
 
     @classmethod
-    def from_dict(cls, stmt_dict):
-        return cls(**stmt_dict)
+    def from_dict(cls, stmt_dict, units):
+        return cls(**stmt_dict, units=units)
 
-    def __init__(self, param, name, macro):
+    def __init__(self, param, name, macro, units):
         """ Initialize AMParamStmt class
 
         Parameters
@@ -417,41 +417,66 @@ class AMParamStmt(ParamStmt):
         ParamStmt.__init__(self, param)
         self.name = name
         self.macro = macro
-
-        self.instructions = self.read(macro)
-        self.primitives = []
+        self.units = units
+        self.primitives = list(AMParamStmt._parse_primitives(self.instructions))
 
     def read(self, macro):
         return read_macro(macro)
 
-    def build(self, modifiers=[[]]):
-        self.primitives = []
+    @classmethod
+    def _parse_primitives(kls, instructions):
+        classes = {
+             0: AMCommentPrimitive,
+             1: AMCirclePrimitive,
+             2: AMVectorLinePrimitive,
+            20: AMVectorLinePrimitive,
+            21: AMCenterLinePrimitive,
+             4: AMOutlinePrimitive,
+             5: AMPolygonPrimitive,
+             6: AMMoirePrimitive,
+             7: AMThermalPrimitive,
+        }
 
-        for primitive in eval_macro(self.instructions, modifiers[0]):
-            if primitive[0] == '0':
-                self.primitives.append(AMCommentPrimitive.from_gerber(primitive))
-            elif primitive[0] == '1':
-                self.primitives.append(AMCirclePrimitive.from_gerber(primitive))
-            elif primitive[0:2] in ('2,', '20'):
-                self.primitives.append(AMVectorLinePrimitive.from_gerber(primitive))
-            elif primitive[0:2] == '21':
-                self.primitives.append(AMCenterLinePrimitive.from_gerber(primitive))
-            elif primitive[0:2] == '22':
-                self.primitives.append(AMLowerLeftLinePrimitive.from_gerber(primitive))
-            elif primitive[0] == '4':
-                self.primitives.append(AMOutlinePrimitive.from_gerber(primitive))
-            elif primitive[0] == '5':
-                self.primitives.append(AMPolygonPrimitive.from_gerber(primitive))
-            elif primitive[0] == '6':
-                self.primitives.append(AMMoirePrimitive.from_gerber(primitive))
-            elif primitive[0] == '7':
-                self.primitives.append(
-                    AMThermalPrimitive.from_gerber(primitive))
+        for code, modifiers in eval_macro(instructions):
+            if code < 0:
+                yield AMVariableDef(-code, modifiers[0])
             else:
-                self.primitives.append(
-                    AMUnsupportPrimitive.from_gerber(primitive))
+                primitive = classes[code]
+                yield primitive.from_modifiers(code, modifiers)
 
-        return AMGroup(self.primitives, stmt=self, units=self.units)
+    @classmethod
+    def circle(cls, name, units):
+        return cls('AM', name, '1,1,$1,0,0,0*1,0,$2,0,0,0', units)
+
+    @classmethod
+    def rectangle(cls, name, units):
+        return cls('AM', name, '21,1,$1,$2,0,0,0*1,0,$3,0,0,0', units)
+    
+    @classmethod
+    def landscape_obround(cls, name, units):
+        return cls(
+            'AM', name,
+            '$4=$1-$2*'
+            '$5=$1-$4*'
+            '21,1,$5,$2,0,0,0*'
+            '1,1,$4,$4/2,0,0*'
+            '1,1,$4,-$4/2,0,0*'
+            '1,0,$3,0,0,0', units)
+
+    @classmethod
+    def portrate_obround(cls, name, units):
+        return cls(
+            'AM', name,
+            '$4=$2-$1*'
+            '$5=$2-$4*'
+            '21,1,$1,$5,0,0,0*'
+            '1,1,$4,0,$4/2,0*'
+            '1,1,$4,0,-$4/2,0*'
+            '1,0,$3,0,0,0', units)
+    
+    @classmethod
+    def polygon(cls, name, units):
+        return cls('AM', name, '5,1,$2,0,0,$1,$3*1,0,$4,0,0,0', units)
 
     def to_inch(self):
         if self.units == 'metric':
@@ -466,15 +491,19 @@ class AMParamStmt(ParamStmt):
                 primitive.to_metric()
 
     def to_gerber(self, settings=None):
-        return '%AM{0}*{1}%'.format(self.name, "".join([primitive.to_gerber() for primitive in self.primitives]))
+        primitive_defs = '\n'.join(primitive.to_gerber() for primitive in self.primitives)
+        return f'%AM{self.name}*\n{primitive_defs}%'
+
+    def rotate(self, angle, center=None):
+        for primitive_def in self.primitives:
+            primitive_def.rotate(angle, center)
 
     def __str__(self):
         return '<Aperture Macro %s: %s>' % (self.name, self.macro)
 
 
 class ASParamStmt(ParamStmt):
-    """ AS - Axis Select. (Deprecated)
-    """
+    """ AS - Axis Select. (Deprecated) """
     @classmethod
     def from_dict(cls, stmt_dict):
         param = stmt_dict.get('param')

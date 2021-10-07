@@ -8,10 +8,12 @@ import tempfile
 from pathlib import Path
 from contextlib import contextmanager
 import unittest
+
 from ... import panelize
 from ...utils import inch, metric
 
 
+@unittest.skip
 class TestExcellon(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

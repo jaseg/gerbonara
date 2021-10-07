@@ -124,11 +124,10 @@ class GerberFile(CamFile):
                 self.context.normalize_coordinates(stmt)
 
             if isinstance(stmt, AMParamStmt):
-                for mdef in stmts:
-                    self.aperture_macros[mdef.name] = mdef
+                self.aperture_macros[stmt.name] = stmt
 
             elif isinstance(stmt, ADParamStmt):
-                self.aperture_defs.extend(stmts)
+                self.aperture_defs.append(stmt)
 
             else:
                 # ignore FS, MO, AS, IN, IP, IR, MI, OF, SF, LN statements
@@ -138,7 +137,7 @@ class GerberFile(CamFile):
                 if isinstance(stmt, (CommentStmt, EofStmt)):
                     continue
 
-                self.main_statements.extend(stmts)
+                self.main_statements.append(stmt)
 
         if self.context.angle != 0:
             self.rotate(self.context.angle) # TODO is this correct/useful?
@@ -246,16 +245,16 @@ class GerberFile(CamFile):
             return next(f'{prefix}_{i}' for i in count() if f'{prefix}_{i}' not in self.aperture_macros)
         
         rect = free_name('MACR')
-        self.aperture_macros[rect] = AMParamStmtEx.rectangle(rect, self.units)
+        self.aperture_macros[rect] = AMParamStmt.rectangle(rect, self.units)
 
         obround_landscape = free_name('MACLO')
-        self.aperture_macros[obround_landscape] = AMParamStmtEx.landscape_obround(obround_landscape, self.units)
+        self.aperture_macros[obround_landscape] = AMParamStmt.landscape_obround(obround_landscape, self.units)
 
         obround_portrait = free_name('MACPO')
-        self.aperture_macros[obround_portrait] = AMParamStmtEx.portrait_obround(obround_portrait, self.units)
+        self.aperture_macros[obround_portrait] = AMParamStmt.portrait_obround(obround_portrait, self.units)
 
         polygon = free_name('MACP')
-        self.aperture_macros[polygon] = AMParamStmtEx.polygon(polygon, self.units)
+        self.aperture_macros[polygon] = AMParamStmt.polygon(polygon, self.units)
 
         for statement in self.aperture_defs:
             if isinstance(statement, ADParamStmt):
@@ -298,7 +297,7 @@ class GerberParser(object):
     IR = r"(?P<param>IR)(?P<angle>{number})".format(number=NUMBER)
     MI = r"(?P<param>MI)(A(?P<a>0|1))?(B(?P<b>0|1))?"
     OF = r"(?P<param>OF)(A(?P<a>{decimal}))?(B(?P<b>{decimal}))?".format(decimal=DECIMAL)
-    SF = r"(?P<param>SF)(A(?P<a>{decimal}))?(B(?P<b>{decimal}))?".format(decimal=cls.DECIMAL)
+    SF = r"(?P<param>SF)(A(?P<a>{decimal}))?(B(?P<b>{decimal}))?".format(decimal=DECIMAL)
     LN = r"(?P<param>LN)(?P<name>.*)"
     DEPRECATED_UNIT = re.compile(r'(?P<mode>G7[01])\*')
     DEPRECATED_FORMAT = re.compile(r'(?P<format>G9[01])\*')
@@ -466,9 +465,7 @@ class GerberParser(object):
                     elif param["param"] == "AD":
                         yield ADParamStmt.from_dict(param)
                     elif param["param"] == "AM":
-                        stmt = AMParamStmt.from_dict(param)
-                        stmt.units = self.settings.units
-                        yield stmt
+                        yield AMParamStmt.from_dict(param, units=self.settings.units)
                     elif param["param"] == "OF":
                         yield OFParamStmt.from_dict(param)
                     elif param["param"] == "IF":
@@ -925,7 +922,7 @@ class GerberContext(FileSettings):
         self.x, self.y = 0, 0
 
     def update_from_statement(self, stmt):
-        elif isinstance(stmt, MIParamStmt):
+        if isinstance(stmt, MIParamStmt):
             self.mirror = (stmt.a, stmt.b)
 
         elif isinstance(stmt, OFParamStmt):

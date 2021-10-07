@@ -13,8 +13,7 @@ from ..excellon_statements import ExcellonStatement, UnitStmt, CoordinateStmt, U
                                        RetractWithClampingStmt, RetractWithoutClampingStmt, \
                                        EndOfProgramStmt
 from ..cam import FileSettings
-from ..utils import inch, metric, write_gerber_value, parse_gerber_value
-from .utility import rotate
+from ..utils import inch, metric, write_gerber_value, parse_gerber_value, rotate_point
 
 def loads(data, filename=None, settings=None, tools=None, format=None):
     if not settings:
@@ -221,7 +220,7 @@ class DrillHitEx(DrillHit):
         self.position = tuple(map(metric, self.position))
 
     def rotate(self, angle, center=(0, 0)):
-        self.position = rotate(*self.position, angle, center)
+        self.position = rotate_point(self.position, angle, center)
 
     def to_excellon(self, settings):
         return CoordinateStmtEx(*self.position).to_excellon(settings)
@@ -236,8 +235,8 @@ class DrillSlotEx(DrillSlot):
         self.end = tuple(map(metric, self.end))
 
     def rotate(self, angle, center=(0,0)):
-        self.start = rotate(*self.start, angle, center)
-        self.end = rotate(*self.end, angle, center)
+        self.start = rotate_point(self.start, angle, center)
+        self.end = rotate_point(self.end, angle, center)
 
     def to_excellon(self, settings):
         return SlotStmt(*self.start, *self.end).to_excellon(settings)
@@ -295,9 +294,9 @@ class DrillRout(object):
 
     def rotate(self, angle, center=(0, 0)):
         for node in self.nodes:
-            node.position = rotate(*node.position, angle, center)
+            node.position = rotate_point(node.position, angle, center)
             if node.center_offset is not None:
-                node.center_offset = rotate(*node.center_offset, angle, (0., 0.))
+                node.center_offset = rotate_point(node.center_offset, angle, (0., 0.))
 
 class UnitStmtEx(UnitStmt):
     @classmethod

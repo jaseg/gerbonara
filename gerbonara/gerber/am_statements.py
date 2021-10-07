@@ -56,7 +56,7 @@ class AMPrimitive(object):
     TypeError, ValueError
     """
 
-    def __init__(self, code, exposure=None):
+    def __init__(self, code, exposure=None, rotation=AMConstantExpression(0)):
         VALID_CODES = (0, 1, 2, 4, 5, 6, 7, 20, 21, 22, 9999)
         if not isinstance(code, int):
             raise TypeError('Aperture Macro Primitive code must be an integer')
@@ -67,23 +67,36 @@ class AMPrimitive(object):
             raise ValueError('Exposure must be either on or off')
         self.code = code
         self.exposure = exposure.lower() if exposure is not None else None
+        self.rotation = rotation
 
-    def to_inch(self):
-        raise NotImplementedError('Subclass must implement `to-inch`')
+    def rotate(self, angle, center=None):
+        self.rotation = AMOperatorExpression(AMOperatorExpression.ADD, 
+                                             self.rotation, 
+                                             AMConstantExpression(float(angle)))
+        self.rotation = self.rotation.optimize()
 
-    def to_metric(self):
-        raise NotImplementedError('Subclass must implement `to-metric`')
+    #def to_inch(self):
+    #    raise NotImplementedError('Subclass must implement to_inch')
+
+    #def to_metric(self):
+    #    raise NotImplementedError('Subclass must implement to_metric')
+
+    #def to_gerber(self, settings=None):
+    #    raise NotImplementedError('Subclass must implement to_gerber')
+
+    #def to_instructions(self):
+    #    raise NotImplementedError('Subclass must implement to_instructions')
+
+    #def to_primitive(self, units):
+    #    """ Return a Primitive instance based on the specified macro params.
+    #    """
+    #    raise NotImplementedError('Subclass must implement to_primitive')
 
     @property
     def _level_polarity(self):
         if self.exposure == 'off':
             return 'clear'
         return 'dark'
-
-    def to_primitive(self, units):
-        """ Return a Primitive instance based on the specified macro params.
-        """
-        print('Rendering {}s is not supported yet.'.format(str(self.__class__)))
 
     def __eq__(self, other):
         return self.__dict__ == other.__dict__
@@ -126,7 +139,7 @@ class AMCommentPrimitive(AMPrimitive):
     def __init__(self, code, comment):
         if code != 0:
             raise ValueError('Not a valid Aperture Macro Comment statement')
-        super(AMCommentPrimitive, self).__init__(code)
+        super().__init__(code)
         self.comment = comment.strip(' *')
 
     def to_inch(self):
@@ -136,13 +149,16 @@ class AMCommentPrimitive(AMPrimitive):
         pass
 
     def to_gerber(self, settings=None):
-        return '0 %s *' % self.comment
+        return f'0 {self.comment} *'
 
     def to_primitive(self, units):
         """
         Returns None - has not primitive representation
         """
         return None
+
+    def to_instructions(self):
+        return [(OpCode.PUSH, self.comment), (OpCode.PRIM, self.code)]
 
     def __str__(self):
         return '<Aperture Macro Comment: %s>' % self.comment
@@ -210,12 +226,9 @@ class AMCirclePrimitive(AMPrimitive):
         self.position = tuple([metric(x) for x in self.position])
 
     def to_gerber(self, settings=None):
-        data = dict(code=self.code,
-                    exposure='1' if self.exposure == 'on' else 0,
-                    diameter=self.diameter,
-                    x=self.position[0],
-                    y=self.position[1])
-        return '{code},{exposure},{diameter},{x},{y}*'.format(**data)
+        exposure = 1 if self.exposure == 'on' else 0
+        x, y = self.position
+        return f'{self.code},{exposure},{self.diameter},{x},{y}*'
 
     def to_primitive(self, units):
         return Circle((self.position), self.diameter, units=units, level_polarity=self._level_polarity)
@@ -298,16 +311,10 @@ class AMVectorLinePrimitive(AMPrimitive):
         self.end = tuple([metric(x) for x in self.end])
 
     def to_gerber(self, settings=None):
-        fmtstr = '{code},{exp},{width},{startx},{starty},{endx},{endy},{rotation}*'
-        data = dict(code=self.code,
-                    exp=1 if self.exposure == 'on' else 0,
-                    width=self.width,
-                    startx=self.start[0],
-                    starty=self.start[1],
-                    endx=self.end[0],
-                    endy=self.end[1],
-                    rotation=self.rotation)
-        return fmtstr.format(**data)
+        exp = 1 if self.exposure == 'on' else 0
+        start_x, start_y = self.start
+        end_x, end_y = self.end
+        return f'{self.code},{exp},{self.width},{start_x},{start_y},{end_x},{end_y},{self.rotation}*'
 
     def to_primitive(self, units):
         """
@@ -422,15 +429,10 @@ class AMOutlinePrimitive(AMPrimitive):
         self.points = tuple([(metric(x), metric(y)) for x, y in self.points])
 
     def to_gerber(self, settings=None):
-        data = dict(
-            code=self.code,
-            exposure="1" if self.exposure == "on" else "0",
-            n_points=len(self.points),
-            start_point="%.6g,%.6g" % self.start_point,
-            points=",\n".join(["%.6g,%.6g" % point for point in self.points]),
-            rotation=str(self.rotation)
-        )
-        return "{code},{exposure},{n_points},{start_point},{points},{rotation}*".format(**data)
+        exposure = 1 if self.exposure == 'on' else 0
+        x0, y0 = self.start_point
+        points = ",\n".join([ f'{x:.6f},{y:.6f}' for x, y in self.points ])
+        return f'{self.code},{exposure},{len(self.points)},{x0:.6f},{y0:.6f},{points},{self.rotation}*'
 
     def to_primitive(self, units):
         """
@@ -535,16 +537,9 @@ class AMPolygonPrimitive(AMPrimitive):
         self.diameter = metric(self.diameter)
 
     def to_gerber(self, settings=None):
-        data = dict(
-            code=self.code,
-            exposure="1" if self.exposure == "on" else "0",
-            vertices=self.vertices,
-            position="%.4g,%.4g" % self.position,
-            diameter='%.4g' % self.diameter,
-            rotation=str(self.rotation)
-        )
-        fmt = "{code},{exposure},{vertices},{position},{diameter},{rotation}*"
-        return fmt.format(**data)
+        exposure = 1 if self.exposure == 'on' else 0
+        x, y = self.position
+        return f'{self.code},{exposure},{self.vertices},{x:.4f},{y:.4f},{self.diameter:.4f},{self.rotation}*'
 
     def to_primitive(self, units):
         return Polygon(self.position, self.vertices, self.diameter / 2.0, 0, rotation=math.radians(self.rotation), units=units, level_polarity=self._level_polarity)
@@ -646,19 +641,8 @@ class AMMoirePrimitive(AMPrimitive):
 
 
     def to_gerber(self, settings=None):
-        data = dict(
-            code=self.code,
-            position="%.4g,%.4g" % self.position,
-            diameter=self.diameter,
-            ring_thickness=self.ring_thickness,
-            gap=self.gap,
-            max_rings=self.max_rings,
-            crosshair_thickness=self.crosshair_thickness,
-            crosshair_length=self.crosshair_length,
-            rotation=self.rotation
-        )
-        fmt = "{code},{position},{diameter},{ring_thickness},{gap},{max_rings},{crosshair_thickness},{crosshair_length},{rotation}*"
-        return fmt.format(**data)
+        x, y = self.position
+        return f'{self.code},{x:.4f},{y:.4f},{self.diameter},{self.ring_thickness},{self.gap},{self.max_rings},{self.crosshair_thickness},{self.crosshair_length},{self.rotation}*'
 
     def to_primitive(self, units):
         #raise NotImplementedError()
@@ -739,16 +723,8 @@ class AMThermalPrimitive(AMPrimitive):
         self.gap = metric(self.gap)
 
     def to_gerber(self, settings=None):
-        data = dict(
-            code=self.code,
-            position="%.4g,%.4g" % self.position,
-            outer_diameter=self.outer_diameter,
-            inner_diameter=self.inner_diameter,
-            gap=self.gap,
-            rotation=self.rotation
-        )
-        fmt = "{code},{position},{outer_diameter},{inner_diameter},{gap},{rotation}*"
-        return fmt.format(**data)
+        x, y = self.position
+        return f'{self.code},{x:.4f},{y:.4f},{self.outer_diameter},{self.inner_diameter},{self.gap},{self.rotation}*'
 
     def _approximate_arc_cw(self, start_angle, end_angle, radius, center):
         """
@@ -909,16 +885,9 @@ class AMCenterLinePrimitive(AMPrimitive):
         self.height = metric(self.height)
 
     def to_gerber(self, settings=None):
-        data = dict(
-            code=self.code,
-            exposure = '1' if self.exposure == 'on' else '0',
-            width = self.width,
-            height = self.height,
-            center="%.4g,%.4g" % self.center,
-            rotation=self.rotation
-        )
-        fmt = "{code},{exposure},{width},{height},{center},{rotation}*"
-        return fmt.format(**data)
+        exposure = 1 if self.exposure == 'on' else 0
+        x, y = self.center
+        return f'{self.code},{exposure},{self.width},{self.height},{x:.4f},{y:.4f},{self.rotation}*'
 
     def to_primitive(self, units):
 
@@ -1015,16 +984,9 @@ class AMLowerLeftLinePrimitive(AMPrimitive):
         self.height = metric(self.height)
 
     def to_gerber(self, settings=None):
-        data = dict(
-            code=self.code,
-            exposure = '1' if self.exposure == 'on' else '0',
-            width = self.width,
-            height = self.height,
-            lower_left="%.4g,%.4g" % self.lower_left,
-            rotation=self.rotation
-        )
-        fmt = "{code},{exposure},{width},{height},{lower_left},{rotation}*"
-        return fmt.format(**data)
+        exposure = 1 if self.exposure == 'on' else 0
+        x, y = self.lower_left
+        return f'{self.code},{exposure},{self.width},{self.height},{x:.4f},{y:.4f},{self.rotation}*'
 
 
 class AMUnsupportPrimitive(AMPrimitive):
@@ -1044,3 +1006,4 @@ class AMUnsupportPrimitive(AMPrimitive):
 
     def to_gerber(self, settings=None):
         return self.primitive
+

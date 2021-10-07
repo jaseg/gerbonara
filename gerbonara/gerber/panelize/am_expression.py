@@ -3,6 +3,8 @@
 
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 
+import operator
+
 from ..utils import *
 from ..am_eval import OpCode
 from ..am_statements import *
@@ -20,21 +22,19 @@ class AMExpression(object):
         return self
 
     def optimize(self):
-        pass
+        return self
     
     def to_inch(self):
-        return AMOperatorExpression(AMOperatorExpression.DIV, self, 
-                                    AMConstantExpression(MILLIMETERS_PER_INCH))
+        return AMOperatorExpression.div(self, MILLIMETERS_PER_INCH)
 
     def to_metric(self):
-        return AMOperatorExpression(AMOperatorExpression.MUL, self,
-                                    AMConstantExpression(MILLIMETERS_PER_INCH))
+        return AMOperatorExpression.mul(self, MILLIMETERS_PER_INCH)
 
-    def to_gerber(self, settings=None):
-        pass
+    #def to_gerber(self, settings=None):
+    #    pass
 
-    def to_instructions(self):
-        pass
+    #def to_instructions(self):
+    #    pass
     
 class AMConstantExpression(AMExpression):
     def __init__(self, value):
@@ -45,14 +45,35 @@ class AMConstantExpression(AMExpression):
     def value(self):
         return self._value
 
-    def optimize(self):
-        return self
-    
+    def __float__(self):
+        return float(self._value)
+
+    @staticmethod
+    def _amex_val(other):
+        return float(other) if isinstance(other, AMConstantExpression) else other
+
+    def __eq__(self, val):
+        return self._value == AMConstantExpression._amex_val(val)
+
+    def __ne__(self, val):
+        return self._value != AMConstantExpression._amex_val(val)
+
+    def __lt__(self, val):
+        return self._value < AMConstantExpression._amex_val(val)
+
+    def __gt__(self, val):
+        return self._value > AMConstantExpression._amex_val(val)
+
+    def __le__(self, val):
+        return self._value <= AMConstantExpression._amex_val(val)
+
+    def __ge__(self, val):
+        return self._value >= AMConstantExpression._amex_val(val)
+
     def to_gerber(self, settings=None):
         if isinstance(self._value, str):
             return self._value
-        gerber = '%.6g' % self._value
-        return '%.6f' % self._value if 'e' in gerber else gerber
+        return f'{self.value:.6f}'.rstrip('0').rstrip('.')
 
     def to_instructions(self):
         return [(OpCode.PUSH, self._value)]
@@ -62,76 +83,90 @@ class AMVariableExpression(AMExpression):
         super(AMVariableExpression, self).__init__(AMExpression.VARIABLE)
         self.number = number
 
-    def optimize(self):
-        return self
-    
     def to_gerber(self, settings=None):
-        return '$%d' % self.number
+        return f'${self.number}'
     
     def to_instructions(self):
         return (OpCode.LOAD, self.number)
 
 class AMOperatorExpression(AMExpression):
-    ADD = '+'
-    SUB = '-'
-    MUL = 'X'
-    DIV = '/'
-
     def __init__(self, op, lvalue, rvalue):
         super(AMOperatorExpression, self).__init__(AMExpression.OPERATOR)
         self.op = op
-        self.lvalue = lvalue
-        self.rvalue = rvalue
+        self.lvalue = AMConstantExpression(lvalue) if isinstance(lvalue, (int, float)) else lvalue
+        self.rvalue = AMConstantExpression(rvalue) if isinstance(rvalue, (int, float)) else rvalue
+
+    @classmethod
+    def add(kls, lvalue, rvalue):
+        return kls(operator.add, lvalue, rvalue)
+    
+    @classmethod
+    def sub(kls, lvalue, rvalue):
+        return kls(operator.sub, lvalue, rvalue)
+    
+    @classmethod
+    def mul(kls, lvalue, rvalue):
+        return kls(operator.mul, lvalue, rvalue)
+    
+    @classmethod
+    def div(kls, lvalue, rvalue):
+        return kls(operator.truediv, lvalue, rvalue)
     
     def optimize(self):
-        self.lvalue = self.lvalue.optimize()
-        self.rvalue = self.rvalue.optimize()
+        l = self.lvalue = self.lvalue.optimize()
+        r = self.rvalue = self.rvalue.optimize()
 
-        if isinstance(self.lvalue, AMConstantExpression) and isinstance(self.rvalue, AMConstantExpression):
-            lvalue = float(self.lvalue.value)
-            rvalue = float(self.rvalue.value)
-            value = lvalue + rvalue if self.op == self.ADD else \
-                lvalue - rvalue if self.op == self.SUB else \
-                lvalue * rvalue if self.op == self.MUL else \
-                lvalue / rvalue if self.op == self.DIV else None
-            return AMConstantExpression(value)
-        elif self.op == self.ADD:
-            if self.rvalue.value == 0:
-                return self.lvalue
-            elif self.lvalue.value == 0:
-                return self.rvalue
-        elif self.op == self.SUB:
-            if self.rvalue.value == 0:
-                return self.lvalue
-            elif self.lvalue.value == 0 and isinstance(self.rvalue, AMConstantExpression):
-                return AMConstantExpression(-self.rvalue.value)
-        elif self.op == self.MUL:
-            if self.rvalue.value == 1:
-                return self.lvalue
-            elif self.lvalue.value == 1:
-                return self.rvalue
-            elif self.lvalue == 0 or self.rvalue == 0:
+        if isinstance(l, AMConstantExpression) and isinstance(r, AMConstantExpression):
+            return AMConstantExpression(self.op(float(r), float(l)))
+
+        elif self.op == operator.ADD:
+            if r == 0:
+                return l
+            elif l == 0:
+                return r
+
+        elif self.op == operator.SUB:
+            if r == 0:
+                return l
+            elif l == 0 and isinstance(r, AMConstantExpression):
+                return AMConstantExpression(-float(r))
+
+        elif self.op == operator.MUL:
+            if r == 1:
+                return l
+            elif l == 1:
+                return r
+            elif l == 0 or r == 0:
                 return AMConstantExpression(0)
-        elif self.op == self.DIV:
-            if self.rvalue.value == 1:
+
+        elif self.op == operator.TRUEDIV:
+            if r == 1:
                 return self.lvalue
-            elif self.lvalue.value == 0:
+            elif l == 0:
                 return AMConstantExpression(0)
         
         return self
         
     def to_gerber(self, settings=None):
-        return '(%s)%s(%s)' % (self.lvalue.to_gerber(settings), self.op, self.rvalue.to_gerber(settings))
+        lval = self.lvalue.to_gerber(settings)
+        rval = self.rvalue.to_gerber(settings))
+        op = {AMOperatorExpression.ADD: '+',
+              AMOperatorExpression.SUB: '-',
+              AMOperatorExpression.MUL: 'x',
+              AMOperatorExpression.DIV: '/'} [self.op]
+        return '(' + lval + op + rval + ')'
 
     def to_instructions(self):
         for i in self.lvalue.to_instructions():
             yield i
+
         for i in self.rvalue.to_instructions():
             yield i
-        op = OpCode.ADD if self.op == self.ADD else\
-             OpCode.SUB if self.op == self.SUB else\
-             OpCode.MUL if self.op == self.MUL else\
-             OpCode.DIV
+
+        op = {AMOperatorExpression.ADD: OpCode.ADD,
+              AMOperatorExpression.SUB: OpCode.SUB,
+              AMOperatorExpression.MUL: OpCode.MUL,
+              AMOperatorExpression.DIV: OpCode.DIV} [self.op]
         yield (op, None)
 
 def eval_macro(instructions):

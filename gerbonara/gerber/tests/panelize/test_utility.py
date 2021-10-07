@@ -9,21 +9,6 @@ from ...panelize.utility import *
 from math import sqrt
 
 class TestUtility(unittest.TestCase):
-    def test_rotate(self):
-        x0, y0 = (10, 0)
-
-        x1, y1 = rotate(x0, y0, 60, (0, 0))
-        self.assertAlmostEqual(x1, 5)
-        self.assertAlmostEqual(y1, 10 * sqrt(3) / 2)
-
-        x1, y1 = rotate(x0, y0, 180, (5, 0))
-        self.assertAlmostEqual(x1, 0)
-        self.assertAlmostEqual(y1, 0)
-
-        x1, y1 = rotate(x0, y0, -90, (10, 5))
-        self.assertAlmostEqual(x1, 5)
-        self.assertAlmostEqual(y1, 5)
-
     def test_is_equal_value(self):
         a = 10.0001
         b = 10.01

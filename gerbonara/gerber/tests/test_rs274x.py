@@ -23,7 +23,7 @@ def test_read():
 def test_multiline_read():
     multiline = read(MULTILINE_READ_FILE)
     assert isinstance(multiline, GerberFile)
-    assert 10 == len(multiline.statements)
+    assert 11 == len(multiline.statements)
 
 
 def test_comments_parameter():

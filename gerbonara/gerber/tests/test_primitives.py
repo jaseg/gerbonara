@@ -49,10 +49,10 @@ def test_line_bounds():
     """ Test Line primitive bounding box calculation
     """
     cases = [
-        ((0, 0), (1, 1), ((-1, 2), (-1, 2))),
-        ((-1, -1), (1, 1), ((-2, 2), (-2, 2))),
-        ((1, 1), (-1, -1), ((-2, 2), (-2, 2))),
-        ((-1, 1), (1, -1), ((-2, 2), (-2, 2))),
+        ((0, 0), (1, 1), ((-1, -1), (2, 2))),
+        ((-1, -1), (1, 1), ((-2, -2), (2, 2))),
+        ((1, 1), (-1, -1), ((-2, -2), (2, 2))),
+        ((-1, 1), (1, -1), ((-2, -2), (2, 2))),
     ]
 
     c = Circle((0, 0), 2)
@@ -64,10 +64,10 @@ def test_line_bounds():
     # Test a non-square rectangle
     r = Rectangle((0, 0), 3, 2)
     cases = [
-        ((0, 0), (1, 1), ((-1.5, 2.5), (-1, 2))),
-        ((-1, -1), (1, 1), ((-2.5, 2.5), (-2, 2))),
-        ((1, 1), (-1, -1), ((-2.5, 2.5), (-2, 2))),
-        ((-1, 1), (1, -1), ((-2.5, 2.5), (-2, 2))),
+        ((0, 0), (1, 1), ((-1.5, -1), (2.5, 2))),
+        ((-1, -1), (1, 1), ((-2.5, -2), (2.5, 2))),
+        ((1, 1), (-1, -1), ((-2.5, -2), (2.5, 2))),
+        ((-1, 1), (1, -1), ((-2.5, -2), (2.5, 2))),
     ]
     for start, end, expected in cases:
         l = Line(start, end, r)
@@ -197,17 +197,17 @@ def test_arc_bounds():
     """ Test Arc primitive bounding box calculation
     """
     cases = [
-        ((1, 0), (0, 1), (0, 0), "clockwise", ((-1.5, 1.5), (-1.5, 1.5))),
-        ((1, 0), (0, 1), (0, 0), "counterclockwise", ((-0.5, 1.5), (-0.5, 1.5))),
-        ((0, 1), (-1, 0), (0, 0), "clockwise", ((-1.5, 1.5), (-1.5, 1.5))),
-        ((0, 1), (-1, 0), (0, 0), "counterclockwise", ((-1.5, 0.5), (-0.5, 1.5))),
-        ((-1, 0), (0, -1), (0, 0), "clockwise", ((-1.5, 1.5), (-1.5, 1.5))),
-        ((-1, 0), (0, -1), (0, 0), "counterclockwise", ((-1.5, 0.5), (-1.5, 0.5))),
-        ((0, -1), (1, 0), (0, 0), "clockwise", ((-1.5, 1.5), (-1.5, 1.5))),
-        ((0, -1), (1, 0), (0, 0), "counterclockwise", ((-0.5, 1.5), (-1.5, 0.5))),
+        (( 1,  0), ( 0,  1), (0, 0), "clockwise",        ((-1.5, -1.5), (1.5, 1.5))),
+        (( 1,  0), ( 0,  1), (0, 0), "counterclockwise", ((-0.5, -0.5), (1.5, 1.5))),
+        (( 0,  1), (-1,  0), (0, 0), "clockwise",        ((-1.5, -1.5), (1.5, 1.5))),
+        (( 0,  1), (-1,  0), (0, 0), "counterclockwise", ((-1.5, -0.5), (0.5, 1.5))),
+        ((-1,  0), ( 0, -1), (0, 0), "clockwise",        ((-1.5, -1.5), (1.5, 1.5))),
+        ((-1,  0), ( 0, -1), (0, 0), "counterclockwise", ((-1.5, -1.5), (0.5, 0.5))),
+        (( 0, -1), ( 1,  0), (0, 0), "clockwise",        ((-1.5, -1.5), (1.5, 1.5))),
+        (( 0, -1), ( 1,  0), (0, 0), "counterclockwise", ((-0.5, -1.5), (1.5, 0.5))),
         # Arcs with the same start and end point render a full circle
-        ((1, 0), (1, 0), (0, 0), "clockwise", ((-1.5, 1.5), (-1.5, 1.5))),
-        ((1, 0), (1, 0), (0, 0), "counterclockwise", ((-1.5, 1.5), (-1.5, 1.5))),
+        (( 1,  0), ( 1,  0), (0, 0), "clockwise",        ((-1.5, -1.5), (1.5, 1.5))),
+        (( 1,  0), ( 1,  0), (0, 0), "counterclockwise", ((-1.5, -1.5), (1.5, 1.5))),
     ]
     for start, end, center, direction, bounds in cases:
         c = Circle((0, 0), 1)
@@ -219,17 +219,17 @@ def test_arc_bounds_no_aperture():
     """ Test Arc primitive bounding box calculation ignoring aperture
     """
     cases = [
-        ((1, 0), (0, 1), (0, 0), "clockwise", ((-1.0, 1.0), (-1.0, 1.0))),
-        ((1, 0), (0, 1), (0, 0), "counterclockwise", ((0.0, 1.0), (0.0, 1.0))),
-        ((0, 1), (-1, 0), (0, 0), "clockwise", ((-1.0, 1.0), (-1.0, 1.0))),
+        ((1, 0), (0, 1), (0, 0), "clockwise", ((-1.0, -1.0), (1.0, 1.0))),
+        ((1, 0), (0, 1), (0, 0), "counterclockwise", ((0.0, 0.0), (1.0, 1.0))),
+        ((0, 1), (-1, 0), (0, 0), "clockwise", ((-1.0, -1.0), (1.0, 1.0))),
         ((0, 1), (-1, 0), (0, 0), "counterclockwise", ((-1.0, 0.0), (0.0, 1.0))),
-        ((-1, 0), (0, -1), (0, 0), "clockwise", ((-1.0, 1.0), (-1.0, 1.0))),
-        ((-1, 0), (0, -1), (0, 0), "counterclockwise", ((-1.0, 0.0), (-1.0, 0.0))),
-        ((0, -1), (1, 0), (0, 0), "clockwise", ((-1.0, 1.0), (-1.0, 1.0))),
-        ((0, -1), (1, 0), (0, 0), "counterclockwise", ((-0.0, 1.0), (-1.0, 0.0))),
+        ((-1, 0), (0, -1), (0, 0), "clockwise", ((-1.0, -1.0), (1.0, 1.0))),
+        ((-1, 0), (0, -1), (0, 0), "counterclockwise", ((-1.0, -1.0), (0.0, 0.0))),
+        ((0, -1), (1, 0), (0, 0), "clockwise", ((-1.0, -1.0), (1.0, 1.0))),
+        ((0, -1), (1, 0), (0, 0), "counterclockwise", ((-0.0, -1.0), (1.0, 0.0))),
         # Arcs with the same start and end point render a full circle
-        ((1, 0), (1, 0), (0, 0), "clockwise", ((-1.0, 1.0), (-1.0, 1.0))),
-        ((1, 0), (1, 0), (0, 0), "counterclockwise", ((-1.0, 1.0), (-1.0, 1.0))),
+        ((1, 0), (1, 0), (0, 0), "clockwise", ((-1.0, -1.0), (1.0, 1.0))),
+        ((1, 0), (1, 0), (0, 0), "counterclockwise", ((-1.0, -1.0), (1.0, 1.0))),
     ]
     for start, end, center, direction, bounds in cases:
         c = Circle((0, 0), 1)
@@ -317,7 +317,7 @@ def test_circle_bounds():
     """ Test Circle bounding box calculation
     """
     c = Circle((1, 1), 2)
-    assert c.bounding_box == ((0, 2), (0, 2))
+    assert c.bounding_box == ((0, 0), (2, 2))
 
 
 def test_circle_conversion():
@@ -419,13 +419,13 @@ def test_ellipse_bounds():
     """ Test ellipse bounding box calculation
     """
     e = Ellipse((2, 2), 4, 2)
-    assert e.bounding_box == ((0, 4), (1, 3))
+    assert e.bounding_box == ((0, 1), (4, 3))
     e = Ellipse((2, 2), 4, 2, rotation=90)
-    assert e.bounding_box == ((1, 3), (0, 4))
+    assert e.bounding_box == ((1, 0), (3, 4))
     e = Ellipse((2, 2), 4, 2, rotation=180)
-    assert e.bounding_box == ((0, 4), (1, 3))
+    assert e.bounding_box == ((0, 1), (4, 3))
     e = Ellipse((2, 2), 4, 2, rotation=270)
-    assert e.bounding_box == ((1, 3), (0, 4))
+    assert e.bounding_box == ((1, 0), (3, 4))
 
 
 def test_ellipse_conversion():
@@ -501,13 +501,13 @@ def test_rectangle_bounds():
     """ Test rectangle bounding box calculation
     """
     r = Rectangle((0, 0), 2, 2)
-    xbounds, ybounds = r.bounding_box
-    pytest.approx(xbounds, (-1, 1))
-    pytest.approx(ybounds, (-1, 1))
+    bounds = r.bounding_box
+    pytest.approx(bounds[0], (-1, -1))
+    pytest.approx(bounds[1], (1, 1))
     r = Rectangle((0, 0), 2, 2, rotation=45)
-    xbounds, ybounds = r.bounding_box
-    pytest.approx(xbounds, (-math.sqrt(2), math.sqrt(2)))
-    pytest.approx(ybounds, (-math.sqrt(2), math.sqrt(2)))
+    bounds = r.bounding_box
+    pytest.approx(bounds[0], (-math.sqrt(2), -math.sqrt(2)))
+    pytest.approx(bounds[1], (math.sqrt(2), math.sqrt(2)))
 
 
 def test_rectangle_vertices():
@@ -650,13 +650,13 @@ def test_diamond_bounds():
     """ Test diamond bounding box calculation
     """
     d = Diamond((0, 0), 2, 2)
-    xbounds, ybounds = d.bounding_box
-    pytest.approx(xbounds, (-1, 1))
-    pytest.approx(ybounds, (-1, 1))
+    bounds = d.bounding_box
+    pytest.approx(bounds[0], (-1, -1))
+    pytest.approx(bounds[1], (1, 1))
     d = Diamond((0, 0), math.sqrt(2), math.sqrt(2), rotation=45)
-    xbounds, ybounds = d.bounding_box
-    pytest.approx(xbounds, (-1, 1))
-    pytest.approx(ybounds, (-1, 1))
+    bounds = d.bounding_box
+    pytest.approx(bounds[0], (-1, -1))
+    pytest.approx(bounds[1], (1, 1))
 
 
 def test_diamond_conversion():
@@ -724,13 +724,13 @@ def test_chamfer_rectangle_bounds():
     """ Test chamfer rectangle bounding box calculation
     """
     r = ChamferRectangle((0, 0), 2, 2, 0.2, (True, True, False, False))
-    xbounds, ybounds = r.bounding_box
-    pytest.approx(xbounds, (-1, 1))
-    pytest.approx(ybounds, (-1, 1))
+    bounds = r.bounding_box
+    pytest.approx(bounds[0], (-1, -1))
+    pytest.approx(bounds[1], (1, 1))
     r = ChamferRectangle((0, 0), 2, 2, 0.2, (True, True, False, False), rotation=45)
-    xbounds, ybounds = r.bounding_box
-    pytest.approx(xbounds, (-math.sqrt(2), math.sqrt(2)))
-    pytest.approx(ybounds, (-math.sqrt(2), math.sqrt(2)))
+    bounds = r.bounding_box
+    pytest.approx(bounds[0], (-math.sqrt(2), -math.sqrt(2)))
+    pytest.approx(bounds[1], (math.sqrt(2), math.sqrt(2)))
 
 
 def test_chamfer_rectangle_conversion():
@@ -849,13 +849,13 @@ def test_round_rectangle_bounds():
     """ Test round rectangle bounding box calculation
     """
     r = RoundRectangle((0, 0), 2, 2, 0.2, (True, True, False, False))
-    xbounds, ybounds = r.bounding_box
-    pytest.approx(xbounds, (-1, 1))
-    pytest.approx(ybounds, (-1, 1))
+    bounds = r.bounding_box
+    pytest.approx(bounds[0], (-1, -1))
+    pytest.approx(bounds[1], (1, 1))
     r = RoundRectangle((0, 0), 2, 2, 0.2, (True, True, False, False), rotation=45)
-    xbounds, ybounds = r.bounding_box
-    pytest.approx(xbounds, (-math.sqrt(2), math.sqrt(2)))
-    pytest.approx(ybounds, (-math.sqrt(2), math.sqrt(2)))
+    bounds = r.bounding_box
+    pytest.approx(bounds[0], (-math.sqrt(2), -math.sqrt(2)))
+    pytest.approx(bounds[1], (math.sqrt(2), math.sqrt(2)))
 
 
 def test_round_rectangle_conversion():
@@ -927,13 +927,13 @@ def test_obround_bounds():
     """ Test obround bounding box calculation
     """
     o = Obround((2, 2), 2, 4)
-    xbounds, ybounds = o.bounding_box
-    pytest.approx(xbounds, (1, 3))
-    pytest.approx(ybounds, (0, 4))
+    bounds = o.bounding_box
+    pytest.approx(bounds[0], (1, 0))
+    pytest.approx(bounds[1], (3, 4))
     o = Obround((2, 2), 4, 2)
-    xbounds, ybounds = o.bounding_box
-    pytest.approx(xbounds, (0, 4))
-    pytest.approx(ybounds, (1, 3))
+    bounds = o.bounding_box
+    pytest.approx(bounds[0], (0, 1))
+    pytest.approx(bounds[1], (4, 3))
 
 
 def test_obround_orientation():
@@ -1020,13 +1020,13 @@ def test_polygon_bounds():
     """ Test polygon bounding box calculation
     """
     p = Polygon((2, 2), 3, 2, 0)
-    xbounds, ybounds = p.bounding_box
-    pytest.approx(xbounds, (0, 4))
-    pytest.approx(ybounds, (0, 4))
+    bounds = p.bounding_box
+    pytest.approx(bounds[0], (0, 0))
+    pytest.approx(bounds[0], (4, 4))
     p = Polygon((2, 2), 3, 4, 0)
-    xbounds, ybounds = p.bounding_box
-    pytest.approx(xbounds, (-2, 6))
-    pytest.approx(ybounds, (-2, 6))
+    bounds = p.bounding_box
+    pytest.approx(bounds[0], (-2, -2))
+    pytest.approx(bounds[1], (6, 6))
 
 
 def test_polygon_conversion():
@@ -1098,9 +1098,9 @@ def test_region_bounds():
         Line((0, 1), (0, 0), apt),
     )
     r = Region(lines)
-    xbounds, ybounds = r.bounding_box
-    pytest.approx(xbounds, (0, 1))
-    pytest.approx(ybounds, (0, 1))
+    bounds = r.bounding_box
+    pytest.approx(bounds[0], (0, 0))
+    pytest.approx(bounds[1], (1, 1))
 
 
 def test_region_offset():
@@ -1183,9 +1183,9 @@ def test_round_butterfly_bounds():
     """ Test RoundButterfly bounding box calculation
     """
     b = RoundButterfly((0, 0), 2)
-    xbounds, ybounds = b.bounding_box
-    pytest.approx(xbounds, (-1, 1))
-    pytest.approx(ybounds, (-1, 1))
+    bounds = b.bounding_box
+    pytest.approx(bounds[0], (-1, -1))
+    pytest.approx(bounds[1], (1, 1))
 
 
 def test_square_butterfly_ctor():
@@ -1209,9 +1209,9 @@ def test_square_butterfly_bounds():
     """ Test SquareButterfly bounding box calculation
     """
     b = SquareButterfly((0, 0), 2)
-    xbounds, ybounds = b.bounding_box
-    pytest.approx(xbounds, (-1, 1))
-    pytest.approx(ybounds, (-1, 1))
+    bounds = b.bounding_box
+    pytest.approx(bounds[0], (-1, -1))
+    pytest.approx(bounds[1], (1, 1))
 
 
 def test_squarebutterfly_conversion():
@@ -1282,9 +1282,9 @@ def test_donut_ctor_validation():
 
 def test_donut_bounds():
     d = Donut((0, 0), "round", 0.0, 2.0)
-    xbounds, ybounds = d.bounding_box
-    assert xbounds == (-1.0, 1.0)
-    assert ybounds == (-1.0, 1.0)
+    bounds = d.bounding_box
+    assert bounds[0] == (-1.0, -1.0)
+    assert bounds[1] == (1.0, 1.0)
 
 
 def test_donut_conversion():
@@ -1355,13 +1355,13 @@ def test_drill_ctor_validation():
 
 def test_drill_bounds():
     d = Drill((0, 0), 2)
-    xbounds, ybounds = d.bounding_box
-    pytest.approx(xbounds, (-1, 1))
-    pytest.approx(ybounds, (-1, 1))
+    bounds = d.bounding_box
+    pytest.approx(bounds[0], (-1, -1))
+    pytest.approx(bounds[1], (1, 1))
     d = Drill((1, 2), 2)
-    xbounds, ybounds = d.bounding_box
-    pytest.approx(xbounds, (0, 2))
-    pytest.approx(ybounds, (1, 3))
+    bounds = d.bounding_box
+    pytest.approx(bounds[0], (0, 1))
+    pytest.approx(bounds[1], (2, 3))
 
 
 def test_drill_conversion():
@@ -1418,12 +1418,13 @@ def test_slot_bounds():
     """ Test Slot primitive bounding box calculation
     """
     cases = [
-        ((0, 0), (1, 1), ((-1, 2), (-1, 2))),
-        ((-1, -1), (1, 1), ((-2, 2), (-2, 2))),
-        ((1, 1), (-1, -1), ((-2, 2), (-2, 2))),
-        ((-1, 1), (1, -1), ((-2, 2), (-2, 2))),
+        (( 0,  0), ( 1,  1), ((-1, -1), (2, 2))),
+        ((-1, -1), ( 1,  1), ((-2, -2), (2, 2))),
+        (( 1,  1), (-1, -1), ((-2, -2), (2, 2))),
+        ((-1,  1), ( 1, -1), ((-2, -2), (2, 2))),
     ]
 
     for start, end, expected in cases:
         s = Slot(start, end, 2.0)
         assert s.bounding_box == expected
+

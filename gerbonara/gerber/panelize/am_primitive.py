@@ -9,31 +9,6 @@ from ..am_eval import OpCode
 
 from .am_expression import eval_macro, AMConstantExpression, AMOperatorExpression
 
-class AMPrimitiveDef(AMPrimitive):
-    def __init__(self, code, exposure=None, rotation=None):
-        super(AMPrimitiveDef, self).__init__(code, exposure)
-        if not rotation:
-            rotation = AMConstantExpression(0)
-        self.rotation = rotation
-
-    def rotate(self, angle, center=None):
-        self.rotation = AMOperatorExpression(AMOperatorExpression.ADD, 
-                                             self.rotation, 
-                                             AMConstantExpression(float(angle)))
-        self.rotation = self.rotation.optimize()
-
-    def to_inch(self):
-        pass
-    
-    def to_metric(self):
-        pass
-
-    def to_gerber(self, settings=None):
-        pass
-
-    def to_instructions(self):
-        pass
-
 class AMCommentPrimitiveDef(AMPrimitiveDef):
     @classmethod
     def from_modifiers(cls, code, modifiers):
@@ -42,12 +17,6 @@ class AMCommentPrimitiveDef(AMPrimitiveDef):
     def __init__(self, code, comment):
         super(AMCommentPrimitiveDef, self).__init__(code)
         self.comment = comment
-    
-    def to_gerber(self, settings=None):
-        return '%d %s*' % (self.code, self.comment.to_gerber())
-    
-    def to_instructions(self):
-        return [(OpCode.PUSH, self.comment), (OpCode.PRIM, self.code)]
 
 class AMCirclePrimitiveDef(AMPrimitiveDef):
     @classmethod
@@ -428,21 +397,3 @@ class AMVariableDef(object):
     def rotate(self, angle, center=None):
         pass
 
-def to_primitive_defs(instructions):
-    classes = {
-        0: AMCommentPrimitiveDef,
-        1: AMCirclePrimitiveDef,
-        2: AMVectorLinePrimitiveDef,
-        20: AMVectorLinePrimitiveDef,
-        21: AMCenterLinePrimitiveDef,
-        4: AMOutlinePrimitiveDef,
-        5: AMPolygonPrimitiveDef,
-        6: AMMoirePrimitiveDef,
-        7: AMThermalPrimitiveDef,
-    }
-    for code, modifiers in eval_macro(instructions):
-        if code < 0:
-            yield AMVariableDef(-code, modifiers[0])
-        else:
-            primitive = classes[code]
-            yield primitive.from_modifiers(code, modifiers)

@@ -8,9 +8,9 @@ from ..cam import FileSettings
 from ..gerber_statements import EofStmt
 from ..excellon_statements import *
 from ..excellon import DrillSlot, DrillHit
-from . import rs274x
+from .. import rs274x
 from . import excellon
-from . import dxf
+# from . import dxf
 
 class Composition(object):
     def __init__(self, settings = None, comments = None):
@@ -29,8 +29,8 @@ class GerberComposition(Composition):
     def merge(self, file):
         if isinstance(file, rs274x.GerberFile):
             self._merge_gerber(file)
-        elif isinstance(file, dxf.DxfFile):
-            self._merge_dxf(file)
+#        elif isinstance(file, dxf.DxfFile):
+#            self._merge_dxf(file)
         else:
             raise Exception('unsupported file type')
 

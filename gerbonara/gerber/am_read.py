@@ -29,7 +29,7 @@ class Token:
     # compatibility as many gerber writes do use non compliant X
     MULT = ("x", "X")
     DIV = "/"
-    OPERATORS = (ADD, SUB, MULT[0], MULT[1], DIV)
+    OPERATORS = (ADD, SUB, *MULT, DIV)
     LEFT_PARENS = "("
     RIGHT_PARENS = ")"
     EQUALS = "="

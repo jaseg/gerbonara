@@ -1448,67 +1448,6 @@ class Region(Primitive):
         for p in self.primitives:
             p.offset(x_offset, y_offset)
 
-
-class RoundButterfly(Primitive):
-    """ A circle with two diagonally-opposite quadrants removed
-    """
-
-    def __init__(self, position, diameter, **kwargs):
-        super(RoundButterfly, self).__init__(**kwargs)
-        validate_coordinates(position)
-        self.position = position
-        self.diameter = diameter
-        self._to_convert = ['position', 'diameter']
-
-        # TODO This does not reset bounding box correctly
-
-    @property
-    def flashed(self):
-        return True
-
-    @property
-    def radius(self):
-        return self.diameter / 2.
-
-    @property
-    def bounding_box(self):
-        if self._bounding_box is None:
-            min_x = self.position[0] - self.radius
-            max_x = self.position[0] + self.radius
-            min_y = self.position[1] - self.radius
-            max_y = self.position[1] + self.radius
-            self._bounding_box = ((min_x, min_y), (max_x, max_y))
-        return self._bounding_box
-
-
-class SquareButterfly(Primitive):
-    """ A square with two diagonally-opposite quadrants removed
-    """
-
-    def __init__(self, position, side, **kwargs):
-        super(SquareButterfly, self).__init__(**kwargs)
-        validate_coordinates(position)
-        self.position = position
-        self.side = side
-        self._to_convert = ['position', 'side']
-
-        # TODO This does not reset bounding box correctly
-
-    @property
-    def flashed(self):
-        return True
-
-    @property
-    def bounding_box(self):
-        if self._bounding_box is None:
-            min_x = self.position[0] - (self.side / 2.)
-            max_x = self.position[0] + (self.side / 2.)
-            min_y = self.position[1] - (self.side / 2.)
-            max_y = self.position[1] + (self.side / 2.)
-            self._bounding_box = ((min_x, min_y), (max_x, max_y))
-        return self._bounding_box
-
-
 class Donut(Primitive):
     """ A Shape with an identical concentric shape removed from its center
     """
