@@ -25,7 +25,7 @@ from .utils import (parse_gerber_value, write_gerber_value, decimal_string,
 
 from .am_statements import *
 from .am_read import read_macro
-from .am_eval import eval_macro
+from .am_primitive import eval_macro
 from .primitives import AMGroup
 
 
@@ -418,31 +418,10 @@ class AMParamStmt(ParamStmt):
         self.name = name
         self.macro = macro
         self.units = units
-        self.primitives = list(AMParamStmt._parse_primitives(self.instructions))
+        self.primitives = list(eval_macro(self.instructions))
 
     def read(self, macro):
         return read_macro(macro)
-
-    @classmethod
-    def _parse_primitives(kls, instructions):
-        classes = {
-             0: AMCommentPrimitive,
-             1: AMCirclePrimitive,
-             2: AMVectorLinePrimitive,
-            20: AMVectorLinePrimitive,
-            21: AMCenterLinePrimitive,
-             4: AMOutlinePrimitive,
-             5: AMPolygonPrimitive,
-             6: AMMoirePrimitive,
-             7: AMThermalPrimitive,
-        }
-
-        for code, modifiers in eval_macro(instructions):
-            if code < 0:
-                yield AMVariableDef(-code, modifiers[0])
-            else:
-                primitive = classes[code]
-                yield primitive.from_modifiers(code, modifiers)
 
     @classmethod
     def circle(cls, name, units):

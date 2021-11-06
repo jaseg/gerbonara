@@ -21,6 +21,7 @@ import math
 
 from .primitives import *
 from .utils import validate_coordinates, inch, metric, rotate_point
+from .am_expression import AMConstantExpression
 
 
 
@@ -57,7 +58,7 @@ class AMPrimitive(object):
     """
 
     def __init__(self, code, exposure=None, rotation=AMConstantExpression(0)):
-        VALID_CODES = (0, 1, 2, 4, 5, 6, 7, 20, 21, 22, 9999)
+        VALID_CODES = (0, 1, 2, 4, 5, 7, 20, 21, 22, 9999)
         if not isinstance(code, int):
             raise TypeError('Aperture Macro Primitive code must be an integer')
         elif code not in VALID_CODES:

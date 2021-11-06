@@ -4,8 +4,8 @@
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 
 import unittest
-from ...panelize.am_expression import *
-from ...panelize.am_expression import AMOperatorExpression as Op
+from ...am_expression import *
+from ...am_expression import AMOperatorExpression as Op
 from ...utils import inch, metric
 from ...am_read import read_macro
 

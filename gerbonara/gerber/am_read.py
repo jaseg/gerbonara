@@ -18,10 +18,10 @@
 """ This module provides RS-274-X AM macro modifiers parsing.
 """
 
-from .am_eval import OpCode, eval_macro
+from .am_opcode import OpCode
+from .am_primitive import eval_macro
 
 import string
-
 
 class Token:
     ADD = "+"
