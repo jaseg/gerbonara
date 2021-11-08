@@ -19,7 +19,6 @@
 """
 
 from .am_opcode import OpCode
-from .am_primitive import eval_macro
 
 import string
 
@@ -251,5 +250,6 @@ if __name__ == '__main__':
     print_instructions(instructions)
 
     print("eval:")
-    for primitive in eval_macro(instructions):
+    from .am_primitive import eval_macro
+    for primitive in eval_macro(instructions, 'mm'):
         print(primitive)

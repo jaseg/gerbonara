@@ -25,52 +25,16 @@ import json
 import os
 import re
 import sys
+import warnings
+from pathlib import Path
 from itertools import count, chain
-
-try:
-    from cStringIO import StringIO
-except(ImportError):
-    from io import StringIO
+from io import StringIO
 
 from .gerber_statements import *
 from .primitives import *
 from .cam import CamFile, FileSettings
 from .utils import sq_distance, rotate_point
 
-
-def read(filename):
-    """ Read data from filename and return a GerberFile
-
-    Parameters
-    ----------
-    filename : string
-        Filename of file to parse
-
-    Returns
-    -------
-    file : :class:`gerber.rs274x.GerberFile`
-        A GerberFile created from the specified file.
-    """
-    return GerberParser().parse(filename)
-
-
-def loads(data, filename=None):
-    """ Generate a GerberFile object from rs274x data in memory
-
-    Parameters
-    ----------
-    data : string
-        string containing gerber file contents
-
-    filename : string, optional
-        string containing the filename of the data source
-
-    Returns
-    -------
-    file : :class:`gerber.rs274x.GerberFile`
-        A GerberFile created from the specified file.
-    """
-    return GerberParser().parse_raw(data, filename)
 
 
 class GerberFile(CamFile):
@@ -148,18 +112,31 @@ class GerberFile(CamFile):
         self.context.notation = 'absolute'
         self.context.zeros = 'trailing'
 
+
+    @classmethod
+    def open(kls, filename, enable_includes=False, enable_include_dir=None):
+        with open(filename, "r") as f:
+            if enable_includes and enable_include_dir is None:
+                enable_include_dir = Path(filename).parent
+            return kls.from_string(f.read(), enable_include_dir)
+
+
+    @classmethod
+    def from_string(kls, data, enable_include_dir=None):
+        return GerberParser().parse(data, enable_include_dir)
+
     @property
     def comments(self):
-        return [comment.comment for comment in self.statements if isinstance(comment, CommentStmt)]
+        return [stmt.comment for stmt in self.statements if isinstance(stmt, CommentStmt)]
 
     @property
     def size(self):
-        (x0, y0), (x1, y1)= self.bounding_box
+        (x0, y0), (x1, y1) = self.bounding_box
         return (x1 - x0, y1 - y0)
 
     @property
     def bounding_box(self):
-        bounds = [ p.bounding_box for p in self.primitives ]
+        bounds = [ p.bounding_box for p in self.pDeprecatedrimitives ]
 
         min_x = min(x0 for (x0, y0), (x1, y1) in bounds)
         min_y = min(y0 for (x0, y0), (x1, y1) in bounds)
@@ -169,19 +146,19 @@ class GerberFile(CamFile):
         return ((min_x, max_x), (min_y, max_y))
 
     # TODO: re-add settings arg
-    def write(self, filename=None):
-        self.context.notation = 'absolute'
-        self.context.zeros = 'trailing'
-        self.context.format = self.format
+    def write(self, filename):
+        self.settings.notation = 'absolute'
+        self.settings.zeros = 'trailing'
+        self.settings.format = self.format
         self.units = self.units
 
-        with open(filename or self.filename, 'w') as f:
-            print(MOParamStmt('MO', self.context.units).to_gerber(self.context), file=f)
-            print(FSParamStmt('FS', self.context.zero_suppression, self.context.notation, self.context.format).to_gerber(self.context), file=f)
-            print('%IPPOS*%', file=f)
+        with open(filename, 'w') as f:
+            print(UnitStmt().to_gerber(self.settings), file=f)
+            print(FormatSpecStmt().to_gerber(self.settings), file=f)
+            print(ImagePolarityStmt().to_gerber(self.settings), file=f)
 
             for thing in chain(self.aperture_macros.values(), self.aperture_defs, self.main_statements):
-                print(thing.to_gerber(self.context), file=f)
+                print(thing.to_gerber(self.settings), file=f)
 
             print('M02*', file=f)
 
@@ -236,7 +213,6 @@ class GerberFile(CamFile):
     
     def _generalize_apertures(self):
         # For rotation, replace standard apertures with macro apertures.
-
         if not any(isinstance(stm, ADParamStmt) and stm.shape in 'ROP' for stm in self.aperture_defs):
             return
 
@@ -269,68 +245,47 @@ class GerberFile(CamFile):
                     statement.shape = polygon
 
 
-class GerberParser(object):
-    """ GerberParser
-    """
+class GerberParser:
     NUMBER = r"[\+-]?\d+"
     DECIMAL = r"[\+-]?\d+([.]?\d+)?"
-    STRING = r"[a-zA-Z0-9_+\-/!?<>”’(){}.\|&@# :]+"
     NAME = r"[a-zA-Z_$\.][a-zA-Z_$\.0-9+\-]+"
 
-    FS = r"(?P<param>FS)(?P<zero>(L|T|D))?(?P<notation>(A|I))[NG0-9]*X(?P<x>[0-7][0-7])Y(?P<y>[0-7][0-7])[DM0-9]*"
-    MO = r"(?P<param>MO)(?P<mo>(MM|IN))"
-    LP = r"(?P<param>LP)(?P<lp>(D|C))"
-    AD_CIRCLE = r"(?P<param>AD)D(?P<d>\d+)(?P<shape>C)[,]?(?P<modifiers>[^,%]*)"
-    AD_RECT = r"(?P<param>AD)D(?P<d>\d+)(?P<shape>R)[,](?P<modifiers>[^,%]*)"
-    AD_OBROUND = r"(?P<param>AD)D(?P<d>\d+)(?P<shape>O)[,](?P<modifiers>[^,%]*)"
-    AD_POLY = r"(?P<param>AD)D(?P<d>\d+)(?P<shape>P)[,](?P<modifiers>[^,%]*)"
-    AD_MACRO = r"(?P<param>AD)D(?P<d>\d+)(?P<shape>{name})[,]?(?P<modifiers>[^,%]*)".format(name=NAME)
-    AM = r"(?P<param>AM)(?P<name>{name})\*(?P<macro>[^%]*)".format(name=NAME)
-    # Include File
-    IF = r"(?P<param>IF)(?P<filename>.*)"
+    STATEMENT_REGEXES = {
+        'unit_mode': r"MO(?P<unit>(MM|IN))",
+        'interpolation_mode': r"(?P<code>G0?[123]|G74|G75)?",
+        'coord': = fr"(X(?P<x>{NUMBER}))?(Y(?P<y>{NUMBER}))?" \
+            fr"(I(?P<i>{NUMBER}))?(J(?P<j>{NUMBER}))?" \
+            fr"(?P<operation>D0?[123])?\*",
+        'aperture': r"(G54|G55)?D(?P<number>\d+)\*",
+        'comment': r"G0?4(?P<comment>[^*]*)(\*)?",
+        'format_spec': r"FS(?P<zero>(L|T|D))?(?P<notation>(A|I))[NG0-9]*X(?P<x>[0-7][0-7])Y(?P<y>[0-7][0-7])[DM0-9]*",
+        'load_polarity': r"LP(?P<polarity>(D|C))",
+        'load_name': r"LN(?P<name>.*)",
+        'offset': fr"OF(A(?P<a>{DECIMAL}))?(B(?P<b>{DECIMAL}))?",
+        'include_file': r"IF(?P<filename>.*)",
+        'image_name': r"IN(?P<name>.*)",
+        'axis_selection': r"AS(?P<axes>AXBY|AYBX)",
+        'image_polarity': r"IP(?P<polarity>(POS|NEG))",
+        'image_rotation': fr"IR(?P<rotation>{NUMBER})",
+        'mirror_image': r"MI(A(?P<a>0|1))?(B(?P<b>0|1))?",
+        'scale_factor': fr"SF(A(?P<a>{DECIMAL}))?(B(?P<b>{DECIMAL}))?",
+        'aperture_definition': fr"ADD(?P<number>\d+)(?P<shape>C|R|O|P|{NAME})[,]?(?P<modifiers>[^,%]*)",
+        'aperture_macro': fr"AM(?P<name>{NAME})\*(?P<macro>[^%]*)",
+        'region_mode': r'(?P<mode>G3[67])\*',
+        'quadrant_mode': r'(?P<mode>G7[45])\*',
+        'old_unit':r'(?P<mode>G7[01])\*',
+        'old_notation': r'(?P<mode>G9[01])\*',
+        'eof': r"M0?[02]\*",
+        'ignored': r"(?P<stmt>M01)\*",
+        }
+
+    STATEMENT_REGEXES = { key: re.compile(value) for key, value in STATEMENT_REGEXES.items() }
 
 
-    # begin deprecated
-    AS = r"(?P<param>AS)(?P<mode>(AXBY)|(AYBX))"
-    IN = r"(?P<param>IN)(?P<name>.*)"
-    IP = r"(?P<param>IP)(?P<ip>(POS|NEG))"
-    IR = r"(?P<param>IR)(?P<angle>{number})".format(number=NUMBER)
-    MI = r"(?P<param>MI)(A(?P<a>0|1))?(B(?P<b>0|1))?"
-    OF = r"(?P<param>OF)(A(?P<a>{decimal}))?(B(?P<b>{decimal}))?".format(decimal=DECIMAL)
-    SF = r"(?P<param>SF)(A(?P<a>{decimal}))?(B(?P<b>{decimal}))?".format(decimal=DECIMAL)
-    LN = r"(?P<param>LN)(?P<name>.*)"
-    DEPRECATED_UNIT = re.compile(r'(?P<mode>G7[01])\*')
-    DEPRECATED_FORMAT = re.compile(r'(?P<format>G9[01])\*')
-    # end deprecated
-
-    PARAMS = (FS, MO, LP, AD_CIRCLE, AD_RECT, AD_OBROUND, AD_POLY,
-              AD_MACRO, AM, AS, IF, IN, IP, IR, MI, OF, SF, LN)
-
-    PARAM_STMT = [re.compile(r"%?{0}\*%?".format(p)) for p in PARAMS]
-
-    COORD_FUNCTION = r"G0?[123]"
-    COORD_OP = r"D0?[123]"
-
-    COORD_STMT = re.compile((
-        r"(?P<function>{function})?"
-        r"(X(?P<x>{number}))?(Y(?P<y>{number}))?"
-        r"(I(?P<i>{number}))?(J(?P<j>{number}))?"
-        r"(?P<op>{op})?\*".format(number=NUMBER, function=COORD_FUNCTION, op=COORD_OP)))
-
-    APERTURE_STMT = re.compile(r"(?P<deprecated>(G54)|(G55))?D(?P<d>\d+)\*")
-
-    COMMENT_STMT = re.compile(r"G0?4(?P<comment>[^*]*)(\*)?")
-
-    EOF_STMT = re.compile(r"(?P<eof>M[0]?[012])\*")
-
-    REGION_MODE_STMT = re.compile(r'(?P<mode>G3[67])\*')
-    QUAD_MODE_STMT = re.compile(r'(?P<mode>G7[45])\*')
-
-    # Keep include loop from crashing us
-    INCLUDE_FILE_RECURSION_LIMIT = 10
-
-    def __init__(self):
-        self.filename = None
+    def __init__(self, include_dir=None):
+        """ Pass an include dir to enable IF include statements (potentially DANGEROUS!). """
+        self.include_dir = include_dir
+        self.include_stack = []
         self.settings = FileSettings()
         self.statements = []
         self.primitives = []
@@ -339,6 +294,7 @@ class GerberParser(object):
         self.current_region = None
         self.x = 0
         self.y = 0
+        self.last_operation = None
         self.op = "D02"
         self.aperture = 0
         self.interpolation = 'linear'
@@ -348,17 +304,9 @@ class GerberParser(object):
         self.region_mode = 'off'
         self.quadrant_mode = 'multi-quadrant'
         self.step_and_repeat = (1, 1, 0, 0)
-        self._recursion_depth = 0
 
-    def parse(self, filename):
-        self.filename = filename
-        with open(filename, "r") as fp:
-            data = fp.read()
-        return self.parse_raw(data, filename)
-
-    def parse_raw(self, data, filename=None):
-        self.filename = filename
-        for stmt in self._parse(self._split_commands(data)):
+    def parse(self, data):
+        for stmt in self._parse(data):
             self.evaluate(stmt)
             self.statements.append(stmt)
 
@@ -366,38 +314,37 @@ class GerberParser(object):
         for stmt in self.statements:
             stmt.units = self.settings.units
 
-        return GerberFile(self.statements, self.settings, self.primitives, self.apertures.values(), filename)
+        return GerberFile(self.statements, self.settings, self.primitives, self.apertures.values())
 
-    def _split_commands(self, data):
+    @classmethod
+    def _split_commands(kls, data):
         """
         Split the data into commands. Commands end with * (and also newline to help with some badly formatted files)
         """
 
-        length = len(data)
         start = 0
-        in_header = True
+        extended_command = False
 
-        for cur in range(0, length):
+        for pos, c in enumerate(data):
+            if c == '%':
+                if extended_command:
+                    yield data[start:pos+1]
+                    extended_command = False
+                    start = pos + 1
 
-            val = data[cur]
+                else:
+                    extended_command = True
 
-            if val == '%' and start == cur:
-                in_header = True
                 continue
 
-            if val == '\r' or val == '\n':
-                if start != cur:
-                    yield data[start:cur]
-                start = cur + 1
+            elif extended_command:
+                continue
 
-            elif not in_header and val == '*':
-                yield data[start:cur + 1]
+            if c == '\r' or c == '\n' or c == '*':
+                word_command = data[start:pos+1].strip()
+                if word_command and word_command != '*':
+                    yield word_command
                 start = cur + 1
-
-            elif in_header and val == '%':
-                yield data[start:cur + 1]
-                start = cur + 1
-                in_header = False
 
     def dump_json(self):
         return json.dumps({"statements": [stmt.__dict__ for stmt in self.statements]})
@@ -406,164 +353,189 @@ class GerberParser(object):
         return '\n'.join(str(stmt) for stmt in self.statements) + '\n'
 
     def _parse(self, data):
-        oldline = ''
+        for line in self._split_commands(data):
+            # We cannot assume input gerber to use well-formed statement delimiters. Thus, we may need to parse
+            # multiple statements from one line.
+            while line:
+                for name, le_regex in self.STATEMENT_REGEXES.items():
+                    if (match := le_regex.match(line))
+                        yield from getattr(self, f'_parse_{name}')(self, match.groupdict())
+                        line = line[match.end(0):]
+                        break
 
-        for line in data:
-            line = oldline + line.strip()
-
-            # skip empty lines
-            if not len(line):
-                continue
-
-            # deal with multi-line parameters
-            if line.startswith("%") and not line.endswith("%") and not "%" in line[1:]:
-                oldline = line
-                continue
-
-            did_something = True  # make sure we do at least one loop
-            while did_something and len(line) > 0:
-                did_something = False
-
-                # consume empty data blocks
-                if line[0] == '*':
-                    line = line[1:]
-                    did_something = True
-                    continue
-
-                # coord
-                (coord, r) = _match_one(self.COORD_STMT, line)
-                if coord:
-                    yield CoordStmt.from_dict(coord, self.settings)
-                    line = r
-                    did_something = True
-                    continue
-
-                # aperture selection
-                (aperture, r) = _match_one(self.APERTURE_STMT, line)
-                if aperture:
-                    yield ApertureStmt(**aperture)
-                    did_something = True
-                    line = r
-                    continue
-
-                # parameter
-                (param, r) = _match_one_from_many(self.PARAM_STMT, line)
-
-                if param:
-                    if param["param"] == "FS":
-                        stmt = FSParamStmt.from_dict(param)
-                        self.settings.zero_suppression = stmt.zero_suppression
-                        self.settings.format = stmt.format
-                        self.settings.notation = stmt.notation
-                        yield stmt
-                    elif param["param"] == "MO":
-                        stmt = MOParamStmt.from_dict(param)
-                        self.settings.units = stmt.mode
-                        yield stmt
-                    elif param["param"] == "LP":
-                        yield LPParamStmt.from_dict(param)
-                    elif param["param"] == "AD":
-                        yield ADParamStmt.from_dict(param)
-                    elif param["param"] == "AM":
-                        yield AMParamStmt.from_dict(param, units=self.settings.units)
-                    elif param["param"] == "OF":
-                        yield OFParamStmt.from_dict(param)
-                    elif param["param"] == "IF":
-                        # Don't crash on include loop
-                        if self._recursion_depth < self.INCLUDE_FILE_RECURSION_LIMIT:
-                            self._recursion_depth += 1
-                            with open(os.path.join(os.path.dirname(self.filename), param["filename"]), 'r') as f:
-                                inc_data = f.read()
-                            for stmt in self._parse(self._split_commands(inc_data)):
-                                yield stmt
-                            self._recursion_depth -= 1
-                        else:
-                            raise IOError("Include file nesting depth limit exceeded.")
-                    elif param["param"] == "IN":
-                        yield INParamStmt.from_dict(param)
-                    elif param["param"] == "LN":
-                        yield LNParamStmt.from_dict(param)
-                    # deprecated commands AS, IN, IP, IR, MI, OF, SF, LN
-                    elif param["param"] == "AS":
-                        yield ASParamStmt.from_dict(param)
-                    elif param["param"] == "IN":
-                        yield INParamStmt.from_dict(param)
-                    elif param["param"] == "IP":
-                        yield IPParamStmt.from_dict(param)
-                    elif param["param"] == "IR":
-                        yield IRParamStmt.from_dict(param)
-                    elif param["param"] == "MI":
-                        yield MIParamStmt.from_dict(param)
-                    elif param["param"] == "OF":
-                        yield OFParamStmt.from_dict(param)
-                    elif param["param"] == "SF":
-                        yield SFParamStmt.from_dict(param)
-                    elif param["param"] == "LN":
-                        yield LNParamStmt.from_dict(param)
-                    else:
+                else:
+                    if line[-1] == '*':
                         yield UnknownStmt(line)
+                        line = ''
 
-                    did_something = True
-                    line = r
-                    continue
+    def _parse_interpolation_mode(self, match):
+        if match['code'] == 'G01':
+            yield LinearModeStmt()
+        elif match['code'] == 'G02':
+            yield CircularCWModeStmt()
+        elif match['code'] == 'G03':
+            yield CircularCCWModeStmt()
+        elif match['code'] == 'G74':
+            yield MultiQuadrantModeStmt()
+        elif match['code'] == 'G75':
+            yield SingleQuadrantModeStmt()
 
-                # Region Mode
-                (mode, r) = _match_one(self.REGION_MODE_STMT, line)
-                if mode:
-                    yield RegionModeStmt.from_gerber(line)
-                    line = r
-                    did_something = True
-                    continue
+    def _parse_coord(self, match):
+        x = parse_gerber_value(match.get('x'), self.settings)
+        y = parse_gerber_value(match.get('y'), self.settings)
+        i = parse_gerber_value(match.get('i'), self.settings)
+        j = parse_gerber_value(match.get('j'), self.settings)
+        if not (op := match['operation']):
+            if self.last_operation == 'D01':
+                warnings.warn('Coordinate statement without explicit operation code. This is forbidden by spec.',
+                        SyntaxWarning)
+                op = 'D01'
+            else:
+                raise SyntaxError('Ambiguous coordinate statement. Coordinate statement does not have an operation '\
+                                  'mode and the last operation statement was not D01.')
 
-                # Quadrant Mode
-                (mode, r) = _match_one(self.QUAD_MODE_STMT, line)
-                if mode:
-                    yield QuadrantModeStmt.from_gerber(line)
-                    line = r
-                    did_something = True
-                    continue
+        if op in ('D1', 'D01'):
+            yield InterpolateStmt(x, y, i, j)
 
-                # comment
-                (comment, r) = _match_one(self.COMMENT_STMT, line)
-                if comment:
-                    yield CommentStmt(comment["comment"])
-                    did_something = True
-                    line = r
-                    continue
+        if i is not None or j is not None:
+            raise SyntaxError("i/j coordinates given for D02/D03 operation (which doesn't take i/j)")
+            
+        if op in ('D2', 'D02'):
+            yield MoveStmt(x, y, i, j)
+        else: # D03
+            yield FlashStmt(x, y, i, j)
 
-                # deprecated codes
-                (deprecated_unit, r) = _match_one(self.DEPRECATED_UNIT, line)
-                if deprecated_unit:
-                    stmt = MOParamStmt(param="MO", mo="inch" if "G70" in
-                                       deprecated_unit["mode"] else "metric")
-                    self.settings.units = stmt.mode
-                    yield stmt
-                    line = r
-                    did_something = True
-                    continue
 
-                (deprecated_format, r) = _match_one(self.DEPRECATED_FORMAT, line)
-                if deprecated_format:
-                    yield DeprecatedStmt.from_gerber(line)
-                    line = r
-                    did_something = True
-                    continue
+    def _parse_aperture(self, match):
+        number = int(match['number'])
+        if number < 10:
+            raise SyntaxError(f'Invalid aperture number {number}: Aperture number must be >= 10.')
+        yield ApertureStmt(number)
+    
+    def _parse_format_spec(self, match):
+        # This is a common problem in Eagle files, so just suppress it
+        self.settings.zero_suppression = {'L': 'leading', 'T': 'trailing'}.get(match['zero'], 'leading')
+        self.settings.notation = 'absolute' if match.['notation'] == 'A' else 'incremental'
 
-                # eof
-                (eof, r) = _match_one(self.EOF_STMT, line)
-                if eof:
-                    yield EofStmt()
-                    did_something = True
-                    line = r
-                    continue
+        if match['x'] != match['y']:
+            raise SyntaxError(f'FS specifies different coordinate formats for X and Y ({match["x"]} != {match["y"]})')
+        self.settings.number_format = int(match['x'][0]), int(match['x'][1])
 
-                if line.find('*') > 0:
-                    yield UnknownStmt(line)
-                    did_something = True
-                    line = ""
-                    continue
+        yield FormatSpecStmt()
 
-            oldline = line
+    def _parse_unit_mode(self, match):
+        if match['unit'] == 'MM':
+            self.settings.units = 'mm'
+        else:
+            self.settings.units = 'inch'
+
+        yield MOParamStmt()
+
+    def _parse_load_polarity(self, match):
+        yield LoadPolarityStmt(dark=(match['polarity'] == 'D'))
+
+    def _parse_offset(self, match):
+        a, b = match['a'], match['b']
+        a = float(a) if a else 0
+        b = float(b) if b else 0
+        yield OffsetStmt(a, b)
+
+    def _parse_include_file(self, match):
+        if self.include_dir is None:
+            warnings.warn('IF Include File statement found, but includes are deactivated.', ResourceWarning)
+        else:
+            warnings.warn('IF Include File statement found. Includes are activated, but is this really a good idea?', ResourceWarning)
+
+        include_file = self.include_dir / param["filename"]
+        if include_file in self.include_stack
+            raise ValueError("Recusive file inclusion via IF include statement.")
+        self.include_stack.append(include_file)
+
+        # Spec 2020-09 section 3.1: Gerber files must use UTF-8
+        yield from self._parse(f.read_text(encoding='UTF-8'))
+        self.include_stack.pop()
+
+
+    def _parse_image_name(self, match):
+        warnings.warn('Deprecated IN (image name) statement found. This deprecated since rev. I4 (Oct 2013).',
+                DeprecationWarning)
+        yield CommentStmt(f'Image name: {match["name"]}')
+
+    def _parse_load_name(self, match):
+        warnings.warn('Deprecated LN (load name) statement found. This deprecated since rev. I4 (Oct 2013).',
+                DeprecationWarning)
+        yield CommentStmt(f'Name of subsequent part: {match["name"]}')
+
+    def _parse_axis_selection(self, match):
+        warnings.warn('Deprecated AS (axis selection) statement found. This deprecated since rev. I1 (Dec 2012).',
+                DeprecationWarning)
+        self.settings.output_axes = match['axes']
+        yield AxisSelectionStmt()
+
+    def _parse_image_polarity(self, match):
+        warnings.warn('Deprecated IP (image polarity) statement found. This deprecated since rev. I4 (Oct 2013).',
+                DeprecationWarning)
+        self.settings.image_polarity = match['polarity']
+        yield ImagePolarityStmt()
+    
+    def _parse_image_rotation(self, match):
+        warnings.warn('Deprecated IR (image rotation) statement found. This deprecated since rev. I1 (Dec 2012).',
+                DeprecationWarning)
+        self.settings.image_rotation = int(match['rotation'])
+        yield ImageRotationStmt()
+
+    def _parse_mirror_image(self, match):
+        warnings.warn('Deprecated MI (mirror image) statement found. This deprecated since rev. I1 (Dec 2012).',
+                DeprecationWarning)
+        self.settings.mirror = bool(int(match['a'] or '0')), bool(int(match['b'] or '1'))
+        yield MirrorImageStmt()
+
+    def _parse_scale_factor(self, match):
+        warnings.warn('Deprecated SF (scale factor) statement found. This deprecated since rev. I1 (Dec 2012).',
+                DeprecationWarning)
+        a = float(match['a']) if match['a'] else 1.0
+        b = float(match['b']) if match['b'] else 1.0
+        self.settings.scale_factor = a, b
+        yield ScaleFactorStmt()
+
+    def _parse_comment(self, match):
+        yield CommentStmt(match["comment"])
+
+    def _parse_region_mode(self, match):
+        yield RegionStartStatement() if match['mode'] == 'G36' else RegionEndStatement()
+
+        elif param["param"] == "AM":
+            yield AMParamStmt.from_dict(param, units=self.settings.units)
+        elif param["param"] == "AD":
+            yield ADParamStmt.from_dict(param)
+
+    def _parse_quadrant_mode(self, match):
+        if match['mode'] == 'G74':
+            warnings.warn('Deprecated G74 single quadrant mode statement found. This deprecated since 2021.',
+                    DeprecationWarning)
+            yield SingleQuadrantModeStmt()
+        else:
+            yield MultiQuadrantModeStmt()
+
+    def _parse_old_unit(self, match):
+        self.settings.units = 'inch' if match['mode'] == 'G70' else 'mm'
+        warnings.warn(f'Deprecated {match["mode"]} unit mode statement found. This deprecated since 2012.',
+                    DeprecationWarning)
+        yield CommentStmt(f'Replaced deprecated {match["mode"]} unit mode statement with MO statement')
+        yield UnitStmt()
+
+    def _parse_old_unit(self, match):
+        # FIXME make sure we always have FS at end of processing.
+        self.settings.notation = 'absolute' if match['mode'] == 'G90' else 'incremental'
+        warnings.warn(f'Deprecated {match["mode"]} notation mode statement found. This deprecated since 2012.',
+                    DeprecationWarning)
+        yield CommentStmt(f'Replaced deprecated {match["mode"]} notation mode statement with FS statement')
+    
+    def _parse_eof(self, match):
+        yield EofStmt()
+
+    def _parse_ignored(self, match):
+        yield CommentStmt(f'Ignoring {match{"stmt"]} statement.')
 
     def evaluate(self, stmt):
         """ Evaluate Gerber statement and update image accordingly.

@@ -413,84 +413,29 @@ def test_AMParamStmt_factory():
 1,1,1.5,0,0*
 20,1,0.9,0,0.45,12,0.45,0*
 21,1,6.8,1.2,3.4,0.6,0*
-22,1,6.8,1.2,0,0,0*
 4,1,4,0.1,0.1,0.5,0.1,0.5,0.5,0.1,0.5,0.1,0.1,0*
 5,1,8,0,0,8,0*
-6,0,0,5,0.5,0.5,2,0.1,6,0*
 7,0,0,7,6,0.2,0*
-8,THIS IS AN UNSUPPORTED PRIMITIVE*
 """
-    s = AMParamStmt.from_dict({"param": "AM", "name": name, "macro": macro})
-    s.build()
+    s = AMParamStmt.from_dict({"param": "AM", "name": name, "macro": macro}, units='mm')
     assert len(s.primitives) == 10
     assert isinstance(s.primitives[0], AMCommentPrimitive)
     assert isinstance(s.primitives[1], AMCirclePrimitive)
     assert isinstance(s.primitives[2], AMVectorLinePrimitive)
     assert isinstance(s.primitives[3], AMCenterLinePrimitive)
-    assert isinstance(s.primitives[4], AMLowerLeftLinePrimitive)
     assert isinstance(s.primitives[5], AMOutlinePrimitive)
     assert isinstance(s.primitives[6], AMPolygonPrimitive)
-    assert isinstance(s.primitives[7], AMMoirePrimitive)
     assert isinstance(s.primitives[8], AMThermalPrimitive)
-    assert isinstance(s.primitives[9], AMUnsupportPrimitive)
-
-
-def testAMParamStmt_conversion():
-    name = "POLYGON"
-    macro = "5,1,8,25.4,25.4,25.4,0*"
-    s = AMParamStmt.from_dict({"param": "AM", "name": name, "macro": macro})
-
-    s.build()
-    s.units = "metric"
-
-    # No effect
-    s.to_metric()
-    assert s.primitives[0].position == (25.4, 25.4)
-    assert s.primitives[0].diameter == 25.4
-
-    s.to_inch()
-    assert s.units == "inch"
-    assert s.primitives[0].position == (1.0, 1.0)
-    assert s.primitives[0].diameter == 1.0
-
-    # No effect
-    s.to_inch()
-    assert s.primitives[0].position == (1.0, 1.0)
-    assert s.primitives[0].diameter == 1.0
-
-    macro = "5,1,8,1,1,1,0*"
-    s = AMParamStmt.from_dict({"param": "AM", "name": name, "macro": macro})
-    s.build()
-    s.units = "inch"
-
-    # No effect
-    s.to_inch()
-    assert s.primitives[0].position == (1.0, 1.0)
-    assert s.primitives[0].diameter == 1.0
-
-    s.to_metric()
-    assert s.units == "metric"
-    assert s.primitives[0].position == (25.4, 25.4)
-    assert s.primitives[0].diameter == 25.4
-
-    # No effect
-    s.to_metric()
-    assert s.primitives[0].position == (25.4, 25.4)
-    assert s.primitives[0].diameter == 25.4
 
 
 def test_AMParamStmt_dump():
     name = "POLYGON"
     macro = "5,1,8,25.4,25.4,25.4,0.0"
-    s = AMParamStmt.from_dict({"param": "AM", "name": name, "macro": macro})
-    s.build()
+    s = AMParamStmt.from_dict({"param": "AM", "name": name, "macro": macro}, units='mm')
     assert s.to_gerber() == "%AMPOLYGON*5,1,8,25.4,25.4,25.4,0.0*%"
 
     # TODO - Store Equations and update on unit change...
-    s = AMParamStmt.from_dict(
-        {"param": "AM", "name": "OC8", "macro": "5,1,8,0,0,1.08239X$1,22.5"}
-    )
-    s.build()
+    s = AMParamStmt.from_dict({"param": "AM", "name": "OC8", "macro": "5,1,8,0,0,1.08239X$1,22.5"}, units='mm')
     # assert_equal(s.to_gerber(), '%AMOC8*5,1,8,0,0,1.08239X$1,22.5*%')
     assert s.to_gerber() == "%AMOC8*5,1,8,0,0,0,22.5*%"
 
@@ -498,8 +443,7 @@ def test_AMParamStmt_dump():
 def test_AMParamStmt_string():
     name = "POLYGON"
     macro = "5,1,8,25.4,25.4,25.4,0*"
-    s = AMParamStmt.from_dict({"param": "AM", "name": name, "macro": macro})
-    s.build()
+    s = AMParamStmt.from_dict({"param": "AM", "name": name, "macro": macro}, units='mm')
     assert str(s) == "<Aperture Macro POLYGON: 5,1,8,25.4,25.4,25.4,0*>"
 
 

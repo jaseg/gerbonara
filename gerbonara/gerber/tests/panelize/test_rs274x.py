@@ -68,8 +68,3 @@ class TestRs274x(unittest.TestCase):
             gerber.rotate(20, (10,10))
             gerber.write(outfile)
 
-    def test_single_quadrant(self):
-        with self._check_result('RS2724x_single_quadrant.gtl') as outfile:
-            gerber = read(self.SQ_FILE)
-            gerber.write(outfile)
-

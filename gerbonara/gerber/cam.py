@@ -14,164 +14,50 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-CAM File
-============
-**AM file classes**
 
-This module provides common base classes for Excellon/Gerber CNC files
-"""
+from dataclasses import dataclass
 
 
-class FileSettings(object):
-    """ CAM File Settings
+@dataclass
+class FileSettings:
+    output_axes : str = 'AXBY' # For deprecated AS statement
+    image_polarity : str = 'positive'
+    image_rotation: int = 0
+    mirror_image : tuple = (False, False)
+    scale_factor : tuple = (1.0, 1.0) # For deprecated SF statement
+    notation : str = 'absolute'
+    units : str = 'inch'
+    angle_units : str = 'degrees'
+    zeros : bool = None
+    number_format : tuple = (2, 5)
 
-    Provides a common representation of gerber/excellon file settings
+    # input validation
+    def __setattr__(self, name, value):
+        if name == 'output_axes' and value not in [None, 'AXBY', 'AYBX']:
+            raise ValueError('output_axes must be either "AXBY", "AYBX" or None')
+        if name == 'image_rotation' and value not in [0, 90, 180, 270]:
+            raise ValueError('image_rotation must be 0, 90, 180 or 270')
+        elif name == 'image_polarity' and value not in ['positive', 'negative']:
+            raise ValueError('image_polarity must be either "positive" or "negative"')
+        elif name == 'mirror_image' and len(value) != 2:
+            raise ValueError('mirror_image must be 2-tuple of bools: (mirror_a, mirror_b)')
+        elif name == 'scale_factor' and len(value) != 2:
+            raise ValueError('scale_factor must be 2-tuple of floats: (scale_a, scale_b)')
+        elif name == 'notation' and value not in ['inch', 'mm']:
+            raise ValueError('Units must be either "inch" or "mm"')
+        elif name == 'units' and value not in ['absolute', 'incremental']:
+            raise ValueError('Notation must be either "absolute" or "incremental"')
+        elif name == 'angle_units' and value not in ('degrees', 'radians'):
+            raise ValueError('Angle units may be "degrees" or "radians"')
+        elif name == 'zeros' and value not in [None, 'leading', 'trailing']:
+            raise ValueError('zero_suppression must be either "leading" or "trailing" or None')
+        elif name == 'number_format' and len(value) != 2:
+            raise ValueError('Number format must be a (integer, fractional) tuple of integers')
 
-    Parameters
-    ----------
-    notation: string
-        notation format. either 'absolute' or 'incremental'
-
-    units : string
-        Measurement units. 'inch' or 'metric'
-
-    zero_suppression: string
-        'leading' to suppress leading zeros, 'trailing' to suppress trailing zeros.
-        This is the convention used in Gerber files.
-
-    format : tuple (int, int)
-        Decimal format
-
-    zeros : string
-        'leading' to include leading zeros, 'trailing to include trailing zeros.
-        This is the convention used in Excellon files
-
-    Notes
-    -----
-    Either `zeros` or `zero_suppression` should be specified, there is no need to
-    specify both. `zero_suppression` will take on the opposite value of `zeros`
-    and vice versa
-    """
-
-    def __init__(self, notation='absolute', units='inch',
-                 zero_suppression=None, format=(2, 5), zeros=None,
-                 angle_units='degrees'):
-        if notation not in ['absolute', 'incremental']:
-            raise ValueError('Notation must be either absolute or incremental')
-        self.notation = notation
-
-        if units not in ['inch', 'metric']:
-            raise ValueError('Units must be either inch or metric')
-        self.units = units
-
-        if zero_suppression is None and zeros is None:
-            self.zero_suppression = 'trailing'
-
-        elif zero_suppression == zeros:
-            raise ValueError('Zeros and Zero Suppression must be different. \
-                             Best practice is to specify only one.')
-
-        elif zero_suppression is not None:
-            if zero_suppression not in ['leading', 'trailing']:
-                # This is a common problem in Eagle files, so just suppress it
-                self.zero_suppression = 'leading'
-            else:
-                self.zero_suppression = zero_suppression
-
-        elif zeros is not None:
-            if zeros not in ['leading', 'trailing']:
-                raise ValueError('Zeros must be either leading or trailling')
-            self.zeros = zeros
-
-        if len(format) != 2:
-            raise ValueError('Format must be a tuple(n=2) of integers')
-        self.format = format
-
-        if angle_units not in ('degrees', 'radians'):
-            raise ValueError('Angle units may be degrees or radians')
-        self.angle_units = angle_units
-
-    @property
-    def zero_suppression(self):
-        return self._zero_suppression
-
-    @zero_suppression.setter
-    def zero_suppression(self, value):
-        self._zero_suppression = value
-        self._zeros = 'leading' if value == 'trailing' else 'trailing'
-
-    @property
-    def zeros(self):
-        return self._zeros
-
-    @zeros.setter
-    def zeros(self, value):
-
-        self._zeros = value
-        self._zero_suppression = 'leading' if value == 'trailing' else 'trailing'
-
-    def __getitem__(self, key):
-        if key == 'notation':
-            return self.notation
-        elif key == 'units':
-            return self.units
-        elif key == 'zero_suppression':
-            return self.zero_suppression
-        elif key == 'zeros':
-            return self.zeros
-        elif key == 'format':
-            return self.format
-        elif key == 'angle_units':
-            return self.angle_units
-        else:
-            raise KeyError()
-
-    def __setitem__(self, key, value):
-        if key == 'notation':
-            if value not in ['absolute', 'incremental']:
-                raise ValueError('Notation must be either \
-                                 absolute or incremental')
-            self.notation = value
-        elif key == 'units':
-            if value not in ['inch', 'metric']:
-                raise ValueError('Units must be either inch or metric')
-            self.units = value
-
-        elif key == 'zero_suppression':
-            if value not in ['leading', 'trailing']:
-                raise ValueError('Zero suppression must be either leading or \
-                                 trailling')
-            self.zero_suppression = value
-
-        elif key == 'zeros':
-            if value not in ['leading', 'trailing']:
-                raise ValueError('Zeros must be either leading or trailling')
-            self.zeros = value
-
-        elif key == 'format':
-            if len(value) != 2:
-                raise ValueError('Format must be a tuple(n=2) of integers')
-            self.format = value
-
-        elif key == 'angle_units':
-            if value not in ('degrees', 'radians'):
-                raise ValueError('Angle units may be degrees or radians')
-            self.angle_units = value
-
-        else:
-            raise KeyError('%s is not a valid key' % key)
-
-    def __eq__(self, other):
-        return (self.notation == other.notation and
-                self.units == other.units and
-                self.zero_suppression == other.zero_suppression and
-                self.format == other.format and
-                self.angle_units == other.angle_units)
+        super().__setattr__(name, value)
 
     def __str__(self):
-        return ('<Settings: %s %s %s %s %s>' %
-                (self.units, self.notation, self.zero_suppression, self.format, self.angle_units))
+        return f'<File settings: units={self.units}/{self.angle_units} notation={self.notation} zeros={self.zeros} number_format={self.number_format}>'
 
 
 class CamFile(object):
@@ -202,7 +88,7 @@ class CamFile(object):
         File notation setting. May be either 'absolute' or 'incremental'
 
     units : string
-        File units setting. May be 'inch' or 'metric'
+        File units setting. May be 'inch' or 'mm'
 
     zero_suppression : string
         File zero-suppression setting. May be either 'leading' or 'trailling'
@@ -226,6 +112,7 @@ class CamFile(object):
             self.zero_suppression = 'trailing'
             self.zeros = 'leading'
             self.format = (2, 5)
+
         self.statements = statements if statements is not None else []
         if primitives is not None:
             self.primitives = primitives

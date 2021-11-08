@@ -30,10 +30,6 @@ class TestAMConstantExpression(unittest.TestCase):
         self.assertEqual(self.const_int.to_gerber(), '7')
         self.assertEqual(self.const_float.to_gerber(), '1.2345')
 
-    def test_to_instructions(self):
-        self.const_int.to_instructions()
-        self.const_float.to_instructions()
-
 class TestAMVariableExpression(unittest.TestCase):
     def setUp(self):
         self.var1_num = 1
@@ -56,10 +52,6 @@ class TestAMVariableExpression(unittest.TestCase):
     def test_to_gerber(self):
         self.assertEqual(self.var1.to_gerber(), '$1')
         self.assertEqual(self.var2.to_gerber(), '$512')
-
-    def test_to_instructions(self):
-        self.var1.to_instructions()
-        self.var2.to_instructions()
 
 class TestAMOperatorExpression(unittest.TestCase):
     def setUp(self):
@@ -132,11 +124,6 @@ class TestAMOperatorExpression(unittest.TestCase):
                              self.c1, self.c2, self.c1, self.c2
                          ))
     
-    def test_to_instructions(self):
-        for of, expression in self.vc_exps + self.cv_exps + self.cc_exps:
-            expression.to_instructions()
-        self.composition.to_instructions()
-
 class TestAMExpression(unittest.TestCase):
     def setUp(self):
         self.c1 = 10

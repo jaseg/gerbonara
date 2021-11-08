@@ -29,7 +29,7 @@ from math import radians, sin, cos, sqrt, atan2, pi
 MILLIMETERS_PER_INCH = 25.4
 
 
-def parse_gerber_value(value, format=(2, 5), zero_suppression='trailing'):
+def parse_gerber_value(value, settings):
     """ Convert gerber/excellon formatted string to floating-point number
 
     .. note::
@@ -60,12 +60,16 @@ def parse_gerber_value(value, format=(2, 5), zero_suppression='trailing'):
         The specified value as a floating-point number.
 
     """
+
+    if value is None:
+        return None
+
     # Handle excellon edge case with explicit decimal. "That was easy!"
     if '.' in value:
         return float(value)
 
     # Format precision
-    integer_digits, decimal_digits = format
+    integer_digits, decimal_digits = settings.format
     MAX_DIGITS = integer_digits + decimal_digits
 
     # Absolute maximum number of digits supported. This will handle up to
@@ -82,9 +86,9 @@ def parse_gerber_value(value, format=(2, 5), zero_suppression='trailing'):
 
     missing_digits = MAX_DIGITS - len(value)
 
-    if zero_suppression == 'trailing':
+    if settings.zero_suppression == 'trailing':
         digits = list(value + ('0' * missing_digits))
-    elif zero_suppression == 'leading':
+    elif settings.zero_suppression == 'leading':
         digits = list(('0' * missing_digits) + value)
     else:
         digits = list(value)
@@ -94,7 +98,7 @@ def parse_gerber_value(value, format=(2, 5), zero_suppression='trailing'):
     return -result if negative else result
 
 
-def write_gerber_value(value, format=(2, 5), zero_suppression='trailing'):
+def write_gerber_value(value, settings):
     """ Convert a floating point number to a Gerber/Excellon-formatted string.
 
     .. note::
@@ -128,7 +132,7 @@ def write_gerber_value(value, format=(2, 5), zero_suppression='trailing'):
         return "%f" %value
     
     # Format precision
-    integer_digits, decimal_digits = format
+    integer_digits, decimal_digits = settings.format
     MAX_DIGITS = integer_digits + decimal_digits
 
     if MAX_DIGITS > 13 or integer_digits > 6 or decimal_digits > 7:
@@ -154,10 +158,10 @@ def write_gerber_value(value, format=(2, 5), zero_suppression='trailing'):
         return '0'
 
     # Suppression...
-    if zero_suppression == 'trailing':
+    if settings.zero_suppression == 'trailing':
         while digits and digits[-1] == '0':
             digits.pop()
-    elif zero_suppression == 'leading':
+    elif settings.zero_suppression == 'leading':
         while digits and digits[0] == '0':
             digits.pop(0)
 
