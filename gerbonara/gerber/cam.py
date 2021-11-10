@@ -24,6 +24,7 @@ class FileSettings:
     image_polarity : str = 'positive'
     image_rotation: int = 0
     mirror_image : tuple = (False, False)
+    offset : tuple = (0, 0)
     scale_factor : tuple = (1.0, 1.0) # For deprecated SF statement
     notation : str = 'absolute'
     units : str = 'inch'
@@ -41,6 +42,8 @@ class FileSettings:
             raise ValueError('image_polarity must be either "positive" or "negative"')
         elif name == 'mirror_image' and len(value) != 2:
             raise ValueError('mirror_image must be 2-tuple of bools: (mirror_a, mirror_b)')
+        elif name == 'offset' and len(value) != 2:
+            raise ValueError('offset must be 2-tuple of floats: (offset_a, offset_b)')
         elif name == 'scale_factor' and len(value) != 2:
             raise ValueError('scale_factor must be 2-tuple of floats: (scale_a, scale_b)')
         elif name == 'notation' and value not in ['inch', 'mm']:

@@ -30,48 +30,23 @@ from .primitives import AMGroup
 
 
 class Statement:
-    """ Gerber statement Base class
+    pass
 
-    The statement class provides a type attribute.
-
-    Parameters
-    ----------
-    type : string
-        String identifying the statement type.
-
-    Attributes
-    ----------
-    type : string
-        String identifying the statement type.
-    """
-
-    def __str__(self):
-        s = "<{0} ".format(self.__class__.__name__)
-
-        for key, value in self.__dict__.items():
-            s += "{0}={1} ".format(key, value)
-
-        s = s.rstrip() + ">"
-        return s
-
-    def offset(self, x_offset=0, y_offset=0):
+    def update_graphics_state(self, _state):
         pass
 
-    def __eq__(self, other):
-        return self.__dict__ == other.__dict__
-
+    def render_primitives(self, _state):
+        pass
 
 class ParamStmt(Statement):
     pass
 
 class FormatSpecStmt(ParamStmt):
     """ FS - Gerber Format Specification Statement """
-    code = 'FS'
 
     def to_gerber(self, settings):
         zeros = 'L' if settings.zero_suppression == 'leading' else 'T'
         notation = 'A' if settings.notation == 'absolute' else 'I'
-        fmt = settings.number_format
         number_format = str(settings.number_format[0]) + str(settings.number_format[1])
 
         return f'%FS{zeros}{notation}X{number_format}Y{number_format}*%'
@@ -104,8 +79,11 @@ class LoadPolarityStmt(ParamStmt):
         lp = 'dark' if self.dark else 'clear'
         return f'<LP Level Polarity: {lp}>'
 
+    def update_graphics_state(self, state):
+        state.polarity_dark = self.dark
 
-class ADParamStmt(ParamStmt):
+
+class ApertureDefStmt(ParamStmt):
     """ AD - Aperture Definition Statement """
 
     @classmethod
@@ -306,15 +284,6 @@ class AMParamStmt(ParamStmt):
         return '<AM Aperture Macro %s: %s>' % (self.name, self.macro)
 
 
-class AxisSelectionStmt(ParamStmt):
-    """ AS - Axis Selection Statement. (Deprecated) """
-
-    def to_gerber(self, settings):
-        return f'%AS{settings.output_axes}*%'
-
-    def __str__(self):
-        return '<AS Axis Select>'
-
 class ImagePolarityStmt(ParamStmt):
     """ IP - Image Polarity Statement. (Deprecated) """
 
@@ -326,157 +295,49 @@ class ImagePolarityStmt(ParamStmt):
         return '<IP Image Polarity>'
 
 
-class ImageRotationStmt(ParamStmt):
-    """ IR - Image Rotation Statement. (Deprecated) """
-
-    def to_gerber(self, settings):
-        return f'%IR{settings.image_rotation}*%'
-
-    def __str__(self):
-        return '<IR Image Rotation>'
-
-class MirrorImageStmt(ParamStmt):
-    """ MI - Mirror Image Statement. (Deprecated) """
-
-    def to_gerber(self, settings):
-        return f'%SFA{int(bool(settings.mirror_image[0]))}B{int(bool(settings.mirror_image[1]))}*%'
-
-    def __str__(self):
-        return '<MI Mirror Image>'
-
-class OffsetStmt(ParamStmt):
-    """ OF - File Offset Statement. (Deprecated) """
-
-    def __init__(self, a, b):
-        self.a, self.b = a, b
-
-    def to_gerber(self, settings=None):
-        # FIXME unit conversion
-        return f'%OFA{decimal_string(self.a, precision=5)}B{decimal_string(self.b, precision=5)}*%'
-
-    def __str__(self):
-        return f'<OF Offset a={self.a} b={self.b}>'
-
-
-class SFParamStmt(ParamStmt):
-    """ SF - Scale Factor Statement. (Deprecated) """
-
-    def __init__(self, a, b):
-        self.a, self.b = a, b
-
-    def to_gerber(self, settings=None):
-        return '%SFA{decimal_string(self.a, precision=5)}B{decimal_string(self.b, precision=5)}*%'
-
-    def __str__(self):
-        return '<SF Scale Factor>'
-
 class CoordStmt(Statement):
     """ D01 - D03 operation statements """
 
     def __init__(self, x, y, i, j):
-        self.x = x
-        self.y = y
-        self.i = i
-        self.j = j
-
-    @classmethod
-    def move(cls, func, point):
-        if point:
-            return cls(func, point[0], point[1], None, None, CoordStmt.OP_MOVE, None)
-        # No point specified, so just write the function. This is normally for ending a region (D02*)
-        return cls(func, None, None, None, None, CoordStmt.OP_MOVE, None)
-
-    @classmethod
-    def line(cls, func, point):
-        return cls(func, point[0], point[1], None, None, CoordStmt.OP_DRAW, None)
-
-    @classmethod
-    def mode(cls, func):
-        return cls(func, None, None, None, None, None, None)
-
-    @classmethod
-    def arc(cls, func, point, center):
-        return cls(func, point[0], point[1], center[0], center[1], CoordStmt.OP_DRAW, None)
-
-    @classmethod
-    def flash(cls, point):
-        if point:
-            return cls(None, point[0], point[1], None, None, CoordStmt.OP_FLASH, None)
-        else:
-            return cls(None, None, None, None, None, CoordStmt.OP_FLASH, None)
+        self.x, self.y, self.i, self.j = x, y, i, j
 
     def to_gerber(self, settings=None):
         ret = ''
-        if self.x is not None:
-            ret += 'X{0}'.format(write_gerber_value(self.x, settings.format, settings.zero_suppression))
-        if self.y is not None:
-            ret += 'Y{0}'.format(write_gerber_value(self.y, settings.format, settings.zero_suppression))
-        if self.i is not None:
-            ret += 'I{0}'.format(write_gerber_value(self.i, settings.format, settings.zero_suppression))
-        if self.j is not None:
-            ret += 'J{0}'.format(write_gerber_value(self.j, settings.format, settings.zero_suppression))
-        if self.op:
-            ret += self.op
-        return ret + '*'
+        for var in 'xyij':
+            val = getattr(self, var)
+            if val is not None:
+                ret += var.upper() + write_gerber_value(val, settings.number_format, settings.zero_suppression)
+        return ret + self.code + '*'
 
-    def offset(self, x_offset=0, y_offset=0):
+    def offset(self, x=0, y=0):
         if self.x is not None:
-            self.x += x_offset
+            self.x += x
         if self.y is not None:
-            self.y += y_offset
-        if self.i is not None:
-            self.i += x_offset
-        if self.j is not None:
-            self.j += y_offset
+            self.y += y
 
     def __str__(self):
-        coord_str = ''
-        if self.function:
-            coord_str += 'Fn: %s ' % self.function
-        if self.x is not None:
-            coord_str += 'X: %g ' % self.x
-        if self.y is not None:
-            coord_str += 'Y: %g ' % self.y
-        if self.i is not None:
-            coord_str += 'I: %g ' % self.i
-        if self.j is not None:
-            coord_str += 'J: %g ' % self.j
-        if self.op:
-            if self.op == 'D01':
-                op = 'Lights On'
-            elif self.op == 'D02':
-                op = 'Lights Off'
-            elif self.op == 'D03':
-                op = 'Flash'
-            else:
-                op = self.op
-            coord_str += 'Op: %s' % op
+        if self.i is None:
+            return f'<{self.__name__.strip()} x={self.x} y={self.y}>'
+        else
+            return f'<{self.__name__.strip()} x={self.x} y={self.y} i={self.i} j={self.j]>'
 
-        return '<Coordinate Statement: %s>' % coord_str
+    def render_primitives(self, state):
+        if state.interpolation_mode == InterpolateStmt:
+            yield Line(state.current_point, (self.x, self.y))
 
-    @property
-    def only_function(self):
-        """
-        Returns if the statement only set the function.
-        """
-
-        # TODO I would like to refactor this so that the function is handled separately and then
-        # TODO this isn't required
-        return self.function != None and self.op == None and self.x == None and self.y == None and self.i == None and self.j == None
-
-class InterpolateStmt(CoordStmt):
-    """ D01 interpolation operation """
+class InterpolateStmt(Statement):
+    """ D01 Interpolation """
     code = 'D01'
 
 class MoveStmt(CoordStmt):
-    """ D02 move operation """
+    """ D02 Move """
     code = 'D02'
 
 class FlashStmt(CoordStmt):
-    """ D03 flash operation """
+    """ D03 Flash """
     code = 'D03'
 
-class InterpolationStmt(Statement):
+class InterpolationModeStmt(Statement):
     """ G01 / G02 / G03 interpolation mode statement """
     def to_gerber(self, **_kwargs):
         return self.code + '*'
@@ -484,33 +345,33 @@ class InterpolationStmt(Statement):
     def __str__(self):
         return f'<{self.__doc__.strip()}>'
 
-class LinearModeStmt(InterpolationStmt):
+class LinearModeStmt(InterpolationModeStmt):
     """ G01 linear interpolation mode statement """
     code = 'G01'
 
-class CircularCWModeStmt(InterpolationStmt):
+class CircularCWModeStmt(InterpolationModeStmt):
     """ G02 circular interpolation mode statement """
     code = 'G02'
 
-class CircularCCWModeStmt(InterpolationStmt):
+class CircularCCWModeStmt(InterpolationModeStmt):
     """ G03 circular interpolation mode statement """
     code = 'G03'
 
-class SingleQuadrantModeStmt(InterpolationStmt):
+class SingleQuadrantModeStmt(InterpolationModeStmt):
     """ G75 single-quadrant arc interpolation mode statement """
     code = 'G75'
 
-class MultiQuadrantModeStmt(InterpolationStmt):
-    """ G74 multi-quadrant arc interpolation mode statement """
-    code = 'G74'
-
-class RegionStartStatement(InterpolationStmt):
+class RegionStartStatement(InterpolationModeStmt):
     """ G36 Region Mode Start Statement. """
     code = 'G36'
 
-class RegionEndStatement(InterpolationStmt):
+class RegionEndStatement(InterpolationModeStmt):
     """ G37 Region Mode End Statement. """
     code = 'G37'
+
+class RegionGroup:
+    def __init__(self):
+        self.outline = []
 
 class ApertureStmt(Statement):
     def __init__(self, d):

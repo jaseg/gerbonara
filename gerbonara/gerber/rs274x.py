@@ -145,22 +145,34 @@ class GerberFile(CamFile):
 
         return ((min_x, max_x), (min_y, max_y))
 
-    # TODO: re-add settings arg
-    def write(self, filename):
+    def generate_statements(self):
         self.settings.notation = 'absolute'
         self.settings.zeros = 'trailing'
         self.settings.format = self.format
         self.units = self.units
 
-        with open(filename, 'w') as f:
-            print(UnitStmt().to_gerber(self.settings), file=f)
-            print(FormatSpecStmt().to_gerber(self.settings), file=f)
-            print(ImagePolarityStmt().to_gerber(self.settings), file=f)
+        yield UnitStmt()
+        yield FormatSpecStmt()
+        yield ImagePolarityStmt()
+        yield SingleQuadrantModeStmt()
 
-            for thing in chain(self.aperture_macros.values(), self.aperture_defs, self.main_statements):
-                print(thing.to_gerber(self.settings), file=f)
+        yield from self.aperture_macros.values()
+        yield from self.aperture_defs
+        yield from self.main_statements
 
-            print('M02*', file=f)
+        yield EofStmt()
+
+    def __str__(self):
+        return '\n'.join(self.generate_statements())
+
+    def save(self, filename):
+        with open(filename, 'w', encoding='utf-8') as f: # Encoding is specified as UTF-8 by spec.
+            for stmt in self.generate_statements():
+                print(stmt.to_gerber(self.settings), file=f)
+
+    def render_primitives(self):
+        for stmt in self.main_statements:
+            yield from stmt.render_primitives()
 
     def to_inch(self):
         if self.units == 'metric':
@@ -245,6 +257,45 @@ class GerberFile(CamFile):
                     statement.shape = polygon
 
 
+@dataclass
+class GraphicsState:
+    polarity_dark : bool = True
+    point : tuple = None
+    aperture : ApertureDefStmt = None
+    interpolation_mode : InterpolationModeStmt = None
+    multi_quadrant_mode : bool = None # used only for syntax checking
+
+    def flash(self, x, y):
+        self.point = (x, y)
+        return Aperture(self.aperture, x, y)
+
+    def interpolate(self, x, y, i=None, j=None):
+        if self.interpolation_mode == LinearModeStmt:
+            if i is not None or j is not None:
+                raise SyntaxError("i/j coordinates given for linear D01 operation (which doesn't take i/j)")
+
+            return self._create_line(x, y)
+
+        else:
+            return self._create_arc(x, y, i, j)
+
+    def _create_line(self, x, y):
+        old_point, self.point = self.point, (x, y)
+        return Line(old_point, self.point, self.aperture, self.polarity_dark)
+
+    def _create_arc(self, x, y, i, j):
+        if self.multi_quadrant_mode is None:
+            warnings.warn('Circular arc interpolation without explicit G75 Single-Quadrant mode statement. '\
+                    'This can cause problems with older gerber interpreters.', SyntaxWarning)
+
+        elif self.multi_quadrant_mode:
+            raise SyntaxError('Circular arc interpolation in multi-quadrant mode (G74) is not implemented.')
+
+        old_point, self.point = self.point, (x, y)
+        direction = 'ccw' if self.interpolation_mode == CircularCCWModeStmt else 'cw'
+        return Arc(old_point, self.point, (i, j), direction, self.aperture, self.polarity_dark):
+
+
 class GerberParser:
     NUMBER = r"[\+-]?\d+"
     DECIMAL = r"[\+-]?\d+([.]?\d+)?"
@@ -260,6 +311,7 @@ class GerberParser:
         'comment': r"G0?4(?P<comment>[^*]*)(\*)?",
         'format_spec': r"FS(?P<zero>(L|T|D))?(?P<notation>(A|I))[NG0-9]*X(?P<x>[0-7][0-7])Y(?P<y>[0-7][0-7])[DM0-9]*",
         'load_polarity': r"LP(?P<polarity>(D|C))",
+        # FIXME LM, LR, LS
         'load_name': r"LN(?P<name>.*)",
         'offset': fr"OF(A(?P<a>{DECIMAL}))?(B(?P<b>{DECIMAL}))?",
         'include_file': r"IF(?P<filename>.*)",
@@ -271,8 +323,8 @@ class GerberParser:
         'scale_factor': fr"SF(A(?P<a>{DECIMAL}))?(B(?P<b>{DECIMAL}))?",
         'aperture_definition': fr"ADD(?P<number>\d+)(?P<shape>C|R|O|P|{NAME})[,]?(?P<modifiers>[^,%]*)",
         'aperture_macro': fr"AM(?P<name>{NAME})\*(?P<macro>[^%]*)",
-        'region_mode': r'(?P<mode>G3[67])\*',
-        'quadrant_mode': r'(?P<mode>G7[45])\*',
+        'region_start': r'G36\*',
+        'region_end': r'G37\*',
         'old_unit':r'(?P<mode>G7[01])\*',
         'old_notation': r'(?P<mode>G9[01])\*',
         'eof': r"M0?[02]\*",
@@ -287,11 +339,13 @@ class GerberParser:
         self.include_dir = include_dir
         self.include_stack = []
         self.settings = FileSettings()
+        self.current_region = None
+        self.graphics_state = GraphicsState()
+
         self.statements = []
         self.primitives = []
         self.apertures = {}
         self.macros = {}
-        self.current_region = None
         self.x = 0
         self.y = 0
         self.last_operation = None
@@ -302,13 +356,15 @@ class GerberParser:
         self.image_polarity = 'positive'
         self.level_polarity = 'dark'
         self.region_mode = 'off'
-        self.quadrant_mode = 'multi-quadrant'
         self.step_and_repeat = (1, 1, 0, 0)
 
     def parse(self, data):
         for stmt in self._parse(data):
+            if self.current_region is None:
+                self.statements.append(stmt)
+            else:
+                self.current_region.append(stmt)
             self.evaluate(stmt)
-            self.statements.append(stmt)
 
         # Initialize statement units
         for stmt in self.statements:
@@ -370,21 +426,26 @@ class GerberParser:
 
     def _parse_interpolation_mode(self, match):
         if match['code'] == 'G01':
+            self.graphics_state.interpolation_mode = LinearModeStmt
             yield LinearModeStmt()
         elif match['code'] == 'G02':
+            self.graphics_state.interpolation_mode = CircularCWModeStmt
             yield CircularCWModeStmt()
         elif match['code'] == 'G03':
+            self.graphics_state.interpolation_mode = CircularCCWModeStmt
             yield CircularCCWModeStmt()
         elif match['code'] == 'G74':
-            yield MultiQuadrantModeStmt()
+            self.graphics_state.multi_quadrant_mode = True # used only for syntax checking
         elif match['code'] == 'G75':
-            yield SingleQuadrantModeStmt()
+            self.graphics_state.multi_quadrant_mode = False
+            # we always emit a G75 at the beginning of the file.
 
     def _parse_coord(self, match):
-        x = parse_gerber_value(match.get('x'), self.settings)
-        y = parse_gerber_value(match.get('y'), self.settings)
-        i = parse_gerber_value(match.get('i'), self.settings)
-        j = parse_gerber_value(match.get('j'), self.settings)
+        x = parse_gerber_value(match['x'], self.settings)
+        y = parse_gerber_value(match['y'], self.settings)
+        i = parse_gerber_value(match['i'], self.settings)
+        j = parse_gerber_value(match['j'], self.settings)
+
         if not (op := match['operation']):
             if self.last_operation == 'D01':
                 warnings.warn('Coordinate statement without explicit operation code. This is forbidden by spec.',
@@ -395,22 +456,28 @@ class GerberParser:
                                   'mode and the last operation statement was not D01.')
 
         if op in ('D1', 'D01'):
-            yield InterpolateStmt(x, y, i, j)
+            yield self.graphics_state.interpolate(x, y, i, j)
 
-        if i is not None or j is not None:
-            raise SyntaxError("i/j coordinates given for D02/D03 operation (which doesn't take i/j)")
-            
-        if op in ('D2', 'D02'):
-            yield MoveStmt(x, y, i, j)
-        else: # D03
-            yield FlashStmt(x, y, i, j)
+        else:
+            if i is not None or j is not None:
+                raise SyntaxError("i/j coordinates given for D02/D03 operation (which doesn't take i/j)")
+                
+            if op in ('D2', 'D02'):
+                self.graphics_state.point = (x, y)
+
+            else: # D03
+                yield self.graphics_state.flash(x, y)
 
 
     def _parse_aperture(self, match):
         number = int(match['number'])
         if number < 10:
             raise SyntaxError(f'Invalid aperture number {number}: Aperture number must be >= 10.')
-        yield ApertureStmt(number)
+
+        if number not in self.apertures:
+            raise SyntaxError(f'Tried to access undefined aperture {number}')
+
+        self.graphics_state.aperture = self.apertures[number]
     
     def _parse_format_spec(self, match):
         # This is a common problem in Eagle files, so just suppress it
@@ -421,7 +488,7 @@ class GerberParser:
             raise SyntaxError(f'FS specifies different coordinate formats for X and Y ({match["x"]} != {match["y"]})')
         self.settings.number_format = int(match['x'][0]), int(match['x'][1])
 
-        yield FormatSpecStmt()
+        yield from () # We always force a format spec statement at the beginning of the file
 
     def _parse_unit_mode(self, match):
         if match['unit'] == 'MM':
@@ -429,16 +496,17 @@ class GerberParser:
         else:
             self.settings.units = 'inch'
 
-        yield MOParamStmt()
+        yield from () # We always force a unit mode statement at the beginning of the file
 
     def _parse_load_polarity(self, match):
-        yield LoadPolarityStmt(dark=(match['polarity'] == 'D'))
+        yield LoadPolarityStmt(dark=match['polarity'] == 'D')
 
     def _parse_offset(self, match):
         a, b = match['a'], match['b']
         a = float(a) if a else 0
         b = float(b) if b else 0
-        yield OffsetStmt(a, b)
+        self.settings.offset = a, b
+        yield from () # Handled by coordinate normalization
 
     def _parse_include_file(self, match):
         if self.include_dir is None:
@@ -470,25 +538,25 @@ class GerberParser:
         warnings.warn('Deprecated AS (axis selection) statement found. This deprecated since rev. I1 (Dec 2012).',
                 DeprecationWarning)
         self.settings.output_axes = match['axes']
-        yield AxisSelectionStmt()
+        yield from () # Handled by coordinate normalization
 
     def _parse_image_polarity(self, match):
         warnings.warn('Deprecated IP (image polarity) statement found. This deprecated since rev. I4 (Oct 2013).',
                 DeprecationWarning)
         self.settings.image_polarity = match['polarity']
-        yield ImagePolarityStmt()
+        yield from () # We always emit this in the header
     
     def _parse_image_rotation(self, match):
         warnings.warn('Deprecated IR (image rotation) statement found. This deprecated since rev. I1 (Dec 2012).',
                 DeprecationWarning)
         self.settings.image_rotation = int(match['rotation'])
-        yield ImageRotationStmt()
+        yield from () # Handled by coordinate normalization
 
     def _parse_mirror_image(self, match):
         warnings.warn('Deprecated MI (mirror image) statement found. This deprecated since rev. I1 (Dec 2012).',
                 DeprecationWarning)
         self.settings.mirror = bool(int(match['a'] or '0')), bool(int(match['b'] or '1'))
-        yield MirrorImageStmt()
+        yield from () # Handled by coordinate normalization
 
     def _parse_scale_factor(self, match):
         warnings.warn('Deprecated SF (scale factor) statement found. This deprecated since rev. I1 (Dec 2012).',
@@ -496,26 +564,20 @@ class GerberParser:
         a = float(match['a']) if match['a'] else 1.0
         b = float(match['b']) if match['b'] else 1.0
         self.settings.scale_factor = a, b
-        yield ScaleFactorStmt()
+        yield from () # Handled by coordinate normalization
 
     def _parse_comment(self, match):
         yield CommentStmt(match["comment"])
 
-    def _parse_region_mode(self, match):
-        yield RegionStartStatement() if match['mode'] == 'G36' else RegionEndStatement()
+    def _parse_region_start(self, _match):
+        current_region = RegionGroup()
 
-        elif param["param"] == "AM":
-            yield AMParamStmt.from_dict(param, units=self.settings.units)
-        elif param["param"] == "AD":
-            yield ADParamStmt.from_dict(param)
-
-    def _parse_quadrant_mode(self, match):
-        if match['mode'] == 'G74':
-            warnings.warn('Deprecated G74 single quadrant mode statement found. This deprecated since 2021.',
-                    DeprecationWarning)
-            yield SingleQuadrantModeStmt()
-        else:
-            yield MultiQuadrantModeStmt()
+    def _parse_region_end(self, _match):
+        if self.current_region is None:
+            raise SyntaxError('Region end command (G37) outside of region')
+        
+        yield self.current_region
+        self.current_region = None
 
     def _parse_old_unit(self, match):
         self.settings.units = 'inch' if match['mode'] == 'G70' else 'mm'
@@ -531,11 +593,32 @@ class GerberParser:
                     DeprecationWarning)
         yield CommentStmt(f'Replaced deprecated {match["mode"]} notation mode statement with FS statement')
     
-    def _parse_eof(self, match):
+    def _parse_eof(self, _match):
         yield EofStmt()
 
     def _parse_ignored(self, match):
         yield CommentStmt(f'Ignoring {match{"stmt"]} statement.')
+
+    def _parse_aperture_definition(self, match):
+        modifiers = [ float(mod) for mod in match['modifiers'].split(',') ]
+        if match['shape'] == 'C':
+            aperture = ApertureCircle(*modifiers)
+
+        elif match['shape'] == 'R'
+            aperture = ApertureRectangle(*modifiers)
+
+        elif shape == 'O':
+            aperture = ApertureObround(*modifiers)
+
+        elif shape == 'P':
+            aperture = AperturePolygon(*modifiers)
+
+        else:
+            aperture = self.macros[shape].build(modifiers)
+
+        self.apertures[d] = aperture
+
+
 
     def evaluate(self, stmt):
         """ Evaluate Gerber statement and update image accordingly.
@@ -567,83 +650,6 @@ class GerberParser:
         else:
             raise Exception("Invalid statement to evaluate")
 
-    def _define_aperture(self, d, shape, modifiers):
-        aperture = None
-        if shape == 'C':
-            diameter = modifiers[0][0]
-
-            hole_diameter = 0
-            rectangular_hole = (0, 0)
-            if len(modifiers[0]) == 2:
-                hole_diameter = modifiers[0][1]
-            elif len(modifiers[0]) == 3:
-                rectangular_hole = modifiers[0][1:3]
-
-            aperture = Circle(position=None, diameter=diameter,
-                              hole_diameter=hole_diameter,
-                              hole_width=rectangular_hole[0],
-                              hole_height=rectangular_hole[1],
-                              units=self.settings.units)
-
-        elif shape == 'R':
-            width = modifiers[0][0]
-            height = modifiers[0][1]
-
-            hole_diameter = 0
-            rectangular_hole = (0, 0)
-            if len(modifiers[0]) == 3:
-                hole_diameter = modifiers[0][2]
-            elif len(modifiers[0]) == 4:
-                rectangular_hole = modifiers[0][2:4]
-
-            aperture = Rectangle(position=None, width=width, height=height,
-                                 hole_diameter=hole_diameter,
-                                 hole_width=rectangular_hole[0],
-                                 hole_height=rectangular_hole[1],
-                                 units=self.settings.units)
-        elif shape == 'O':
-            width = modifiers[0][0]
-            height = modifiers[0][1]
-
-            hole_diameter = 0
-            rectangular_hole = (0, 0)
-            if len(modifiers[0]) == 3:
-                hole_diameter = modifiers[0][2]
-            elif len(modifiers[0]) == 4:
-                rectangular_hole = modifiers[0][2:4]
-
-            aperture = Obround(position=None, width=width, height=height,
-                               hole_diameter=hole_diameter,
-                               hole_width=rectangular_hole[0],
-                               hole_height=rectangular_hole[1],
-                               units=self.settings.units)
-        elif shape == 'P':
-            outer_diameter = modifiers[0][0]
-            number_vertices = int(modifiers[0][1])
-            if len(modifiers[0]) > 2:
-                rotation = modifiers[0][2]
-            else:
-                rotation = 0
-
-            hole_diameter = 0
-            rectangular_hole = (0, 0)
-            if len(modifiers[0]) == 4:
-                hole_diameter = modifiers[0][3]
-            elif len(modifiers[0]) >= 5:
-                rectangular_hole = modifiers[0][3:5]
-
-            aperture = Polygon(position=None, sides=number_vertices,
-                               radius=outer_diameter/2.0,
-                               hole_diameter=hole_diameter,
-                               hole_width=rectangular_hole[0],
-                               hole_height=rectangular_hole[1],
-                               rotation=rotation)
-        else:
-            aperture = self.macros[shape].build(modifiers)
-
-        aperture.units = self.settings.units
-        self.apertures[d] = aperture
-
     def _evaluate_mode(self, stmt):
         if stmt.type == 'RegionMode':
             if self.region_mode == 'on' and stmt.mode == 'off':
@@ -658,14 +664,6 @@ class GerberParser:
             self.quadrant_mode = stmt.mode
 
     def _evaluate_param(self, stmt):
-        if stmt.param == "FS":
-            self.settings.zero_suppression = stmt.zero_suppression
-            self.settings.format = stmt.format
-            self.settings.notation = stmt.notation
-        elif stmt.param == "MO":
-            self.settings.units = stmt.mode
-        elif stmt.param == "IP":
-            self.image_polarity = stmt.ip
         elif stmt.param == "LP":
             self.level_polarity = stmt.lp
         elif stmt.param == "AM":

@@ -20,7 +20,6 @@ import os
 from .exceptions import ParseError
 from .layers import PCBLayer, sort_layers, layer_signatures
 from .common import read as gerber_read
-from .utils import listdir
 
 
 class PCB(object):
@@ -36,7 +35,7 @@ class PCB(object):
             raise TypeError('{} is not a directory.'.format(directory))
 
         # Load gerber files
-        for filename in listdir(directory, True, True):
+        for filename in os.listdir(directory):
             try:
                 camfile = gerber_read(os.path.join(directory, filename))
                 layer = PCBLayer.from_cam(camfile)
