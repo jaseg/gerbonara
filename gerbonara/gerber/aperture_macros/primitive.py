@@ -4,32 +4,46 @@
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 
 from dataclasses import dataclass, fields
-
-from .utils import *
-from .am_statements import *
-from .am_expression import *
-from .am_opcode import OpCode
+from expression import Expression, UnitExpression, ConstantExpression
 
 class Primitive:
-    def __init__(self, unit, args):
+    def __init__(self, unit, args, is_abstract):
         self.unit = unit
+        self.is_abstract = is_abstract
 
         if len(args) > len(type(self).__annotations__):
             raise ValueError(f'Too many arguments ({len(args)}) for aperture macro primitive {self.code} ({type(self)})')
 
         for arg, (name, fieldtype) in zip(args, type(self).__annotations__.items()):
-            if fieldtype == UnitExpression:
-                setattr(self, name, UnitExpression(arg, unit))
+            if is_abstract:
+                if fieldtype == UnitExpression:
+                    setattr(self, name, UnitExpression(arg, unit))
+                else:
+                    setattr(self, name, arg)
             else:
                 setattr(self, name, arg)
 
-        for name, _type in type(self).__annotations__.items():
+        for name in type(self).__annotations__:
             if not hasattr(self, name):
                 raise ValueError(f'Too few arguments ({len(args)}) for aperture macro primitive {self.code} ({type(self)})')
 
     def to_gerber(self, unit=None):
+        if not self.is_abstract:
+            raise TypeError(f"Something went wrong, tried to gerber'ize bound aperture macro primitive {self}")
         return self.code + ',' + ','.join(
-                getattr(self, name).to_gerber(unit) for name, _type in type(self).__annotations__.items()) + '*'
+                getattr(self, name).to_gerber(unit) for name in type(self).__annotations__) + '*'
+
+    def __str__(self):
+        attrs = ','.join(str(getattr(self, name)).strip('<>') for name in type(self).__annotations__)
+        return f'<{type(self).__name__} {attrs}>'
+
+    def bind(self, variable_binding={}):
+        if not self.is_abstract:
+            raise TypeError('{type(self).__name__} object is already instantiated, cannot bind again.')
+        # Return instance of the same class, but replace all attributes by their actual numeric values
+        return type(self)(unit=self.unit, is_abstract=False, args=[
+            getattr(self, name).calculate(variable_binding) for name in type(self).__annotations__
+        ])
 
 class CommentPrimitive(Primitive):
     code = 0
@@ -86,7 +100,7 @@ class ThermalPrimitive(Primitive):
 class OutlinePrimitive(Primitive):
     code = 4
 
-    def __init__(self, code, unit, args):
+    def __init__(self, unit, args, is_abstract):
         if len(args) < 11:
             raise ValueError(f'Invalid aperture macro outline primitive, not enough parameters ({len(args)}).')
         if len(args) > 5004:
@@ -94,31 +108,49 @@ class OutlinePrimitive(Primitive):
 
         self.exposure = args[0]
 
-        if args[1] != len(args)//2 - 2:
-            raise ValueError(f'Invalid aperture macro outline primitive, given size does not match length of coordinate list({len(args)}).')
+        if is_abstract:
+            # length arg must not contain variabels (that would not make sense)
+            length_arg = args[1].calculate()
 
-        if len(args) % 1 != 1:
-            self.rotation = args.pop()
+            if length_arg != len(args)//2 - 2:
+                raise ValueError(f'Invalid aperture macro outline primitive, given size does not match length of coordinate list({len(args)}).')
+
+            if len(args) % 1 != 1:
+                self.rotation = args.pop()
+            else:
+                self.rotation = ConstantExpression(0.0)
+
+            if args[2] != args[-2] or args[3] != args[-1]:
+                raise ValueError(f'Invalid aperture macro outline primitive, polygon is not closed {args[2:4], args[-3:-1]}')
+
+            self.coords = [UnitExpression(arg, unit) for arg in args[1:]]
+
         else:
-            self.rotation = ConstantExpression(0.0)
+            if len(args) % 1 != 1:
+                self.rotation = args.pop()
+            else:
+                self.rotation = 0
 
-        if args[2] != args[-2] or args[3] != args[-1]:
-            raise ValueError(f'Invalid aperture macro outline primitive, polygon is not closed {args[2:4], args[-3:-1]}')
-
-        self.coords = [UnitExpression(arg, unit) for arg in args[1:]]
+            self.coords = args[1:]
     
     def to_gerber(self, unit=None):
+        if not self.is_abstract:
+            raise TypeError(f"Something went wrong, tried to gerber'ize bound aperture macro primitive {self}")
         coords = ','.join(coord.to_gerber(unit) for coord in self.coords)
         return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)//2-1},{coords},{self.rotation.to_gerber()}'
 
+    def bind(self, variable_binding={}):
+        if not self.is_abstract:
+            raise TypeError('{type(self).__name__} object is already instantiated, cannot bind again.')
 
-class VariableDef(object):
-    def __init__(self, number, value):
-        self.number = number
-        self.value = value
+        return OutlinePrimitive(self.unit, is_abstract=False, args=[None, *self.coords, self.rotation])
 
-    def to_gerber(self, _unit=None):
-        return '$%d=%s*' % (self.number, self.value.to_gerber(settings))
+class Comment:
+    def __init__(self, comment):
+        self.comment = comment
+
+    def to_gerber(self, unit=None):
+        return f'0 {self.comment}'
 
 PRIMITIVE_CLASSES = {
     **{cls.code: cls for cls in [
@@ -129,44 +161,8 @@ PRIMITIVE_CLASSES = {
         OutlinePrimitive,
         PolygonPrimitive,
         ThermalPrimitive,
-    ],
+    ]},
     # alternative codes
     2: VectorLinePrimitive,
 }
-
-def eval_macro(instructions, unit):
-    stack = []
-    for opcode, argument in instructions:
-        if opcode == OpCode.PUSH:
-            stack.append(ConstantExpression(argument))
-
-        elif opcode == OpCode.LOAD:
-            stack.append(VariableExpression(argument))
-
-        elif opcode == OpCode.STORE:
-            yield VariableDef(code, stack.pop())
-
-        elif opcode == OpCode.ADD:
-            op1 = stack.pop()
-            op2 = stack.pop()
-            stack.append(OperatorExpression(OperatorExpression.ADD, op2, op1))
-
-        elif opcode == OpCode.SUB:
-            op1 = stack.pop()
-            op2 = stack.pop()
-            stack.append(OperatorExpression(OperatorExpression.SUB, op2, op1))
-
-        elif opcode == OpCode.MUL:
-            op1 = stack.pop()
-            op2 = stack.pop()
-            stack.append(OperatorExpression(OperatorExpression.MUL, op2, op1))
-
-        elif opcode == OpCode.DIV:
-            op1 = stack.pop()
-            op2 = stack.pop()
-            stack.append(OperatorExpression(OperatorExpression.DIV, op2, op1))
-
-        elif opcode == OpCode.PRIM:
-            yield PRIMITIVE_CLASSES[argument](unit=unit, args=stack)
-            stack = []
 

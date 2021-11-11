@@ -7,6 +7,7 @@ import operator
 import re
 import ast
 
+
 class Expression(object):
     @property
     def value(self):
@@ -17,6 +18,16 @@ class Expression(object):
 
     def __str__(self):
         return f'<{self.to_gerber()}>'
+
+    def converted(self, unit):
+        return self
+
+    def calculate(self, variable_binding={}, unit=None):
+        expr = self.converted(unit).optimized(variable_binding)
+        if not isinstance(expr, ConstantExpression):
+            raise IndexError(f'Cannot fully resolve expression due to unresolved variables: {expr} with variables {variable_binding}')
+        return expr.value
+
 
 class UnitExpression(Expression):
     def __init__(self, expr, unit):
@@ -32,7 +43,7 @@ class UnitExpression(Expression):
             self._expr == other._expr
 
     def __str__(self):
-        return f'<{self.expr.to_gerber()} {self.unit}>'
+        return f'<{self._expr.to_gerber()} {self.unit}>'
 
     def converted(self, unit):
         if unit is None or self.unit == unit:
@@ -47,29 +58,18 @@ class UnitExpression(Expression):
         else:
             raise ValueError('invalid unit, must be "inch" or "mm".')
 
-    def calculate(self, variable_binding={}, unit=None):
-        expr = self.converted(unit).optimized(variable_binding)
-        if not isinstance(expr, ConstantExpression):
-            raise IndexError(f'Cannot fully resolve expression due to unresolved variables: {expr} with variables {variable_binding}')
-
 
 class ConstantExpression(Expression):
     def __init__(self, value):
-        self._value = value
-
-    @property
-    def value(self):
-        return self._value
+        self.value = value
 
     def __float__(self):
-        return float(self._value)
+        return float(self.value)
 
     def __eq__(self, other):
-        return type(self) == type(other) and self._value == other._value
+        return type(self) == type(other) and self.value == other.value
 
     def to_gerber(self, _unit=None):
-        if isinstance(self._value, str):
-            return self._value
         return f'{self.value:.6f}'.rstrip('0').rstrip('.')
 
     
@@ -111,7 +111,7 @@ class OperatorExpression(Expression):
                 l, r = r, l
 
         if isinstance(l, ConstantExpression) and isinstance(r, ConstantExpression):
-            return ConstantExpression(self.op(float(r), float(l)))
+            return ConstantExpression(self.op(float(l), float(r)))
 
         return OperatorExpression(self.op, l, r)
         
@@ -131,55 +131,3 @@ class OperatorExpression(Expression):
 
         return f'{lval}{op}{rval}'
 
-
-def _map_expression(node):
-    if isinstance(node, ast.Num):
-        return ConstantExpression(node.n)
-
-    elif isinstance(node, ast.BinOp):
-        op_map = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv}
-        return OperatorExpression(op_map[type(node.op)], _map_expression(node.left), _map_expression(node.right))
-
-    elif isinstance(node, ast.UnaryOp):
-        if type(node.op) == ast.UAdd:
-            return _map_expression(node.operand)
-        else:
-            return OperatorExpression(operator.sub, ConstantExpression(0), _map_expression(node.operand))
-
-    elif isinstance(node, ast.Name):
-        return VariableExpression(int(node.id[3:])) # node.id has format var[0-9]+
-
-    else:
-        raise SyntaxError('Invalid aperture macro expression')
-
-def _parse_expression(expr):
-    expr = expr.lower().replace('x', '*')
-    expr = re.sub(r'\$([0-9]+)', r'var\1', expr)
-    try:
-        parsed = ast.parse(expr, mode='eval').body
-    except SyntaxError as e:
-        raise SyntaxError('Invalid aperture macro expression') from e
-    return _map_expression(parsed)
-
-def parse_macro(macro, unit):
-    blocks = re.sub(r'\s', '', macro).split('*')
-    variables = {}
-    for block in blocks:
-        block = block.strip()
-
-        if block[0:1] == '0 ': # comment
-            continue
-
-        elif block[0] == '$': # variable definition
-            name, expr = block.partition('=')
-            variables[int(name[1:])] = _parse_expression(expr)
-
-        else: # primitive
-            primitive, args = block.split(',')
-            yield PRIMITIVE_CLASSES[int(primitive)](unit=unit, args=list(map(_parse_expression, args)))
-
-if __name__ == '__main__':
-    import sys
-    for line in sys.stdin:
-        expr = _parse_expression(line.strip())
-        print(expr, '->', expr.optimized())
