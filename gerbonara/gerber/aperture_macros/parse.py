@@ -85,6 +85,10 @@ class ApertureMacro:
         else:
             return f'gn_{hash(self)}'
 
+    @name.setter
+    def name(self, name):
+        self._name = name
+
     def __str__(self):
         return f'<Aperture macro, variables {str(self.variables)}, primitives {self.primitives}>'
 

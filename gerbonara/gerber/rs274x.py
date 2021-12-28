@@ -51,6 +51,49 @@ class GerberFile(CamFile):
         self.comments = []
         self.objects = []
 
+    def merge(self, other):
+        """ Merge other GerberFile into this one """
+        # FIXME unit handling
+
+        self.comments += other.comments
+
+        # dedup apertures
+        new_apertures = {}
+        replace_apertures = {}
+        for ap in self.apertures + other.apertures:
+            gbr = ap.to_gerber()
+            if gbr not in new_apertures:
+                new_apertures[gbr] = ap
+            else:
+                replace_apertures[id(ap)] = new_apertures[gbr]
+        self.apertures = new_apertures
+
+        self.objects += other.objects
+        for obj in self.objects:
+            if (ap := replace_apertures.get(id(getattr(obj, 'aperture')))):
+                obj.aperture = ap
+
+        # dedup aperture macros
+        macros = { m.to_gerber(): m
+                for m in [ GenericMacros.circle, GenericMacros.rect, GenericMacros.oblong, GenericMacros.polygon] }
+        for ap in new_apertures:
+            if isinstance(aperture, ApertureMacroInstance):
+                macro_grb = ap.macro.to_gerber() # use native units to compare macros
+                if macro_grb in macros:
+                    ap.macro = macros[macro_grb]
+                else:
+                    macros[macro_grb] = ap.macro
+
+        # make macro names unique
+        seen_macro_names = set()
+        for macro in macros.values():
+            i = 2
+            while (new_name := f'{macro.name}{i}') in seen_macro_names:
+                i += 1
+            macro.name = new_name
+            seen_macro_names.add(new_name)
+
+
     @classmethod
     def open(kls, filename, enable_includes=False, enable_include_dir=None):
         with open(filename, "r") as f:
@@ -91,7 +134,9 @@ class GerberFile(CamFile):
             for cmt in self.comments:
                 yield CommentStmt(cmt)
 
-        # Emit gerbonara's generic, rotation-capable aperture macro replacements for the standard C/R/O/P shapes.
+        # Always emit gerbonara's generic, rotation-capable aperture macro replacements for the standard C/R/O/P shapes.
+        # Unconditionally emitting these here is easier than first trying to figure out if we need them later,
+        # and they are only a few bytes anyway.
         yield ApertureMacroStmt(GenericMacros.circle)
         yield ApertureMacroStmt(GenericMacros.rect)
         yield ApertureMacroStmt(GenericMacros.oblong)
@@ -117,8 +162,11 @@ class GerberFile(CamFile):
 
         yield EofStmt()
 
-    def __str__(self):
+    def to_gerber(self):
         return '\n'.join(self.generate_statements())
+
+    def __str__(self):
+        return f'<GerberFile with {len(self.apertures)} apertures, {len(self.objects)} objects>'
 
     def save(self, filename):
         with open(filename, 'w', encoding='utf-8') as f: # Encoding is specified as UTF-8 by spec.
