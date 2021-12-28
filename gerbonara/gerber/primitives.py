@@ -38,7 +38,7 @@ class Primitive:
 
 
 class Line(Primitive):
-    def __init__(self, start, end, aperture, polarity_dark=True, rotation=0, **meta):
+    def __init__(self, start, end, aperture=None, polarity_dark=True, rotation=0, **meta):
         super().__init__(polarity_dark, rotation, **meta)
         self.start = start
         self.end = end
@@ -240,9 +240,6 @@ class Arc(Primitive):
 
 
 class Circle(Primitive):
-    """
-    """
-
     def __init__(self, position, diameter, polarity_dark=True):
         super(Circle, self).__init__(**kwargs)
         validate_coordinates(position)
@@ -922,3 +919,14 @@ class TestRecord(Primitive):
         self.net_name = net_name
         self.layer = layer
         self._to_convert = ['position']
+
+class RegionGroup:
+    def __init__(self):
+        self.outline = []
+
+    def __bool__(self):
+        return bool(self.outline)
+
+    def append(self, primitive):
+        self.outline.append(primitive)
+

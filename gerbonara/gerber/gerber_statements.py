@@ -20,14 +20,7 @@ Gerber (RS-274X) Statements
 **Gerber RS-274X file statement classes**
 
 """
-from .utils import (parse_gerber_value, write_gerber_value, decimal_string,
-                    inch, metric)
-
-from .am_statements import *
-from .am_read import read_macro
-from .am_primitive import eval_macro
-from .primitives import AMGroup
-
+from utils import parse_gerber_value, write_gerber_value, decimal_string, inch, metric
 
 class Statement:
     pass
@@ -86,202 +79,28 @@ class LoadPolarityStmt(ParamStmt):
 class ApertureDefStmt(ParamStmt):
     """ AD - Aperture Definition Statement """
 
-    @classmethod
-    def rect(cls, dcode, width, height, hole_diameter=None, hole_width=None, hole_height=None):
-        '''Create a rectangular aperture definition statement'''
-        if hole_diameter is not None and hole_diameter > 0:
-            return cls('AD', dcode, 'R', ([width, height, hole_diameter],))
-        elif (hole_width is not None and hole_width > 0
-              and hole_height is not None and hole_height > 0):
-            return cls('AD', dcode, 'R', ([width, height, hole_width, hole_height],))
-        return cls('AD', dcode, 'R', ([width, height],))
-
-    @classmethod
-    def circle(cls, dcode, diameter, hole_diameter=None, hole_width=None, hole_height=None):
-        '''Create a circular aperture definition statement'''
-        if hole_diameter is not None and hole_diameter > 0:
-            return cls('AD', dcode, 'C', ([diameter, hole_diameter],))
-        elif (hole_width is not None and hole_width > 0
-              and hole_height is not None and hole_height > 0):
-            return cls('AD', dcode, 'C', ([diameter, hole_width, hole_height],))
-        return cls('AD', dcode, 'C', ([diameter],))
-
-    @classmethod
-    def obround(cls, dcode, width, height, hole_diameter=None, hole_width=None, hole_height=None):
-        '''Create an obround aperture definition statement'''
-        if hole_diameter is not None and hole_diameter > 0:
-            return cls('AD', dcode, 'O', ([width, height, hole_diameter],))
-        elif (hole_width is not None and hole_width > 0
-              and hole_height is not None and hole_height > 0):
-            return cls('AD', dcode, 'O', ([width, height, hole_width, hole_height],))
-        return cls('AD', dcode, 'O', ([width, height],))
-
-    @classmethod
-    def polygon(cls, dcode, diameter, num_vertices, rotation, hole_diameter=None, hole_width=None, hole_height=None):
-        '''Create a polygon aperture definition statement'''
-        if hole_diameter is not None and hole_diameter > 0:
-            return cls('AD', dcode, 'P', ([diameter, num_vertices, rotation, hole_diameter],))
-        elif (hole_width is not None and hole_width > 0
-              and hole_height is not None and hole_height > 0):
-            return cls('AD', dcode, 'P', ([diameter, num_vertices, rotation, hole_width, hole_height],))
-        return cls('AD', dcode, 'P', ([diameter, num_vertices, rotation],))
-
-
-    @classmethod
-    def macro(cls, dcode, name):
-        return cls('AD', dcode, name, '')
-
-    @classmethod
-    def from_dict(cls, stmt_dict):
-        param = stmt_dict.get('param')
-        d = int(stmt_dict.get('d'))
-        shape = stmt_dict.get('shape')
-        modifiers = stmt_dict.get('modifiers')
-        return cls(param, d, shape, modifiers)
-
-    def __init__(self, param, d, shape, modifiers):
-        """ Initialize ADParamStmt class
-
-        Parameters
-        ----------
-        param : string
-            Parameter code
-
-        d : int
-            Aperture D-code
-
-        shape : string
-            aperture name
-
-        modifiers : list of lists of floats
-            Shape modifiers
-
-        Returns
-        -------
-        ParamStmt : ADParamStmt
-            Initialized ADParamStmt class.
-
-        """
-        ParamStmt.__init__(self, param)
-        self.d = d
-        self.shape = shape
-        if isinstance(modifiers, tuple):
-            self.modifiers = modifiers
-        elif modifiers:
-            self.modifiers = [tuple([float(x) for x in m.split("X") if len(x)])
-                              for m in modifiers.split(",") if len(m)]
-        else:
-            self.modifiers = [tuple()]
-
-    def to_inch(self):
-        if self.units == 'metric':
-            self.units = 'inch'
-            self.modifiers = [tuple([inch(x) for x in modifier])
-                              for modifier in self.modifiers]
-
-    def to_metric(self):
-        if self.units == 'inch':
-            self.units = 'metric'
-            self.modifiers = [tuple([metric(x) for x in modifier])
-                              for modifier in self.modifiers]
+    def __init__(self, number, aperture):
+        self.number = number
+        self.aperture = aperture
 
     def to_gerber(self, settings=None):
-        if any(self.modifiers):
-            return '%ADD{0}{1},{2}*%'.format(self.d, self.shape, ','.join(['X'.join(["%.4g" % x for x in modifier]) for modifier in self.modifiers]))
-        else:
-            return '%ADD{0}{1}*%'.format(self.d, self.shape)
+        return '%ADD{self.number}{self.aperture.to_gerber()}*%'
 
     def __str__(self):
-        if self.shape == 'C':
-            shape = 'circle'
-        elif self.shape == 'R':
-            shape = 'rectangle'
-        elif self.shape == 'O':
-            shape = 'obround'
-        else:
-            shape = self.shape
-
-        return '<Aperture Definition: %d: %s>' % (self.d, shape)
+        return f'<AD aperture def for {str(self.aperture).strip("<>")}>'
 
 
-class AMParamStmt(ParamStmt):
-    """ AM - Aperture Macro Statement
-    """
+class ApertureMacroStmt(ParamStmt):
+    """ AM - Aperture Macro Statement """
 
-    @classmethod
-    def from_dict(cls, stmt_dict, units):
-        return cls(**stmt_dict, units=units)
-
-    def __init__(self, param, name, macro, units):
-        """ Initialize AMParamStmt class
-
-        Parameters
-        ----------
-        param : string
-            Parameter code
-
-        name : string
-            Aperture macro name
-
-        macro : string
-            Aperture macro string
-
-        Returns
-        -------
-        ParamStmt : AMParamStmt
-            Initialized AMParamStmt class.
-
-        """
-        ParamStmt.__init__(self, param)
-        self.name = name
+    def __init__(self, macro):
         self.macro = macro
-        self.units = units
-        self.primitives = list(eval_macro(read_macro(macro), units))
-
-    @classmethod
-    def circle(cls, name, units):
-        return cls('AM', name, '1,1,$1,0,0,0*1,0,$2,0,0,0', units)
-
-    @classmethod
-    def rectangle(cls, name, units):
-        return cls('AM', name, '21,1,$1,$2,0,0,0*1,0,$3,0,0,0', units)
-    
-    @classmethod
-    def landscape_obround(cls, name, units):
-        return cls(
-            'AM', name,
-            '$4=$1-$2*'
-            '$5=$1-$4*'
-            '21,1,$5,$2,0,0,0*'
-            '1,1,$4,$4/2,0,0*'
-            '1,1,$4,-$4/2,0,0*'
-            '1,0,$3,0,0,0', units)
-
-    @classmethod
-    def portrate_obround(cls, name, units):
-        return cls(
-            'AM', name,
-            '$4=$2-$1*'
-            '$5=$2-$4*'
-            '21,1,$1,$5,0,0,0*'
-            '1,1,$4,0,$4/2,0*'
-            '1,1,$4,0,-$4/2,0*'
-            '1,0,$3,0,0,0', units)
-    
-    @classmethod
-    def polygon(cls, name, units):
-        return cls('AM', name, '5,1,$2,0,0,$1,$3*1,0,$4,0,0,0', units)
 
     def to_gerber(self, unit=None):
-        primitive_defs = '\n'.join(primitive.to_gerber(unit=unit) for primitive in self.primitives)
-        return f'%AM{self.name}*\n{primitive_defs}%'
-
-    def rotate(self, angle, center=None):
-        for primitive_def in self.primitives:
-            primitive_def.rotate(angle, center)
+        return f'%AM{self.macro.name}*\n{self.macro.to_gerber(unit=unit)}*\n%'
 
     def __str__(self):
-        return '<AM Aperture Macro %s: %s>' % (self.name, self.macro)
+        return f'<AM Aperture Macro {self.macro.name}: {self.macro}>'
 
 
 class ImagePolarityStmt(ParamStmt):
@@ -298,7 +117,7 @@ class ImagePolarityStmt(ParamStmt):
 class CoordStmt(Statement):
     """ D01 - D03 operation statements """
 
-    def __init__(self, x, y, i, j):
+    def __init__(self, x, y, i=None, j=None):
         self.x, self.y, self.i, self.j = x, y, i, j
 
     def to_gerber(self, settings=None):
@@ -309,21 +128,11 @@ class CoordStmt(Statement):
                 ret += var.upper() + write_gerber_value(val, settings.number_format, settings.zero_suppression)
         return ret + self.code + '*'
 
-    def offset(self, x=0, y=0):
-        if self.x is not None:
-            self.x += x
-        if self.y is not None:
-            self.y += y
-
     def __str__(self):
         if self.i is None:
             return f'<{self.__name__.strip()} x={self.x} y={self.y}>'
         else
             return f'<{self.__name__.strip()} x={self.x} y={self.y} i={self.i} j={self.j]>'
-
-    def render_primitives(self, state):
-        if state.interpolation_mode == InterpolateStmt:
-            yield Line(state.current_point, (self.x, self.y))
 
 class InterpolateStmt(Statement):
     """ D01 Interpolation """
@@ -369,20 +178,12 @@ class RegionEndStatement(InterpolationModeStmt):
     """ G37 Region Mode End Statement. """
     code = 'G37'
 
-class RegionGroup:
-    def __init__(self):
-        self.outline = []
-
 class ApertureStmt(Statement):
     def __init__(self, d):
         self.d = int(d)
-        self.deprecated = True if deprecated is not None and deprecated is not False else False
 
     def to_gerber(self, settings=None):
-        if self.deprecated:
-            return 'G54D{0}*'.format(self.d)
-        else:
-            return 'D{0}*'.format(self.d)
+        return 'D{0}*'.format(self.d)
 
     def __str__(self):
         return '<Aperture: %d>' % self.d

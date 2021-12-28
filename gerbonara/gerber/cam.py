@@ -20,12 +20,16 @@ from dataclasses import dataclass
 
 @dataclass
 class FileSettings:
-    output_axes : str = 'AXBY' # For deprecated AS statement
-    image_polarity : str = 'positive'
-    image_rotation: int = 0
-    mirror_image : tuple = (False, False)
-    offset : tuple = (0, 0)
-    scale_factor : tuple = (1.0, 1.0) # For deprecated SF statement
+    '''
+    .. note::
+        Format and zero suppression are configurable. Note that the Excellon
+        and Gerber formats use opposite terminology with respect to leading
+        and trailing zeros. The Gerber format specifies which zeros are
+        suppressed, while the Excellon format specifies which zeros are
+        included. This function uses the Gerber-file convention, so an
+        Excellon file in LZ (leading zeros) mode would use
+        `zero_suppression='trailing'`
+    '''
     notation : str = 'absolute'
     units : str = 'inch'
     angle_units : str = 'degrees'
@@ -34,18 +38,6 @@ class FileSettings:
 
     # input validation
     def __setattr__(self, name, value):
-        if name == 'output_axes' and value not in [None, 'AXBY', 'AYBX']:
-            raise ValueError('output_axes must be either "AXBY", "AYBX" or None')
-        if name == 'image_rotation' and value not in [0, 90, 180, 270]:
-            raise ValueError('image_rotation must be 0, 90, 180 or 270')
-        elif name == 'image_polarity' and value not in ['positive', 'negative']:
-            raise ValueError('image_polarity must be either "positive" or "negative"')
-        elif name == 'mirror_image' and len(value) != 2:
-            raise ValueError('mirror_image must be 2-tuple of bools: (mirror_a, mirror_b)')
-        elif name == 'offset' and len(value) != 2:
-            raise ValueError('offset must be 2-tuple of floats: (offset_a, offset_b)')
-        elif name == 'scale_factor' and len(value) != 2:
-            raise ValueError('scale_factor must be 2-tuple of floats: (scale_a, scale_b)')
         elif name == 'notation' and value not in ['inch', 'mm']:
             raise ValueError('Units must be either "inch" or "mm"')
         elif name == 'units' and value not in ['absolute', 'incremental']:
@@ -54,13 +46,64 @@ class FileSettings:
             raise ValueError('Angle units may be "degrees" or "radians"')
         elif name == 'zeros' and value not in [None, 'leading', 'trailing']:
             raise ValueError('zero_suppression must be either "leading" or "trailing" or None')
-        elif name == 'number_format' and len(value) != 2:
-            raise ValueError('Number format must be a (integer, fractional) tuple of integers')
+        elif name == 'number_format':
+            if len(value) != 2:
+                raise ValueError('Number format must be a (integer, fractional) tuple of integers')
+
+            if value[0] > 6 or value[1] > 7:
+                raise ValueError('Requested precision is too high. Only up to 6.7 digits are supported by spec.')
+
 
         super().__setattr__(name, value)
 
     def __str__(self):
         return f'<File settings: units={self.units}/{self.angle_units} notation={self.notation} zeros={self.zeros} number_format={self.number_format}>'
+
+    def parse_gerber_value(self, value):
+        if not value:
+            return None
+
+        # Handle excellon edge case with explicit decimal. "That was easy!"
+        if '.' in value:
+            return float(value)
+
+        # Format precision
+        integer_digits, decimal_digits = self.number_format
+
+        # Remove extraneous information
+        sign = '-' if value[0] == '-' else ''
+        value = value.lstrip('+-')
+
+        missing_digits = MAX_DIGITS - len(value)
+
+        if self.zero_suppression == 'leading':
+            return float(sign + value[:-decimal_digits] + '.' + value[-decimal_digits:])
+
+        else: # no or trailing zero suppression
+            return float(sign + value[:integer_digits] + '.' + value[integer_digits:])
+
+    def write_gerber_value(self, value):
+        """ Convert a floating point number to a Gerber/Excellon-formatted string.  """
+        
+        integer_digits, decimal_digits = self.number_format
+
+        # negative sign affects padding, so deal with it at the end...
+        sign = '-' if value < 0 else ''
+
+        num = format(abs(value), f'0{integer_digits+decimal_digits+1}.{decimal_digits}f')
+
+        # Suppression...
+        if self.zero_suppression == 'trailing':
+            num = num.rstrip('0')
+
+        elif self.zero_suppression == 'leading':
+            num = num.lstrip('0')
+
+        # Edge case. Per Gerber spec if the value is 0 we should return a single '0' in all cases, see page 77.
+        elif not num.strip('0'):
+            num = '0'
+
+        return sign + (num or '0')
 
 
 class CamFile(object):
@@ -101,38 +144,11 @@ class CamFile(object):
         decimal digits)
     """
 
-    def __init__(self, statements=None, settings=None, primitives=None,
+    def __init__(self, settings=None, primitives=None,
                  filename=None, layer_name=None):
-        if settings is not None:
-            self.notation = settings['notation']
-            self.units = settings['units']
-            self.zero_suppression = settings['zero_suppression']
-            self.zeros = settings['zeros']
-            self.format = settings['format']
-        else:
-            self.notation = 'absolute'
-            self.units = 'inch'
-            self.zero_suppression = 'trailing'
-            self.zeros = 'leading'
-            self.format = (2, 5)
-
-        self.statements = statements if statements is not None else []
-        if primitives is not None:
-            self.primitives = primitives
+        self.settings = settings if settings is not None else FileSettings()
         self.filename = filename
         self.layer_name = layer_name
-
-    @property
-    def settings(self):
-        """ File settings
-
-        Returns
-        -------
-        settings : FileSettings (dict-like)
-            A FileSettings object with the specified configuration.
-        """
-        return FileSettings(self.notation, self.units, self.zero_suppression,
-                            self.format)
 
     @property
     def bounds(self):
@@ -142,12 +158,6 @@ class CamFile(object):
 
     @property
     def bounding_box(self):
-        pass
-
-    def to_inch(self):
-        pass
-
-    def to_metric(self):
         pass
 
     def render(self, ctx=None, invert=False, filename=None):

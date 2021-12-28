@@ -26,92 +26,30 @@ import os
 import re
 import sys
 import warnings
+import functools
 from pathlib import Path
 from itertools import count, chain
 from io import StringIO
 
 from .gerber_statements import *
-from .primitives import *
 from .cam import CamFile, FileSettings
 from .utils import sq_distance, rotate_point
-
+from aperture_macros.parse import ApertureMacro, GenericMacros
+import graphic_primitives as gp
+import graphic_objects as go
 
 
 class GerberFile(CamFile):
     """ A class representing a single gerber file
 
     The GerberFile class represents a single gerber file.
-
-    Parameters
-    ----------
-    statements : list
-        list of gerber file statements
-
-    settings : dict
-        Dictionary of gerber file settings
-
-    filename : string
-        Filename of the source gerber file
-
-    Attributes
-    ----------
-    comments: list of strings
-        List of comments contained in the gerber file.
-
-    size : tuple, (<float>, <float>)
-        Size in [self.units] of the layer described by the gerber file.
-
-    bounds: tuple, ((<float>, <float>), (<float>, <float>))
-        boundaries of the layer described by the gerber file.
-        `bounds` is stored as ((min x, max x), (min y, max y))
-
     """
 
-    def __init__(self, statements, settings, primitives, apertures, filename=None):
-        super(GerberFile, self).__init__(statements, settings, primitives, filename)
-
-        self.apertures = apertures
-
-        # always explicitly set polarity
-        self.statements.insert(0, LPParamStmt('LP', 'dark'))
-
-        self.aperture_macros = {}
-        self.aperture_defs = []
-        self.main_statements = []
-
-        self.context = GerberContext.from_settings(self.settings)
-
-        for stmt in self.statements:
-            self.context.update_from_statement(stmt)
-
-            if isinstance(stmt, CoordStmt):
-                self.context.normalize_coordinates(stmt)
-
-            if isinstance(stmt, AMParamStmt):
-                self.aperture_macros[stmt.name] = stmt
-
-            elif isinstance(stmt, ADParamStmt):
-                self.aperture_defs.append(stmt)
-
-            else:
-                # ignore FS, MO, AS, IN, IP, IR, MI, OF, SF, LN statements
-                if isinstance(stmt, ParamStmt) and not isinstance(stmt, LPParamStmt):
-                    continue
-
-                if isinstance(stmt, (CommentStmt, EofStmt)):
-                    continue
-
-                self.main_statements.append(stmt)
-
-        if self.context.angle != 0:
-            self.rotate(self.context.angle) # TODO is this correct/useful?
-
-        if self.context.is_negative:
-            self.negate_polarity() # TODO is this correct/useful?
-
-        self.context.notation = 'absolute'
-        self.context.zeros = 'trailing'
-
+    def __init__(self, filename=None):
+        super(GerberFile, self).__init__(filename)
+        self.apertures = []
+        self.comments = []
+        self.objects = []
 
     @classmethod
     def open(kls, filename, enable_includes=False, enable_include_dir=None):
@@ -120,14 +58,11 @@ class GerberFile(CamFile):
                 enable_include_dir = Path(filename).parent
             return kls.from_string(f.read(), enable_include_dir)
 
-
     @classmethod
     def from_string(kls, data, enable_include_dir=None):
-        return GerberParser().parse(data, enable_include_dir)
-
-    @property
-    def comments(self):
-        return [stmt.comment for stmt in self.statements if isinstance(stmt, CommentStmt)]
+        obj = kls()
+        GerberParser(obj, include_dir=enable_include_dir).parse(data)
+        return obj
 
     @property
     def size(self):
@@ -145,20 +80,40 @@ class GerberFile(CamFile):
 
         return ((min_x, max_x), (min_y, max_y))
 
-    def generate_statements(self):
-        self.settings.notation = 'absolute'
-        self.settings.zeros = 'trailing'
-        self.settings.format = self.format
-        self.units = self.units
-
+    def generate_statements(self, drop_comments=True):
         yield UnitStmt()
         yield FormatSpecStmt()
         yield ImagePolarityStmt()
         yield SingleQuadrantModeStmt()
 
-        yield from self.aperture_macros.values()
-        yield from self.aperture_defs
-        yield from self.main_statements
+        if not drop_comments:
+            yield CommentStmt('File processed by Gerbonara. Original comments:')
+            for cmt in self.comments:
+                yield CommentStmt(cmt)
+
+        # Emit gerbonara's generic, rotation-capable aperture macro replacements for the standard C/R/O/P shapes.
+        yield ApertureMacroStmt(GenericMacros.circle)
+        yield ApertureMacroStmt(GenericMacros.rect)
+        yield ApertureMacroStmt(GenericMacros.oblong)
+        yield ApertureMacroStmt(GenericMacros.polygon)
+
+        processed_macros = set()
+        aperture_map = {}
+        for number, aperture in enumerate(self.apertures, start=10):
+
+            if isinstance(aperture, ApertureMacroInstance):
+                macro_grb = aperture.macro.to_gerber() # use native units to compare macros
+                if macro_grb not in processed_macros:
+                    processed_macros.add(macro_grb)
+                    yield ApertureMacroStmt(aperture.macro)
+
+            yield ApertureDefStmt(number, aperture)
+
+            aperture_map[aperture] = number
+
+        gs = GraphicsState(aperture_map=aperture_map)
+        for primitive in self.objects:
+            yield from primitive.to_statements(gs)
 
         yield EofStmt()
 
@@ -170,130 +125,167 @@ class GerberFile(CamFile):
             for stmt in self.generate_statements():
                 print(stmt.to_gerber(self.settings), file=f)
 
-    def render_primitives(self):
-        for stmt in self.main_statements:
-            yield from stmt.render_primitives()
+    def offset(self, dx=0,  dy=0):
+        # TODO round offset to file resolution
+        self.objects = [ obj.with_offset(dx, dy) for obj in self.objects ]
 
-    def to_inch(self):
-        if self.units == 'metric':
-            for thing in chain(self.aperture_macros.values(), self.aperture_defs, self.statements, self.primitives):
-                thing.to_inch()
-            self.units = 'inch'
-            self.context.units = 'inch'
+    def rotate(self, angle:'radians', center=(0,0)):
+        """ Rotate file contents around given point.
 
-    def to_metric(self):
-        if self.units == 'inch':
-            for thing in chain(self.aperture_macros.values(), self.aperture_defs, self.statements, self.primitives):
-                thing.to_metric()
-            self.units='metric'
-            self.context.units='metric'
+            Arguments:
+            angle -- Rotation angle in radians counter-clockwise.
+            center -- Center of rotation (default: document origin (0, 0))
 
-    def offset(self, x_offset=0,  y_offset=0):
-        for thing in chain(self.main_statements, self.primitives):
-            thing.offset(x_offset, y_offset)
-
-    def rotate(self, angle, center=(0,0)):
-        if angle % 360 == 0:
+            Note that when rotating by odd angles other than 0, 90, 180 or 270 degrees this method may replace standard
+            rect and oblong apertures by macro apertures. Existing macro apertures are re-written.
+        """
+        if angle % (2*math.pi) == 0:
             return
 
-        self._generalize_apertures()
+        # First, rotate apertures. We do this separately from rotating the individual objects below to rotate each
+        # aperture exactly once.
+        for ap in self.apertures:
+            ap.rotation += angle
 
-        last_x = 0
-        last_y = 0
-        last_rx = 0
-        last_ry = 0
-
-        for macro in self.aperture_macros.values():
-            macro.rotate(angle, center)
-
-        for statement in self.main_statements:
-            if isinstance(statement, CoordStmt) and statement.x != None and statement.y != None:
-
-                if statement.i is not None and statement.j is not None:
-                    cx, cy = last_x + statement.i, last_y + statement.j
-                    cx, cy = rotate_point((cx, cy), angle, center)
-                    statement.i, statement.j = cx - last_rx, cy - last_ry
-
-                last_x, last_y = statement.x, statement.y
-                last_rx, last_ry = rotate_point((statement.x, statement.y), angle, center)
-                statement.x, statement.y = last_rx, last_ry
+        for obj in self.objects:
+            obj.rotate(rotation, *center)
     
-    def negate_polarity(self):
-        for statement in self.main_statements:
-            if isinstance(statement, LPParamStmt):
-                statement.lp = 'dark' if statement.lp == 'clear' else 'clear'
+    def invert_polarity(self):
+        for obj in self.objects:
+            obj.polarity_dark = not p.polarity_dark
     
-    def _generalize_apertures(self):
-        # For rotation, replace standard apertures with macro apertures.
-        if not any(isinstance(stm, ADParamStmt) and stm.shape in 'ROP' for stm in self.aperture_defs):
-            return
 
-        # find an unused macro name with the given prefix
-        def free_name(prefix):
-            return next(f'{prefix}_{i}' for i in count() if f'{prefix}_{i}' not in self.aperture_macros)
-        
-        rect = free_name('MACR')
-        self.aperture_macros[rect] = AMParamStmt.rectangle(rect, self.units)
-
-        obround_landscape = free_name('MACLO')
-        self.aperture_macros[obround_landscape] = AMParamStmt.landscape_obround(obround_landscape, self.units)
-
-        obround_portrait = free_name('MACPO')
-        self.aperture_macros[obround_portrait] = AMParamStmt.portrait_obround(obround_portrait, self.units)
-
-        polygon = free_name('MACP')
-        self.aperture_macros[polygon] = AMParamStmt.polygon(polygon, self.units)
-
-        for statement in self.aperture_defs:
-            if isinstance(statement, ADParamStmt):
-                if statement.shape == 'R':
-                    statement.shape = rect
-
-                elif statement.shape == 'O':
-                    x, y, *_ = *statement.modifiers[0], 0, 0
-                    statement.shape = obround_landscape if x > y else obround_portrait
-
-                elif statement.shape == 'P':
-                    statement.shape = polygon
-
-
-@dataclass
 class GraphicsState:
     polarity_dark : bool = True
+    image_polarity : str = 'positive' # IP image polarity; deprecated
     point : tuple = None
-    aperture : ApertureDefStmt = None
+    aperture : Aperture = None
     interpolation_mode : InterpolationModeStmt = None
     multi_quadrant_mode : bool = None # used only for syntax checking
+    aperture_mirroring = (False, False) # LM mirroring (x, y)
+    aperture_rotation = 0 # LR rotation in degrees, ccw
+    aperture_scale = 1 # LS scale factor, NOTE: same for both axes
+    # The following are deprecated file-wide settings. We normalize these during parsing.
+    image_offset : (float, float) = (0, 0)
+    image_rotation: int = 0 # IR image rotation in degrees ccw, one of 0, 90, 180 or 270; deprecated
+    image_mirror : tuple = (False, False) # IM image mirroring, (x, y); deprecated
+    image_scale : tuple = (1.0, 1.0) # SF image scaling (x, y); deprecated
+    image_axes : str = 'AXBY' # AS axis mapping; deprecated
+    # for statement generation
+    aperture_map = {}
+
+
+    def __init__(self, aperture_map=None):
+        self._mat = None
+        if aperture_map is not None:
+            self.aperture_map = aperture_map
+
+    def __setattr__(self, name, value):
+        # input validation
+        if name == 'image_axes' and value not in [None, 'AXBY', 'AYBX']:
+            raise ValueError('image_axes must be either "AXBY", "AYBX" or None')
+        elif name == 'image_rotation' and value not in [0, 90, 180, 270]:
+            raise ValueError('image_rotation must be 0, 90, 180 or 270')
+        elif name == 'image_polarity' and value not in ['positive', 'negative']:
+            raise ValueError('image_polarity must be either "positive" or "negative"')
+        elif name == 'image_mirror' and len(value) != 2:
+            raise ValueError('mirror_image must be 2-tuple of bools: (mirror_a, mirror_b)')
+        elif name == 'image_offset' and len(value) != 2:
+            raise ValueError('image_offset must be 2-tuple of floats: (offset_a, offset_b)')
+        elif name == 'image_scale' and len(value) != 2:
+            raise ValueError('image_scale must be 2-tuple of floats: (scale_a, scale_b)')
+
+        # polarity handling
+        if name == 'image_polarity': # global IP statement image polarity, can only be set at beginning of file
+            if self.image_polarity == 'negative':
+                self.polarity_dark = False # evaluated before image_polarity is set below through super().__setattr__
+
+        elif name == 'polarity_dark': # local LP statement polarity for subsequent objects
+            if self.image_polarity == 'negative':
+                value = not value
+
+        super().__setattr__(name, value)
+
+    def _update_xform(self):
+        a, b = 1, 0
+        c, d = 0, 1
+        off_x, off_y = self.image_offset
+
+        if self.image_mirror[0]:
+            a = -1
+        if self.image_mirror[1]:
+            d = -1
+
+        a *= self.image_scale[0]
+        d *= self.image_scale[1]
+
+        if ir == 90:
+            a, b, c, d = 0, -d, a, 0
+            off_x, off_y = off_y, -off_x
+        elif ir == 180:
+            a, b, c, d = -a, 0, 0, -d
+            off_x, off_y = -off_x, -off_y
+        elif ir == 270:
+            a, b, c, d = 0, d, -a, 0
+            off_x, off_y = -off_y, off_x
+
+        self.image_offset = off_x, off_y
+        self._mat = a, b, c, d
+    
+    def map_coord(self, x, y, relative=False):
+        if self._mat is None:
+            self._update_xform()
+        a, b, c, d = self.mat
+
+        if not relative:
+            return (a*x + b*y + self.image_offset[0]), (c*x + d*y + self.image_offset[1])
+        else
+            # Apply mirroring, scale and rotation, but do not apply offset
+            return (a*x + b*y), (c*x + d*y)
 
     def flash(self, x, y):
-        self.point = (x, y)
-        return Aperture(self.aperture, x, y)
+        return gp.Flash(self.aperture, *self.map_coord(x, y), polarity_dark=self.polarity_dark)
 
-    def interpolate(self, x, y, i=None, j=None):
+    def interpolate(self, x, y, i=None, j=None, aperture=True):
         if self.interpolation_mode == LinearModeStmt:
             if i is not None or j is not None:
                 raise SyntaxError("i/j coordinates given for linear D01 operation (which doesn't take i/j)")
 
-            return self._create_line(x, y)
+            return self._create_line(x, y, aperture)
 
         else:
-            return self._create_arc(x, y, i, j)
+            return self._create_arc(x, y, i, j, aperture)
 
-    def _create_line(self, x, y):
-        old_point, self.point = self.point, (x, y)
-        return Line(old_point, self.point, self.aperture, self.polarity_dark)
+    def _create_line(self, x, y, aperture=True):
+        old_point, self.point = self.point, self._map_coord(x, y)
+        return go.Line(old_point, self.point, self.aperture if aperture else None, self.polarity_dark)
 
-    def _create_arc(self, x, y, i, j):
-        if self.multi_quadrant_mode is None:
-            warnings.warn('Circular arc interpolation without explicit G75 Single-Quadrant mode statement. '\
-                    'This can cause problems with older gerber interpreters.', SyntaxWarning)
-
-        elif self.multi_quadrant_mode:
-            raise SyntaxError('Circular arc interpolation in multi-quadrant mode (G74) is not implemented.')
-
-        old_point, self.point = self.point, (x, y)
+    def _create_arc(self, x, y, i, j, aperture=True):
+        old_point, self.point = self.point, self._map_coord(x, y)
         direction = 'ccw' if self.interpolation_mode == CircularCCWModeStmt else 'cw'
-        return Arc(old_point, self.point, (i, j), direction, self.aperture, self.polarity_dark):
+        return go.Arc.from_coords(old_point, self.point, *self.map_coord(i, j, relative=True),
+                flipped=(direction == 'cw'), self.aperture if aperture else None, self.polarity_dark)
+
+    # Helpers for gerber generation
+    def set_polarity(self, polarity_dark):
+        if self.polarity_dark != polarity_dark:
+            self.polarity_dark = polarity_dark
+            yield LoadPolarityStmt(polarity_dark)
+
+    def set_aperture(self, aperture):
+        if self.aperture != aperture:
+            self.aperture = aperture
+            yield ApertureStmt(self.aperture_map[aperture])
+
+    def set_current_point(self, point):
+        if self.point != point:
+            self.point = point
+            yield MoveStmt(*point)
+
+    def set_interpolation_mode(self, mode):
+        if self.interpolation_mode != mode:
+            gs.interpolation_mode = mode
+            yield mode()
 
 
 class GerberParser:
@@ -304,7 +296,7 @@ class GerberParser:
     STATEMENT_REGEXES = {
         'unit_mode': r"MO(?P<unit>(MM|IN))",
         'interpolation_mode': r"(?P<code>G0?[123]|G74|G75)?",
-        'coord': = fr"(X(?P<x>{NUMBER}))?(Y(?P<y>{NUMBER}))?" \
+        'coord': fr"(X(?P<x>{NUMBER}))?(Y(?P<y>{NUMBER}))?" \
             fr"(I(?P<i>{NUMBER}))?(J(?P<j>{NUMBER}))?" \
             fr"(?P<operation>D0?[123])?\*",
         'aperture': r"(G54|G55)?D(?P<number>\d+)\*",
@@ -334,43 +326,19 @@ class GerberParser:
     STATEMENT_REGEXES = { key: re.compile(value) for key, value in STATEMENT_REGEXES.items() }
 
 
-    def __init__(self, include_dir=None):
+    def __init__(self, target, include_dir=None):
         """ Pass an include dir to enable IF include statements (potentially DANGEROUS!). """
+        self.target = target
         self.include_dir = include_dir
         self.include_stack = []
-        self.settings = FileSettings()
-        self.current_region = None
+        self.file_settings = FileSettings()
         self.graphics_state = GraphicsState()
-
-        self.statements = []
-        self.primitives = []
-        self.apertures = {}
+        self.aperture_map = {}
+        self.current_region = None
+        self.eof_found = False
+        self.multi_quadrant_mode = None # used only for syntax checking
         self.macros = {}
-        self.x = 0
-        self.y = 0
         self.last_operation = None
-        self.op = "D02"
-        self.aperture = 0
-        self.interpolation = 'linear'
-        self.direction = 'clockwise'
-        self.image_polarity = 'positive'
-        self.level_polarity = 'dark'
-        self.region_mode = 'off'
-        self.step_and_repeat = (1, 1, 0, 0)
-
-    def parse(self, data):
-        for stmt in self._parse(data):
-            if self.current_region is None:
-                self.statements.append(stmt)
-            else:
-                self.current_region.append(stmt)
-            self.evaluate(stmt)
-
-        # Initialize statement units
-        for stmt in self.statements:
-            stmt.units = self.settings.units
-
-        return GerberFile(self.statements, self.settings, self.primitives, self.apertures.values())
 
     @classmethod
     def _split_commands(kls, data):
@@ -402,49 +370,48 @@ class GerberParser:
                     yield word_command
                 start = cur + 1
 
-    def dump_json(self):
-        return json.dumps({"statements": [stmt.__dict__ for stmt in self.statements]})
-
-    def dump_str(self):
-        return '\n'.join(str(stmt) for stmt in self.statements) + '\n'
-
-    def _parse(self, data):
+    def parse(self, data):
         for line in self._split_commands(data):
             # We cannot assume input gerber to use well-formed statement delimiters. Thus, we may need to parse
             # multiple statements from one line.
             while line:
+                if line.strip() and self.eof_found:
+                    warnings.warn('Data found in gerber file after EOF.', SyntaxWarning)
                 for name, le_regex in self.STATEMENT_REGEXES.items():
-                    if (match := le_regex.match(line))
-                        yield from getattr(self, f'_parse_{name}')(self, match.groupdict())
+                    if (match := le_regex.match(line)):
+                        getattr(self, f'_parse_{name}')(self, match.groupdict())
                         line = line[match.end(0):]
                         break
 
                 else:
                     if line[-1] == '*':
-                        yield UnknownStmt(line)
+                        warnings.warn(f'Unknown statement found: "{line}", ignoring.', SyntaxWarning)
+                        self.target.comments.append(f'Unknown statement found: "{line}", ignoring.')
                         line = ''
+        
+        self.target.apertures = list(self.aperture_map.values())
+
+        if not self.eof_found:
+                    warnings.warn('File is missing mandatory M02 EOF marker. File may be truncated.', SyntaxWarning)
 
     def _parse_interpolation_mode(self, match):
         if match['code'] == 'G01':
             self.graphics_state.interpolation_mode = LinearModeStmt
-            yield LinearModeStmt()
         elif match['code'] == 'G02':
             self.graphics_state.interpolation_mode = CircularCWModeStmt
-            yield CircularCWModeStmt()
         elif match['code'] == 'G03':
             self.graphics_state.interpolation_mode = CircularCCWModeStmt
-            yield CircularCCWModeStmt()
         elif match['code'] == 'G74':
-            self.graphics_state.multi_quadrant_mode = True # used only for syntax checking
+            self.multi_quadrant_mode = True # used only for syntax checking
         elif match['code'] == 'G75':
-            self.graphics_state.multi_quadrant_mode = False
+            self.multi_quadrant_mode = False
             # we always emit a G75 at the beginning of the file.
 
     def _parse_coord(self, match):
-        x = parse_gerber_value(match['x'], self.settings)
-        y = parse_gerber_value(match['y'], self.settings)
-        i = parse_gerber_value(match['i'], self.settings)
-        j = parse_gerber_value(match['j'], self.settings)
+        x = self.file_settings.parse_gerber_value(match['x'])
+        y = self.file_settings.parse_gerber_value(match['y'])
+        i = self.file_settings.parse_gerber_value(match['i'])
+        j = self.file_settings.parse_gerber_value(match['j'])
 
         if not (op := match['operation']):
             if self.last_operation == 'D01':
@@ -455,8 +422,21 @@ class GerberParser:
                 raise SyntaxError('Ambiguous coordinate statement. Coordinate statement does not have an operation '\
                                   'mode and the last operation statement was not D01.')
 
+        self.last_operation = op
+
         if op in ('D1', 'D01'):
-            yield self.graphics_state.interpolate(x, y, i, j)
+            if self.graphics_state.interpolation_mode != LinearModeStmt:
+                if self.multi_quadrant_mode is None:
+                    warnings.warn('Circular arc interpolation without explicit G75 Single-Quadrant mode statement. '\
+                            'This can cause problems with older gerber interpreters.', SyntaxWarning)
+
+                elif self.multi_quadrant_mode:
+                    raise SyntaxError('Circular arc interpolation in multi-quadrant mode (G74) is not implemented.')
+
+            if self.current_region is None:
+                self.target.objects.append(self.graphics_state.interpolate(x, y, i, j))
+            else:
+                self.current_region.append(self.graphics_state.interpolate(x, y, i, j))
 
         else:
             if i is not None or j is not None:
@@ -464,380 +444,170 @@ class GerberParser:
                 
             if op in ('D2', 'D02'):
                 self.graphics_state.point = (x, y)
+                if self.current_region:
+                    # Start a new region for every outline. As gerber has no concept of fill rules or winding numbers,
+                    # it does not make a graphical difference, and it makes the implementation slightly easier.
+                    self.target.objects.append(self.current_region)
+                    self.current_region = gp.Region(polarity_dark=gp.polarity_dark)
 
             else: # D03
-                yield self.graphics_state.flash(x, y)
-
+                if self.current_region is None:
+                    self.target.objects.append(self.graphics_state.flash(x, y))
+                else:
+                    raise SyntaxError('DO3 flash statement inside region')
 
     def _parse_aperture(self, match):
         number = int(match['number'])
         if number < 10:
             raise SyntaxError(f'Invalid aperture number {number}: Aperture number must be >= 10.')
 
-        if number not in self.apertures:
+        if number not in self.aperture_map:
             raise SyntaxError(f'Tried to access undefined aperture {number}')
 
-        self.graphics_state.aperture = self.apertures[number]
+        self.graphics_state.aperture = self.aperture_map[number]
+
+    def _parse_aperture_definition(self, match):
+        # number, shape, modifiers
+        modifiers = [ float(val) for val in match['modifiers'].split(',') ]
+
+        aperture_classes = {
+                'C': ApertureCircle,
+                'R': ApertureRectangle,
+                'O': ApertureObround,
+                'P': AperturePolygon,
+            }
+
+        if (kls := aperture_classes.get(match['shape'])):
+            new_aperture = kls(*modifiers)
+
+        elif (macro := self.target.aperture_macros.get(match['shape'])):
+            new_aperture = ApertureMacroInstance(match['shape'], macro, modifiers)
+
+        else:
+            raise ValueError(f'Aperture shape "{match["shape"]}" is unknown')
+
+        self.aperture_map[int(match['number'])] = new_aperture
+
+    def _parse_aperture_macro(self, match):
+        self.target.aperture_macros[match['name']] = ApertureMacro.parse(match['macro'])
     
     def _parse_format_spec(self, match):
         # This is a common problem in Eagle files, so just suppress it
-        self.settings.zero_suppression = {'L': 'leading', 'T': 'trailing'}.get(match['zero'], 'leading')
-        self.settings.notation = 'absolute' if match.['notation'] == 'A' else 'incremental'
+        self.file_settings.zero_suppression = {'L': 'leading', 'T': 'trailing'}.get(match['zero'], 'leading')
+        self.file_settings.notation = 'absolute' if match['notation'] == 'A' else 'incremental'
 
         if match['x'] != match['y']:
             raise SyntaxError(f'FS specifies different coordinate formats for X and Y ({match["x"]} != {match["y"]})')
-        self.settings.number_format = int(match['x'][0]), int(match['x'][1])
-
-        yield from () # We always force a format spec statement at the beginning of the file
+        self.file_settings.number_format = int(match['x'][0]), int(match['x'][1])
 
     def _parse_unit_mode(self, match):
         if match['unit'] == 'MM':
-            self.settings.units = 'mm'
+            self.file_settings.units = 'mm'
         else:
-            self.settings.units = 'inch'
-
-        yield from () # We always force a unit mode statement at the beginning of the file
+            self.file_settings.units = 'inch'
 
     def _parse_load_polarity(self, match):
-        yield LoadPolarityStmt(dark=match['polarity'] == 'D')
+        self.graphics_state.polarity_dark = match['polarity'] == 'D'
 
     def _parse_offset(self, match):
         a, b = match['a'], match['b']
         a = float(a) if a else 0
         b = float(b) if b else 0
-        self.settings.offset = a, b
-        yield from () # Handled by coordinate normalization
+        self.graphics_state.offset = a, b
 
     def _parse_include_file(self, match):
         if self.include_dir is None:
-            warnings.warn('IF Include File statement found, but includes are deactivated.', ResourceWarning)
+            warnings.warn('IF include statement found, but includes are deactivated.', ResourceWarning)
         else:
-            warnings.warn('IF Include File statement found. Includes are activated, but is this really a good idea?', ResourceWarning)
+            warnings.warn('IF include statement found. Includes are activated, but is this really a good idea?', ResourceWarning)
 
         include_file = self.include_dir / param["filename"]
-        if include_file in self.include_stack
-            raise ValueError("Recusive file inclusion via IF include statement.")
+        # Do not check if path exists to avoid leaking existence via error message
+        include_file = include_file.resolve(strict=False)
+        
+        if not include_file.is_relative_to(self.include_dir):
+            raise FileNotFoundError('Attempted traversal to parent of include dir in path from IF include statement')
+
+        if not include_file.is_file():
+            raise FileNotFoundError('File pointed to by IF include statement does not exist')
+
+        if include_file in self.include_stack:
+            raise ValueError("Recusive inclusion via IF include statement.")
         self.include_stack.append(include_file)
 
         # Spec 2020-09 section 3.1: Gerber files must use UTF-8
-        yield from self._parse(f.read_text(encoding='UTF-8'))
+        self._parse(f.read_text(encoding='UTF-8'))
         self.include_stack.pop()
-
 
     def _parse_image_name(self, match):
         warnings.warn('Deprecated IN (image name) statement found. This deprecated since rev. I4 (Oct 2013).',
                 DeprecationWarning)
-        yield CommentStmt(f'Image name: {match["name"]}')
+        self.target.comments.append(f'Image name: {match["name"]}')
 
     def _parse_load_name(self, match):
         warnings.warn('Deprecated LN (load name) statement found. This deprecated since rev. I4 (Oct 2013).',
                 DeprecationWarning)
-        yield CommentStmt(f'Name of subsequent part: {match["name"]}')
 
     def _parse_axis_selection(self, match):
         warnings.warn('Deprecated AS (axis selection) statement found. This deprecated since rev. I1 (Dec 2012).',
                 DeprecationWarning)
-        self.settings.output_axes = match['axes']
-        yield from () # Handled by coordinate normalization
+        self.graphics_state.output_axes = match['axes']
 
     def _parse_image_polarity(self, match):
         warnings.warn('Deprecated IP (image polarity) statement found. This deprecated since rev. I4 (Oct 2013).',
                 DeprecationWarning)
-        self.settings.image_polarity = match['polarity']
-        yield from () # We always emit this in the header
+        self.graphics_state.image_polarity = match['polarity']
     
     def _parse_image_rotation(self, match):
         warnings.warn('Deprecated IR (image rotation) statement found. This deprecated since rev. I1 (Dec 2012).',
                 DeprecationWarning)
-        self.settings.image_rotation = int(match['rotation'])
-        yield from () # Handled by coordinate normalization
+        self.graphics_state.image_rotation = int(match['rotation'])
 
     def _parse_mirror_image(self, match):
         warnings.warn('Deprecated MI (mirror image) statement found. This deprecated since rev. I1 (Dec 2012).',
                 DeprecationWarning)
-        self.settings.mirror = bool(int(match['a'] or '0')), bool(int(match['b'] or '1'))
-        yield from () # Handled by coordinate normalization
+        self.graphics_state.mirror = bool(int(match['a'] or '0')), bool(int(match['b'] or '1'))
 
     def _parse_scale_factor(self, match):
         warnings.warn('Deprecated SF (scale factor) statement found. This deprecated since rev. I1 (Dec 2012).',
                 DeprecationWarning)
         a = float(match['a']) if match['a'] else 1.0
         b = float(match['b']) if match['b'] else 1.0
-        self.settings.scale_factor = a, b
-        yield from () # Handled by coordinate normalization
+        self.graphics_state.scale_factor = a, b
 
     def _parse_comment(self, match):
-        yield CommentStmt(match["comment"])
+        self.target.comments.append(match["comment"])
 
     def _parse_region_start(self, _match):
-        current_region = RegionGroup()
+        self.current_region = gp.Region(polarity_dark=gp.polarity_dark)
 
     def _parse_region_end(self, _match):
         if self.current_region is None:
             raise SyntaxError('Region end command (G37) outside of region')
         
-        yield self.current_region
+        if self.current_region: # ignore empty regions
+            self.target.objects.append(self.current_region)
         self.current_region = None
 
     def _parse_old_unit(self, match):
-        self.settings.units = 'inch' if match['mode'] == 'G70' else 'mm'
+        self.file_settings.units = 'inch' if match['mode'] == 'G70' else 'mm'
         warnings.warn(f'Deprecated {match["mode"]} unit mode statement found. This deprecated since 2012.',
                     DeprecationWarning)
-        yield CommentStmt(f'Replaced deprecated {match["mode"]} unit mode statement with MO statement')
-        yield UnitStmt()
+        self.target.comments.append('Replaced deprecated {match["mode"]} unit mode statement with MO statement')
 
     def _parse_old_unit(self, match):
         # FIXME make sure we always have FS at end of processing.
         self.settings.notation = 'absolute' if match['mode'] == 'G90' else 'incremental'
         warnings.warn(f'Deprecated {match["mode"]} notation mode statement found. This deprecated since 2012.',
                     DeprecationWarning)
-        yield CommentStmt(f'Replaced deprecated {match["mode"]} notation mode statement with FS statement')
+        self.target.comments.append('Replaced deprecated {match["mode"]} notation mode statement with FS statement')
     
     def _parse_eof(self, _match):
-        yield EofStmt()
+        self.eof_found = True
 
     def _parse_ignored(self, match):
-        yield CommentStmt(f'Ignoring {match{"stmt"]} statement.')
+        pass
 
-    def _parse_aperture_definition(self, match):
-        modifiers = [ float(mod) for mod in match['modifiers'].split(',') ]
-        if match['shape'] == 'C':
-            aperture = ApertureCircle(*modifiers)
-
-        elif match['shape'] == 'R'
-            aperture = ApertureRectangle(*modifiers)
-
-        elif shape == 'O':
-            aperture = ApertureObround(*modifiers)
-
-        elif shape == 'P':
-            aperture = AperturePolygon(*modifiers)
-
-        else:
-            aperture = self.macros[shape].build(modifiers)
-
-        self.apertures[d] = aperture
-
-
-
-    def evaluate(self, stmt):
-        """ Evaluate Gerber statement and update image accordingly.
-
-        This method is called once for each statement in the file as it
-        is parsed.
-
-        Parameters
-        ----------
-        statement : Statement
-            Gerber/Excellon statement to evaluate.
-
-        """
-        if isinstance(stmt, CoordStmt):
-            self._evaluate_coord(stmt)
-
-        elif isinstance(stmt, ParamStmt):
-            self._evaluate_param(stmt)
-
-        elif isinstance(stmt, ApertureStmt):
-            self._evaluate_aperture(stmt)
-
-        elif isinstance(stmt, (RegionModeStmt, QuadrantModeStmt)):
-            self._evaluate_mode(stmt)
-
-        elif isinstance(stmt, (CommentStmt, UnknownStmt, DeprecatedStmt, EofStmt)):
-            return
-
-        else:
-            raise Exception("Invalid statement to evaluate")
-
-    def _evaluate_mode(self, stmt):
-        if stmt.type == 'RegionMode':
-            if self.region_mode == 'on' and stmt.mode == 'off':
-                # Sometimes we have regions that have no points. Skip those
-                if self.current_region:
-                    self.primitives.append(Region(self.current_region,
-                                                  level_polarity=self.level_polarity, units=self.settings.units))
-
-                self.current_region = None
-            self.region_mode = stmt.mode
-        elif stmt.type == 'QuadrantMode':
-            self.quadrant_mode = stmt.mode
-
-    def _evaluate_param(self, stmt):
-        elif stmt.param == "LP":
-            self.level_polarity = stmt.lp
-        elif stmt.param == "AM":
-            self.macros[stmt.name] = stmt
-        elif stmt.param == "AD":
-            self._define_aperture(stmt.d, stmt.shape, stmt.modifiers)
-
-    def _evaluate_coord(self, stmt):
-        x = self.x if stmt.x is None else stmt.x
-        y = self.y if stmt.y is None else stmt.y
-
-        if stmt.function in ("G01", "G1"):
-            self.interpolation = 'linear'
-        elif stmt.function in ('G02', 'G2', 'G03', 'G3'):
-            self.interpolation = 'arc'
-            self.direction = ('clockwise' if stmt.function in
-                              ('G02', 'G2') else 'counterclockwise')
-
-        if stmt.only_function:
-            # Sometimes we get a coordinate statement
-            # that only sets the function. If so, don't
-            # try futher otherwise that might draw/flash something
-            return
-
-        if stmt.op:
-            self.op = stmt.op
-        else:
-            # no implicit op allowed, force here if coord block doesn't have it
-            stmt.op = self.op
-
-        if self.op == "D01" or self.op == "D1":
-            start = (self.x, self.y)
-            end = (x, y)
-
-            if self.interpolation == 'linear':
-                if self.region_mode == 'off':
-                    self.primitives.append(Line(start, end,
-                                                self.apertures[self.aperture],
-                                                level_polarity=self.level_polarity,
-                                                units=self.settings.units))
-                else:
-                    # from gerber spec revision J3, Section 4.5, page 55:
-                    #  The segments are not graphics objects in themselves; segments are part of region which is the graphics object. The segments have no thickness.
-                    # The current aperture is associated with the region.
-                    # This has no graphical effect, but allows all its attributes to
-                    # be applied to the region.
-
-                    if self.current_region is None:
-                        self.current_region = [Line(start, end,
-                                                    self.apertures.get(self.aperture,
-                                                                       Circle((0, 0), 0)),
-                                                    level_polarity=self.level_polarity,
-                                                    units=self.settings.units), ]
-                    else:
-                        self.current_region.append(Line(start, end,
-                                                        self.apertures.get(self.aperture,
-                                                                           Circle((0, 0), 0)),
-                                                        level_polarity=self.level_polarity,
-                                                        units=self.settings.units))
-            else:
-                i = 0 if stmt.i is None else stmt.i
-                j = 0 if stmt.j is None else stmt.j
-                center = self._find_center(start, end, (i, j))
-                if self.region_mode == 'off':
-                    self.primitives.append(Arc(start, end, center, self.direction,
-                                               self.apertures[self.aperture],
-                                               quadrant_mode=self.quadrant_mode,
-                                               level_polarity=self.level_polarity,
-                                               units=self.settings.units))
-                else:
-                    if self.current_region is None:
-                        self.current_region = [Arc(start, end, center, self.direction,
-                                                   self.apertures.get(self.aperture, Circle((0,0), 0)),
-                                                   quadrant_mode=self.quadrant_mode,
-                                                   level_polarity=self.level_polarity,
-                                                   units=self.settings.units),]
-                    else:
-                        self.current_region.append(Arc(start, end, center, self.direction,
-                                                       self.apertures.get(self.aperture, Circle((0,0), 0)),
-                                                       quadrant_mode=self.quadrant_mode,
-                                                       level_polarity=self.level_polarity,
-                                                       units=self.settings.units))
-                    # Gerbv seems to reset interpolation mode in regions..
-                    # TODO: Make sure this is right.
-                    self.interpolation = 'linear'
-
-        elif self.op == "D02" or self.op == "D2":
-
-            if self.region_mode == "on":
-                # D02 in the middle of a region finishes that region and starts a new one
-                if self.current_region and len(self.current_region) > 1:
-                    self.primitives.append(Region(self.current_region,
-                                                  level_polarity=self.level_polarity,
-                                                  units=self.settings.units))
-                self.current_region = None
-
-        elif self.op == "D03" or self.op == "D3":
-            primitive = copy.deepcopy(self.apertures[self.aperture])
-
-            if primitive is not None:
-
-                if not isinstance(primitive, AMParamStmt):
-                    primitive.position = (x, y)
-                    primitive.level_polarity = self.level_polarity
-                    primitive.units = self.settings.units
-                    self.primitives.append(primitive)
-                else:
-                    # Aperture Macro
-                    for am_prim in primitive.primitives:
-                        renderable = am_prim.to_primitive((x, y),
-                                                          self.level_polarity,
-                                                          self.settings.units)
-                        if renderable is not None:
-                            self.primitives.append(renderable)
-        self.x, self.y = x, y
-
-    def _find_center(self, start, end, offsets):
-        """
-        In single quadrant mode, the offsets are always positive, which means
-        there are 4 possible centers. The correct center is the only one that
-        results in an arc with sweep angle of less than or equal to 90 degrees
-        in the specified direction
-        """
-        two_pi = 2 * math.pi
-        if self.quadrant_mode == 'single-quadrant':
-            # The Gerber spec says single quadrant only has one possible center,
-            # and you can detect it based on the angle. But for real files, this
-            # seems to work better - there is usually only one option that makes
-            # sense for the center (since the distance should be the same
-            # from start and end). We select the center with the least error in
-            # radius from all the options with a valid sweep angle.
-
-            sqdist_diff_min = sys.maxsize
-            center = None
-            for factors in [(1, 1), (1, -1), (-1, 1), (-1, -1)]:
-
-                test_center = (start[0] + offsets[0] * factors[0],
-                               start[1] + offsets[1] * factors[1])
-
-                # Find angle from center to start and end points
-                start_angle = math.atan2(*reversed([_start - _center for _start, _center in zip(start, test_center)]))
-                end_angle = math.atan2(*reversed([_end - _center for _end, _center in zip(end, test_center)]))
-
-                # Clamp angles to 0, 2pi
-                theta0 = (start_angle + two_pi) % two_pi
-                theta1 = (end_angle + two_pi) % two_pi
-
-                # Determine sweep angle in the current arc direction
-                if self.direction == 'counterclockwise':
-                    sweep_angle = abs(theta1 - theta0)
-                else:
-                    theta0 += two_pi
-                    sweep_angle = abs(theta0 - theta1) % two_pi
-
-                # Calculate the radius error
-                sqdist_start = sq_distance(start, test_center)
-                sqdist_end = sq_distance(end, test_center)
-                sqdist_diff = abs(sqdist_start - sqdist_end)
-
-                # Take the option with the lowest radius error from the set of
-                # options with a valid sweep angle
-                # In some rare cases, the sweep angle is numerically (10**-14) above pi/2
-                # So it is safer to compare the angles with some tolerance
-                is_lowest_radius_error = sqdist_diff < sqdist_diff_min
-                is_valid_sweep_angle = sweep_angle >= 0 and sweep_angle <= math.pi / 2.0 + 1e-6
-                if is_lowest_radius_error and is_valid_sweep_angle:
-                    center = test_center
-                    sqdist_diff_min = sqdist_diff
-            return center
-        else:
-            return (start[0] + offsets[0], start[1] + offsets[1])
-
-    def _evaluate_aperture(self, stmt):
-        self.aperture = stmt.d
 
 def _match_one(expr, data):
     match = expr.match(data)
@@ -854,133 +624,4 @@ def _match_one_from_many(exprs, data):
             return (match.groupdict(), data[match.end(0):])
 
     return ({}, None)
-
-class GerberContext(FileSettings):
-    TYPE_NONE = 'none'
-    TYPE_AM = 'am'
-    TYPE_AD = 'ad'
-    TYPE_MAIN = 'main'
-    IP_LINEAR = 'linear'
-    IP_ARC = 'arc'
-    DIR_CLOCKWISE = 'cw'
-    DIR_COUNTERCLOCKWISE = 'ccw'
-
-    @classmethod
-    def from_settings(cls, settings):
-        return cls(settings.notation, settings.units, settings.zero_suppression,
-                   settings.format, settings.zeros, settings.angle_units)
-
-    def __init__(self, notation='absolute', units='inch',
-                 zero_suppression=None, format=(2, 5), zeros=None,
-                 angle_units='degrees',
-                 mirror=(False, False), offset=(0., 0.), scale=(1., 1.),
-                 angle=0., axis='xy'):
-        super(GerberContext, self).__init__(notation, units, zero_suppression, 
-                                      format, zeros, angle_units)
-        self.mirror = mirror
-        self.offset = offset
-        self.scale = scale
-        self.angle = angle
-        self.axis = axis
-
-        self.is_negative = False
-        self.no_polarity = True
-        self.in_single_quadrant_mode = False
-        self.op = None
-        self.interpolation = self.IP_LINEAR
-        self.direction = self.DIR_CLOCKWISE
-        self.x, self.y = 0, 0
-
-    def update_from_statement(self, stmt):
-        if isinstance(stmt, MIParamStmt):
-            self.mirror = (stmt.a, stmt.b)
-
-        elif isinstance(stmt, OFParamStmt):
-            self.offset = (stmt.a, stmt.b)
-
-        elif isinstance(stmt, SFParamStmt):
-            self.scale = (stmt.a, stmt.b)
-
-        elif isinstance(stmt, ASParamStmt):
-            self.axis = 'yx' if stmt.mode == 'AYBX' else 'xy'
-
-        elif isinstance(stmt, IRParamStmt):
-            self.angle = stmt.angle
-
-        elif isinstance(stmt, QuadrantModeStmt):
-            self.in_single_quadrant_mode = stmt.mode == 'single-quadrant'
-            stmt.mode = 'multi-quadrant'
-
-        elif isinstance(stmt, IPParamStmt):
-            self.is_negative = stmt.ip == 'negative'
-
-        elif isinstance(stmt, LPParamStmt):
-            self.no_polarity = False
-
-    @property
-    def matrix(self):
-        if self.axis == 'xy':
-            mx = -1 if self.mirror[0] else 1
-            my = -1 if self.mirror[1] else 1
-            return (
-                self.scale[0] * mx, self.offset[0],
-                self.scale[1] * my, self.offset[1],
-                self.scale[0] * mx, self.scale[1] * my)
-        else:
-            mx = -1 if self.mirror[1] else 1
-            my = -1 if self.mirror[0] else 1
-            return (
-                self.scale[1] * mx, self.offset[1],
-                self.scale[0] * my, self.offset[0],
-                self.scale[1] * mx, self.scale[0] * my)
-
-    def normalize_coordinates(self, stmt):
-        if stmt.function == 'G01' or stmt.function == 'G1':
-            self.interpolation = self.IP_LINEAR
-
-        elif stmt.function == 'G02' or stmt.function == 'G2':
-            self.interpolation = self.IP_ARC
-            self.direction = self.DIR_CLOCKWISE
-            if self.mirror[0] != self.mirror[1]:
-                stmt.function = 'G03'
-
-        elif stmt.function == 'G03' or stmt.function == 'G3':
-            self.interpolation = self.IP_ARC
-            self.direction = self.DIR_COUNTERCLOCKWISE
-            if self.mirror[0] != self.mirror[1]:
-                stmt.function = 'G02'
-
-        if stmt.only_function:
-            return
-
-        last_x, last_y = self.x, self.y
-        if self.notation == 'absolute':
-            x = stmt.x if stmt.x is not None else self.x
-            y = stmt.y if stmt.y is not None else self.y
-
-        else:
-            x = self.x + stmt.x if stmt.x is not None else 0
-            y = self.y + stmt.y if stmt.y is not None else 0
-
-        self.x, self.y = x, y
-        self.op = stmt.op if stmt.op is not None else self.op
-
-        stmt.op = self.op
-        stmt.x = self.matrix[0] * x + self.matrix[1]
-        stmt.y = self.matrix[2] * y + self.matrix[3]
-
-        if stmt.op == 'D01' and self.interpolation == self.IP_ARC:
-            qx, qy = 1, 1
-            if self.in_single_quadrant_mode:
-                if self.direction == self.DIR_CLOCKWISE:
-                    qx = 1 if y > last_y else -1
-                    qy = 1 if x < last_x else -1
-                else:
-                    qx = 1 if y < last_y else -1
-                    qy = 1 if x > last_x else -1
-                if last_x == x and last_y == y:
-                    qx, qy = 0, 0
-
-            stmt.i = qx * self.matrix[4] * stmt.i if stmt.i is not None else 0
-            stmt.j = qy * self.matrix[5] * stmt.j if stmt.j is not None else 0
 

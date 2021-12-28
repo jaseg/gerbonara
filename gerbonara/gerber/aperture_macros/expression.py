@@ -8,6 +8,10 @@ import re
 import ast
 
 
+def expr(obj):
+    return obj if isinstance(obj, Expression) else ConstantExpression(obj)
+
+
 class Expression(object):
     @property
     def value(self):
@@ -28,6 +32,35 @@ class Expression(object):
             raise IndexError(f'Cannot fully resolve expression due to unresolved variables: {expr} with variables {variable_binding}')
         return expr.value
 
+    def __add__(self, other):
+        return OperatorExpression(operator.add, self, expr(other)).optimized()
+
+    def __radd__(self, other):
+        return expr(other) + self
+
+    def __sub__(self, other):
+        return OperatorExpression(operator.sub, self, expr(other)).optimized()
+
+    def __rsub__(self, other):
+        return expr(other) - self
+
+    def __mul__(self, other):
+        return OperatorExpression(operator.mul, self, expr(other)).optimized()
+
+    def __rmul__(self, other):
+        return expr(other) * self
+
+    def __truediv__(self, other):
+        return OperatorExpression(operator.truediv, self, expr(other)).optimized()
+
+    def __rtruediv__(self, other):
+        return expr(other) / self
+
+    def __neg__(self):
+        return 0 - self
+
+    def __pos__(self):
+        return self
 
 class UnitExpression(Expression):
     def __init__(self, expr, unit):
@@ -50,10 +83,10 @@ class UnitExpression(Expression):
             return self._expr
 
         elif unit == 'mm':
-            return OperatorExpression.mul(self._expr, MILLIMETERS_PER_INCH)
+            return self._expr * MILLIMETERS_PER_INCH
 
         elif unit == 'inch':
-            return OperatorExpression.div(self._expr, MILLIMETERS_PER_INCH)
+            return self._expr / MILLIMETERS_PER_INCH)
 
         else:
             raise ValueError('invalid unit, must be "inch" or "mm".')
