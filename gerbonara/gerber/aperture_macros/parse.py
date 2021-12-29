@@ -9,10 +9,8 @@ import ast
 import copy
 import math
 
-import primitive as ap
-from expression import *
-
-from .. import apertures
+from . import primitive as ap
+from .expression import *
 
 def rad_to_deg(x):
     return (x / math.pi) * 180
@@ -54,10 +52,10 @@ class ApertureMacro:
         self.primitives = primitives or []
 
     @classmethod
-    def parse_macro(cls, name, macro, unit):
+    def parse_macro(cls, name, body, unit):
         macro = cls(name)
 
-        blocks = re.sub(r'\s', '', macro).split('*')
+        blocks = re.sub(r'\s', '', body).split('*')
         for block in blocks:
             if not (block := block.strip()): # empty block
                 continue
@@ -74,14 +72,14 @@ class ApertureMacro:
 
             else: # primitive
                 primitive, *args = block.split(',')
-                args = [_parse_expression(arg) for arg in args]
-                primitive =  ap.PRIMITIVE_CLASSES[int(primitive)](unit=unit, args=args
+                args = [ _parse_expression(arg) for arg in args ]
+                primitive = ap.PRIMITIVE_CLASSES[int(primitive)](unit=unit, args=args)
                 macro.primitives.append(primitive)
 
     @property
     def name(self):
-        if self.name is not None:
-            return self.name
+        if self._name is not None:
+            return self._name
         else:
             return f'gn_{hash(self)}'
 
@@ -120,31 +118,34 @@ class ApertureMacro:
         return copy
 
 
-class GenericMacros:
-    deg_per_rad = 180 / math.pi
-    cons, var = VariableExpression
-    _generic_hole = lambda n: [
-            ap.Circle(exposure=0, diameter=var(n), x=0, y=0),
-            ap.Rectangle(exposure=0, w=var(n), h=var(n+1), x=0, y=0, rotation=var(n+2) * deg_per_rad)]
+cons, var = ConstantExpression, VariableExpression
+deg_per_rad = 180 / math.pi
 
-    circle = ApertureMacro([
-        ap.Circle(exposure=1, diameter=var(1), x=0, y=0, rotation=var(4) * deg_per_rad),
+class GenericMacros:
+
+    _generic_hole = lambda n: [
+            ap.Circle(None, [0, var(n), 0, 0]),
+            ap.CenterLine(None, [0, var(n), var(n+1), 0, 0, var(n+2) * deg_per_rad])]
+
+    # Initialize all these with "None" units so they inherit file units, and do not convert their arguments.
+    circle = ApertureMacro('GNC', [
+        ap.Circle(None, [1, var(1), 0, 0, var(4) * deg_per_rad]),
         *_generic_hole(2)])
 
-    rect = ApertureMacro([
-        ap.Rectangle(exposure=1, w=var(1), h=var(2), x=0, y=0, rotation=var(5) * deg_per_rad),
+    rect = ApertureMacro('GNR', [
+        ap.CenterLine(None, [1, var(1), var(2), 0, 0, var(5) * deg_per_rad]),
         *_generic_hole(3) ])
 
     # w must be larger than h
-    obround = ApertureMacro([
-        ap.Rectangle(exposure=1, w=var(1), h=var(2), x=0, y=0, rotation=var(5) * deg_per_rad),
-        ap.Circle(exposure=1, diameter=var(2), x=+var(1)/2, y=0, rotation=var(5) * deg_per_rad),
-        ap.Circle(exposure=1, diameter=var(2), x=-var(1)/2, y=0, rotation=var(5) * deg_per_rad),
+    obround = ApertureMacro('GNO', [
+        ap.CenterLine(None, [1, var(1), var(2), 0, 0, var(5) * deg_per_rad]),
+        ap.Circle(None, [1, var(2), +var(1)/2, 0, var(5) * deg_per_rad]),
+        ap.Circle(None, [1, var(2), -var(1)/2, 0, var(5) * deg_per_rad]),
         *_generic_hole(3) ])
 
-    polygon = ApertureMacro([
-        ap.Polygon(exposure=1, n_vertices=var(2), x=0, y=0, diameter=var(1), rotation=var(3) * deg_per_rad),
-        pa.Circle(exposure=0, diameter=var(4), x=0, y=0)])
+    polygon = ApertureMacro('GNP', [
+        ap.Polygon(None, [1, var(2), 0, 0, var(1), var(3) * deg_per_rad]),
+        ap.Circle(None, [0, var(4), 0, 0])])
 
 
 if __name__ == '__main__':

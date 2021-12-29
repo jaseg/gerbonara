@@ -23,4 +23,3 @@ files in python.
 """
 
 from .layers import load_layer, load_layer_data
-from .pcb import PCB

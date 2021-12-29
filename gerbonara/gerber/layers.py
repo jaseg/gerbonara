@@ -19,7 +19,6 @@ import os
 import re
 from collections import namedtuple
 
-from . import common
 from .excellon import ExcellonFile
 from .ipc356 import IPCNetlist
 
@@ -294,3 +293,105 @@ class InternalLayer(PCBLayer):
         if not hasattr(other, 'order'):
             raise TypeError()
         return (self.order <= other.order)
+
+class PCB:
+
+    @classmethod
+    def from_directory(cls, directory, board_name=None, verbose=False):
+        layers = []
+        names = set()
+
+        # Validate
+        directory = os.path.abspath(directory)
+        if not os.path.isdir(directory):
+            raise TypeError('{} is not a directory.'.format(directory))
+
+        # Load gerber files
+        for filename in os.listdir(directory):
+            try:
+                camfile = gerber_read(os.path.join(directory, filename))
+                layer = PCBLayer.from_cam(camfile)
+                layers.append(layer)
+                name = os.path.splitext(filename)[0]
+                if len(os.path.splitext(filename)) > 1:
+                    _name, ext = os.path.splitext(name)
+                    if ext[1:] in layer_signatures(layer.layer_class):
+                        name = _name
+                    if layer.layer_class == 'drill' and 'drill' in ext:
+                        name = _name
+                names.add(name)
+                if verbose:
+                    print('[PCB]: Added {} layer <{}>'.format(layer.layer_class,
+                                                              filename))
+            except ParseError:
+                if verbose:
+                    print('[PCB]: Skipping file {}'.format(filename))
+            except IOError:
+                if verbose:
+                    print('[PCB]: Skipping file {}'.format(filename))
+
+        # Try to guess board name
+        if board_name is None:
+            if len(names) == 1:
+                board_name = names.pop()
+            else:
+                board_name = os.path.basename(directory)
+        # Return PCB
+        return cls(layers, board_name)
+
+    def __init__(self, layers, name=None):
+        self.layers = sort_layers(layers)
+        self.name = name
+
+    def __len__(self):
+        return len(self.layers)
+
+    @property
+    def top_layers(self):
+        board_layers = [l for l in reversed(self.layers) if l.layer_class in
+                        ('topsilk', 'topmask', 'top')]
+        drill_layers = [l for l in self.drill_layers if 'top' in l.layers]
+        # Drill layer goes under soldermask for proper rendering of tented vias
+        return [board_layers[0]] + drill_layers + board_layers[1:]
+
+    @property
+    def bottom_layers(self):
+        board_layers = [l for l in self.layers if l.layer_class in
+                        ('bottomsilk', 'bottommask', 'bottom')]
+        drill_layers = [l for l in self.drill_layers if 'bottom' in l.layers]
+        # Drill layer goes under soldermask for proper rendering of tented vias
+        return [board_layers[0]] + drill_layers + board_layers[1:]
+
+    @property
+    def drill_layers(self):
+        return [l for l in self.layers if l.layer_class == 'drill']
+
+    @property
+    def copper_layers(self):
+        return list(reversed([layer for layer in self.layers if
+                              layer.layer_class in
+                              ('top', 'bottom', 'internal')]))
+
+    @property
+    def outline_layer(self):
+        for layer in self.layers:
+            if layer.layer_class == 'outline':
+                return layer
+
+    @property
+    def layer_count(self):
+        """ Number of *COPPER* layers
+        """
+        return len([l for l in self.layers if l.layer_class in
+                    ('top', 'bottom', 'internal')])
+
+    @property
+    def board_bounds(self):
+        for layer in self.layers:
+            if layer.layer_class == 'outline':
+                return layer.bounding_box
+
+        for layer in self.layers:
+            if layer.layer_class == 'top':
+                return layer.bounding_box
+

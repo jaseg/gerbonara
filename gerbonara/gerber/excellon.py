@@ -29,7 +29,7 @@ import operator
 from .cam import CamFile, FileSettings
 from .excellon_statements import *
 from .excellon_tool import ExcellonToolDefinitionParser
-from .primitives import Drill, Slot
+from .graphic_objects import Drill, Slot
 from .utils import inch, metric
 
 

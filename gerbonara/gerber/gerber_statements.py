@@ -20,7 +20,6 @@ Gerber (RS-274X) Statements
 **Gerber RS-274X file statement classes**
 
 """
-from utils import parse_gerber_value, write_gerber_value, decimal_string, inch, metric
 
 class Statement:
     pass
@@ -38,7 +37,7 @@ class FormatSpecStmt(ParamStmt):
     """ FS - Gerber Format Specification Statement """
 
     def to_gerber(self, settings):
-        zeros = 'L' if settings.zero_suppression == 'leading' else 'T'
+        zeros = 'T' if settings.zeros == 'trailing' else 'L' # default to leading if "None" is specified
         notation = 'A' if settings.notation == 'absolute' else 'I'
         number_format = str(settings.number_format[0]) + str(settings.number_format[1])
 
@@ -84,7 +83,7 @@ class ApertureDefStmt(ParamStmt):
         self.aperture = aperture
 
     def to_gerber(self, settings=None):
-        return '%ADD{self.number}{self.aperture.to_gerber()}*%'
+        return f'%ADD{self.number}{self.aperture.to_gerber()}*%'
 
     def __str__(self):
         return f'<AD aperture def for {str(self.aperture).strip("<>")}>'
@@ -96,7 +95,8 @@ class ApertureMacroStmt(ParamStmt):
     def __init__(self, macro):
         self.macro = macro
 
-    def to_gerber(self, unit=None):
+    def to_gerber(self, settings=None):
+        unit = settings.units if settings else None
         return f'%AM{self.macro.name}*\n{self.macro.to_gerber(unit=unit)}*\n%'
 
     def __str__(self):
@@ -107,8 +107,8 @@ class ImagePolarityStmt(ParamStmt):
     """ IP - Image Polarity Statement. (Deprecated) """
 
     def to_gerber(self, settings):
-        ip = 'POS' if settings.image_polarity == 'positive' else 'NEG'
-        return f'%IP{ip}*%'
+        #ip = 'POS' if settings.image_polarity == 'positive' else 'NEG'
+        return f'%IPPOS*%'
 
     def __str__(self):
         return '<IP Image Polarity>'
@@ -125,16 +125,16 @@ class CoordStmt(Statement):
         for var in 'xyij':
             val = getattr(self, var)
             if val is not None:
-                ret += var.upper() + write_gerber_value(val, settings.number_format, settings.zero_suppression)
+                ret += var.upper() + settings.write_gerber_value(val)
         return ret + self.code + '*'
 
     def __str__(self):
         if self.i is None:
             return f'<{self.__name__.strip()} x={self.x} y={self.y}>'
-        else
-            return f'<{self.__name__.strip()} x={self.x} y={self.y} i={self.i} j={self.j]>'
+        else:
+            return f'<{self.__name__.strip()} x={self.x} y={self.y} i={self.i} j={self.j}>'
 
-class InterpolateStmt(Statement):
+class InterpolateStmt(CoordStmt):
     """ D01 Interpolation """
     code = 'D01'
 
@@ -148,7 +148,7 @@ class FlashStmt(CoordStmt):
 
 class InterpolationModeStmt(Statement):
     """ G01 / G02 / G03 interpolation mode statement """
-    def to_gerber(self, **_kwargs):
+    def to_gerber(self, settings=None):
         return self.code + '*'
 
     def __str__(self):
@@ -205,9 +205,6 @@ class CommentStmt(Statement):
 class EofStmt(Statement):
     """ M02 EOF Statement """
 
-    def __init__(self):
-        Statement.__init__(self, "EOF")
-
     def to_gerber(self, settings=None):
         return 'M02*'
 
@@ -218,7 +215,7 @@ class UnknownStmt(Statement):
     def __init__(self, line):
         self.line = line
 
-    def to_gerber(self, settings):
+    def to_gerber(self, settings=None):
         return self.line
 
     def __str__(self):

@@ -1,15 +1,24 @@
 
 import math
-from dataclasses import dataclass, replace
-from aperture_macros.parse import GenericMacros
+from dataclasses import dataclass, replace, astuple
 
-import graphic_primitives as gp
+from .aperture_macros.parse import GenericMacros
+
+from . import graphic_primitives as gp
+
 
 def _flash_hole(self, x, y):
     if self.hole_rect_h is not None:
         return self.primitives(x, y), Rectangle((x, y), (self.hole_dia, self.hole_rect_h), rotation=self.rotation, polarity_dark=False)
     else:
         return self.primitives(x, y), Circle((x, y), self.hole_dia, polarity_dark=False)
+
+def strip_right(*args):
+    args = list(args)
+    while args and args[-1] is None:
+        args.pop()
+    return args
+
 
 class Aperture:
     @property
@@ -25,12 +34,12 @@ class Aperture:
 
     @property
     def params(self):
-        return dataclasses.astuple(self)
+        return astuple(self)
 
     def flash(self, x, y):
         return self.primitives(x, y)
 
-    @parameter
+    @property
     def equivalent_width(self):
         raise ValueError('Non-circular aperture used in interpolation statement, line width is not properly defined.')
 
@@ -39,8 +48,8 @@ class Aperture:
         # we emulate this parameter. Our circle, rectangle and oblong classes below have a rotation parameter. Only at
         # export time during to_gerber, this parameter is evaluated. 
         actual_inst = self._rotated()
-        params = 'X'.join(f'{par:.4}' for par in actual_inst.params)
-        return f'{actual_inst.aperture.gerber_shape_code},{params}'
+        params = 'X'.join(f'{float(par):.4}' for par in actual_inst.params if par is not None)
+        return f'{actual_inst.gerber_shape_code},{params}'
 
     def __eq__(self, other):
         return hasattr(other, to_gerber) and self.to_gerber() == other.to_gerber()
@@ -57,7 +66,7 @@ class CircleAperture(Aperture):
     gerber_shape_code = 'C'
     human_readable_shape = 'circle'
     diameter : float
-    hole_dia : float = 0
+    hole_dia : float = None
     hole_rect_h : float = None
     rotation : float = 0 # radians; for rectangular hole; see hack in Aperture.to_gerber
 
@@ -69,18 +78,22 @@ class CircleAperture(Aperture):
 
     flash = _flash_hole
 
-    @parameter
+    @property
     def equivalent_width(self):
         return self.diameter
 
-    def rotated(self):
-        if math.isclose(rotation % (2*math.pi), 0) or self.hole_rect_h is None:
+    def _rotated(self):
+        if math.isclose(self.rotation % (2*math.pi), 0) or self.hole_rect_h is None:
             return self
         else:
             return self.to_macro(self.rotation)
 
     def to_macro(self):
         return ApertureMacroInstance(GenericMacros.circle, *self.params)
+
+    @property
+    def params(self):
+        return strip_right(self.diameter, self.hole_dia, self.hole_rect_h)
 
 
 @dataclass(frozen=True)
@@ -89,7 +102,7 @@ class RectangleAperture(Aperture):
     human_readable_shape = 'rect'
     w : float
     h : float
-    hole_dia : float = 0
+    hole_dia : float = None
     hole_rect_h : float = None
     rotation : float = 0 # radians
 
@@ -101,7 +114,7 @@ class RectangleAperture(Aperture):
 
     flash = _flash_hole
 
-    @parameter
+    @property
     def equivalent_width(self):
         return math.sqrt(self.w**2 + self.h**2)
 
@@ -116,6 +129,10 @@ class RectangleAperture(Aperture):
     def to_macro(self):
         return ApertureMacroInstance(GenericMacros.rect, *self.params)
 
+    @property
+    def params(self):
+        return strip_right(self.w, self.h, self.hole_dia, self.hole_rect_h)
+
 
 @dataclass(frozen=True)
 class ObroundAperture(Aperture):
@@ -123,7 +140,7 @@ class ObroundAperture(Aperture):
     human_readable_shape = 'obround'
     w : float
     h : float
-    hole_dia : float = 0
+    hole_dia : float = None
     hole_rect_h : float = None
     rotation : float = 0
 
@@ -148,6 +165,10 @@ class ObroundAperture(Aperture):
         inst = self if self.w > self.h else replace(self, w=self.h, h=self.w, **_rotate_hole_90(self))
         return ApertureMacroInstance(GenericMacros.obround, *inst.params)
 
+    @property
+    def params(self):
+        return strip_right(self.w, self.h, self.hole_dia, self.hole_rect_h)
+
 
 @dataclass(frozen=True)
 class PolygonAperture(Aperture):
@@ -155,7 +176,7 @@ class PolygonAperture(Aperture):
     diameter : float
     n_vertices : int
     rotation : float = 0
-    hole_dia : float = 0
+    hole_dia : float = None
 
     def primitives(self, x, y):
         return [ gp.RegularPolygon(x, y, diameter, n_vertices, rotation=self.rotation) ]
@@ -171,6 +192,15 @@ class PolygonAperture(Aperture):
 
     def to_macro(self):
         return ApertureMacroInstance(GenericMacros.polygon, *self.params)
+
+    @property
+    def params(self):
+        if self.hole_dia is not None:
+            return self.diameter, self.n_vertices, self.rotation, self.hole_dia
+        elif self.rotation:
+            return self.diameter, self.n_vertices, self.rotation
+        else:
+            return self.diameter, self.n_vertices
 
 
 class ApertureMacroInstance(Aperture):
@@ -203,5 +233,9 @@ class ApertureMacroInstance(Aperture):
         return hasattr(other, 'macro') and self.macro == other.macro and \
                 hasattr(other, 'params') and self.params == other.params and \
                 hasattr(other, 'rotation') and self.rotation == other.rotation
+
+    @property
+    def params(self):
+        return astuple(self)[:-1]
 
 

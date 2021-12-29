@@ -7,9 +7,9 @@
 import contextlib
 import math
 
-from expression import Expression, UnitExpression, ConstantExpression, expr
+from .expression import Expression, UnitExpression, ConstantExpression, expr
 
-from .. import graphic_primitivese as gp
+from .. import graphic_primitives as gp
 
 
 def point_distance(a, b):
@@ -41,7 +41,7 @@ class Primitive:
                 raise ValueError(f'Too few arguments ({len(args)}) for aperture macro primitive {self.code} ({type(self)})')
 
     def to_gerber(self, unit=None):
-        return self.code + ',' + ','.join(
+        return f'{self.code},' + ','.join(
                 getattr(self, name).to_gerber(unit) for name in type(self).__annotations__) + '*'
 
     def __str__(self):
@@ -149,6 +149,7 @@ class Polygon(Primitive):
 
 class Thermal(Primitive):
     code = 7
+    exposure : Expression
     # center x/y
     x : UnitExpression
     y : UnitExpression
@@ -216,6 +217,8 @@ class Outline(Primitive):
 
 
 class Comment:
+    code = 0
+
     def __init__(self, comment):
         self.comment = comment
 
@@ -233,6 +236,6 @@ PRIMITIVE_CLASSES = {
         Thermal,
     ]},
     # alternative codes
-    2: VectorLinePrimitive,
+    2: VectorLine,
 }
 

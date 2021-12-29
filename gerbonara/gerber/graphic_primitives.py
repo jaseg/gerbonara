@@ -4,7 +4,7 @@ import itertools
 
 from dataclasses import dataclass, KW_ONLY, replace
 
-from gerber_statements import *
+from .gerber_statements import *
 
 
 class GraphicPrimitive:
@@ -69,10 +69,10 @@ class ArcPoly(GraphicPrimitive):
 
     # list of (x : float, y : float) tuples. Describes closed outline, i.e. first and last point are considered
     # connected.
-    outline : list(tuple(float))
+    outline : [(float,)]
     # list of radii of segments, must be either None (all segments are straight lines) or same length as outline.
     # Straight line segments have None entry.
-    arc_centers : list(tuple(float))
+    arc_centers : [(float,)]
 
     @property
     def segments(self):
@@ -116,7 +116,7 @@ class Rectangle(GraphicPrimitive):
     def bounds(self):
         return ((self.x, self.y), (self.x+self.w, self.y+self.h))
 
-    @prorperty
+    @property
     def center(self):
         return self.x + self.w/2, self.y + self.h/2
 

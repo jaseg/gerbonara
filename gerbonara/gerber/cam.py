@@ -16,7 +16,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-
+from copy import deepcopy
 
 @dataclass
 class FileSettings:
@@ -28,7 +28,7 @@ class FileSettings:
         suppressed, while the Excellon format specifies which zeros are
         included. This function uses the Gerber-file convention, so an
         Excellon file in LZ (leading zeros) mode would use
-        `zero_suppression='trailing'`
+        `zeros='trailing'`
     '''
     notation : str = 'absolute'
     units : str = 'inch'
@@ -38,23 +38,26 @@ class FileSettings:
 
     # input validation
     def __setattr__(self, name, value):
-        elif name == 'notation' and value not in ['inch', 'mm']:
-            raise ValueError('Units must be either "inch" or "mm"')
-        elif name == 'units' and value not in ['absolute', 'incremental']:
-            raise ValueError('Notation must be either "absolute" or "incremental"')
+        if name == 'units' and value not in ['inch', 'mm']:
+            raise ValueError(f'Units must be either "inch" or "mm", not {value}')
+        elif name == 'notation' and value not in ['absolute', 'incremental']:
+            raise ValueError(f'Notation must be either "absolute" or "incremental", not {value}')
         elif name == 'angle_units' and value not in ('degrees', 'radians'):
-            raise ValueError('Angle units may be "degrees" or "radians"')
+            raise ValueError(f'Angle units may be "degrees" or "radians", not {value}')
         elif name == 'zeros' and value not in [None, 'leading', 'trailing']:
-            raise ValueError('zero_suppression must be either "leading" or "trailing" or None')
+            raise ValueError(f'zeros must be either "leading" or "trailing" or None, not {value}')
         elif name == 'number_format':
             if len(value) != 2:
-                raise ValueError('Number format must be a (integer, fractional) tuple of integers')
+                raise ValueError(f'Number format must be a (integer, fractional) tuple of integers, not {value}')
 
             if value[0] > 6 or value[1] > 7:
-                raise ValueError('Requested precision is too high. Only up to 6.7 digits are supported by spec.')
+                raise ValueError(f'Requested precision of {value} is too high. Only up to 6.7 digits are supported by spec.')
 
 
         super().__setattr__(name, value)
+
+    def copy(self):
+        return deepcopy(self)
 
     def __str__(self):
         return f'<File settings: units={self.units}/{self.angle_units} notation={self.notation} zeros={self.zeros} number_format={self.number_format}>'
@@ -74,9 +77,7 @@ class FileSettings:
         sign = '-' if value[0] == '-' else ''
         value = value.lstrip('+-')
 
-        missing_digits = MAX_DIGITS - len(value)
-
-        if self.zero_suppression == 'leading':
+        if self.zeros == 'leading':
             return float(sign + value[:-decimal_digits] + '.' + value[-decimal_digits:])
 
         else: # no or trailing zero suppression
@@ -90,13 +91,13 @@ class FileSettings:
         # negative sign affects padding, so deal with it at the end...
         sign = '-' if value < 0 else ''
 
-        num = format(abs(value), f'0{integer_digits+decimal_digits+1}.{decimal_digits}f')
+        num = format(abs(value), f'0{integer_digits+decimal_digits+1}.{decimal_digits}f').replace('.', '')
 
         # Suppression...
-        if self.zero_suppression == 'trailing':
+        if self.zeros == 'trailing':
             num = num.rstrip('0')
 
-        elif self.zero_suppression == 'leading':
+        elif self.zeros == 'leading':
             num = num.lstrip('0')
 
         # Edge case. Per Gerber spec if the value is 0 we should return a single '0' in all cases, see page 77.
@@ -106,49 +107,11 @@ class FileSettings:
         return sign + (num or '0')
 
 
-class CamFile(object):
-    """ Base class for Gerber/Excellon files.
-
-    Provides a common set of settings parameters.
-
-    Parameters
-    ----------
-    settings : FileSettings
-        The current file configuration.
-
-    primitives : iterable
-        List of primitives in the file.
-
-    filename : string
-        Name of the file that this CamFile represents.
-
-    layer_name : string
-        Name of the PCB layer that the file represents
-
-    Attributes
-    ----------
-    settings : FileSettings
-        File settings as a FileSettings object
-
-    notation : string
-        File notation setting. May be either 'absolute' or 'incremental'
-
-    units : string
-        File units setting. May be 'inch' or 'mm'
-
-    zero_suppression : string
-        File zero-suppression setting. May be either 'leading' or 'trailling'
-
-    format : tuple (<int>, <int>)
-        File decimal representation format as a tuple of (integer digits,
-        decimal digits)
-    """
-
-    def __init__(self, settings=None, primitives=None,
-                 filename=None, layer_name=None):
-        self.settings = settings if settings is not None else FileSettings()
+class CamFile:
+    def __init__(self, filename=None, layer_name=None):
         self.filename = filename
         self.layer_name = layer_name
+        self.import_settings = None
 
     @property
     def bounds(self):

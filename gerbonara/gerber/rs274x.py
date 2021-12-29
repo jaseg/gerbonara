@@ -34,9 +34,10 @@ from io import StringIO
 from .gerber_statements import *
 from .cam import CamFile, FileSettings
 from .utils import sq_distance, rotate_point
-from aperture_macros.parse import ApertureMacro, GenericMacros
-import graphic_primitives as gp
-import graphic_objects as go
+from .aperture_macros.parse import ApertureMacro, GenericMacros
+from . import graphic_primitives as gp
+from . import graphic_objects as go
+from . import apertures
 
 
 class GerberFile(CamFile):
@@ -75,9 +76,9 @@ class GerberFile(CamFile):
 
         # dedup aperture macros
         macros = { m.to_gerber(): m
-                for m in [ GenericMacros.circle, GenericMacros.rect, GenericMacros.oblong, GenericMacros.polygon] }
+                for m in [ GenericMacros.circle, GenericMacros.rect, GenericMacros.obround, GenericMacros.polygon] }
         for ap in new_apertures:
-            if isinstance(aperture, ApertureMacroInstance):
+            if isinstance(aperture, apertures.ApertureMacroInstance):
                 macro_grb = ap.macro.to_gerber() # use native units to compare macros
                 if macro_grb in macros:
                     ap.macro = macros[macro_grb]
@@ -128,6 +129,7 @@ class GerberFile(CamFile):
         yield FormatSpecStmt()
         yield ImagePolarityStmt()
         yield SingleQuadrantModeStmt()
+        yield LoadPolarityStmt(True)
 
         if not drop_comments:
             yield CommentStmt('File processed by Gerbonara. Original comments:')
@@ -139,14 +141,14 @@ class GerberFile(CamFile):
         # and they are only a few bytes anyway.
         yield ApertureMacroStmt(GenericMacros.circle)
         yield ApertureMacroStmt(GenericMacros.rect)
-        yield ApertureMacroStmt(GenericMacros.oblong)
+        yield ApertureMacroStmt(GenericMacros.obround)
         yield ApertureMacroStmt(GenericMacros.polygon)
 
         processed_macros = set()
         aperture_map = {}
         for number, aperture in enumerate(self.apertures, start=10):
 
-            if isinstance(aperture, ApertureMacroInstance):
+            if isinstance(aperture, apertures.ApertureMacroInstance):
                 macro_grb = aperture.macro.to_gerber() # use native units to compare macros
                 if macro_grb not in processed_macros:
                     processed_macros.add(macro_grb)
@@ -170,8 +172,16 @@ class GerberFile(CamFile):
 
     def save(self, filename):
         with open(filename, 'w', encoding='utf-8') as f: # Encoding is specified as UTF-8 by spec.
-            for stmt in self.generate_statements():
-                print(stmt.to_gerber(self.settings), file=f)
+            f.write(self.to_gerber())
+
+    def to_gerber(self, settings=None):
+        # Use given settings, or use same settings as original file if not given, or use defaults if not imported from a
+        # file
+        if settings is None:
+            settings = self.import_settings.copy() or FileSettings()
+            settings.zeros = None
+            settings.number_format = (5,6)
+        return '\n'.join(stmt.to_gerber(settings) for stmt in self.generate_statements())
 
     def offset(self, dx=0,  dy=0):
         # TODO round offset to file resolution
@@ -207,8 +217,8 @@ class GraphicsState:
     polarity_dark : bool = True
     image_polarity : str = 'positive' # IP image polarity; deprecated
     point : tuple = None
-    aperture : Aperture = None
-    interpolation_mode : InterpolationModeStmt = None
+    aperture : apertures.Aperture = None
+    interpolation_mode : InterpolationModeStmt = LinearModeStmt
     multi_quadrant_mode : bool = None # used only for syntax checking
     aperture_mirroring = (False, False) # LM mirroring (x, y)
     aperture_rotation = 0 # LR rotation in degrees, ccw
@@ -267,13 +277,13 @@ class GraphicsState:
         a *= self.image_scale[0]
         d *= self.image_scale[1]
 
-        if ir == 90:
+        if self.image_rotation == 90:
             a, b, c, d = 0, -d, a, 0
             off_x, off_y = off_y, -off_x
-        elif ir == 180:
+        elif self.image_rotation == 180:
             a, b, c, d = -a, 0, 0, -d
             off_x, off_y = -off_x, -off_y
-        elif ir == 270:
+        elif self.image_rotation == 270:
             a, b, c, d = 0, d, -a, 0
             off_x, off_y = -off_y, off_x
 
@@ -283,11 +293,11 @@ class GraphicsState:
     def map_coord(self, x, y, relative=False):
         if self._mat is None:
             self._update_xform()
-        a, b, c, d = self.mat
+        a, b, c, d = self._mat
 
         if not relative:
             return (a*x + b*y + self.image_offset[0]), (c*x + d*y + self.image_offset[1])
-        else
+        else:
             # Apply mirroring, scale and rotation, but do not apply offset
             return (a*x + b*y), (c*x + d*y)
 
@@ -305,14 +315,14 @@ class GraphicsState:
             return self._create_arc(x, y, i, j, aperture)
 
     def _create_line(self, x, y, aperture=True):
-        old_point, self.point = self.point, self._map_coord(x, y)
-        return go.Line(old_point, self.point, self.aperture if aperture else None, self.polarity_dark)
+        old_point, self.point = self.point, self.map_coord(x, y)
+        return go.Line(*old_point, *self.point, self.aperture if aperture else None, polarity_dark=self.polarity_dark)
 
     def _create_arc(self, x, y, i, j, aperture=True):
-        old_point, self.point = self.point, self._map_coord(x, y)
+        old_point, self.point = self.point, self.map_coord(x, y)
         direction = 'ccw' if self.interpolation_mode == CircularCCWModeStmt else 'cw'
         return go.Arc.from_coords(old_point, self.point, *self.map_coord(i, j, relative=True),
-                flipped=(direction == 'cw'), self.aperture if aperture else None, self.polarity_dark)
+                flipped=(direction == 'cw'), aperture=(self.aperture if aperture else None), polarity_dark=self.polarity_dark)
 
     # Helpers for gerber generation
     def set_polarity(self, polarity_dark):
@@ -343,12 +353,12 @@ class GerberParser:
 
     STATEMENT_REGEXES = {
         'unit_mode': r"MO(?P<unit>(MM|IN))",
-        'interpolation_mode': r"(?P<code>G0?[123]|G74|G75)?",
+        'interpolation_mode': r"(?P<code>G0?[123]|G74|G75)",
         'coord': fr"(X(?P<x>{NUMBER}))?(Y(?P<y>{NUMBER}))?" \
             fr"(I(?P<i>{NUMBER}))?(J(?P<j>{NUMBER}))?" \
-            fr"(?P<operation>D0?[123])?\*",
-        'aperture': r"(G54|G55)?D(?P<number>\d+)\*",
-        'comment': r"G0?4(?P<comment>[^*]*)(\*)?",
+            fr"(?P<operation>D0?[123])$",
+        'aperture': r"(G54|G55)?D(?P<number>\d+)",
+        'comment': r"G0?4(?P<comment>[^*]*)",
         'format_spec': r"FS(?P<zero>(L|T|D))?(?P<notation>(A|I))[NG0-9]*X(?P<x>[0-7][0-7])Y(?P<y>[0-7][0-7])[DM0-9]*",
         'load_polarity': r"LP(?P<polarity>(D|C))",
         # FIXME LM, LR, LS
@@ -363,12 +373,12 @@ class GerberParser:
         'scale_factor': fr"SF(A(?P<a>{DECIMAL}))?(B(?P<b>{DECIMAL}))?",
         'aperture_definition': fr"ADD(?P<number>\d+)(?P<shape>C|R|O|P|{NAME})[,]?(?P<modifiers>[^,%]*)",
         'aperture_macro': fr"AM(?P<name>{NAME})\*(?P<macro>[^%]*)",
-        'region_start': r'G36\*',
-        'region_end': r'G37\*',
-        'old_unit':r'(?P<mode>G7[01])\*',
-        'old_notation': r'(?P<mode>G9[01])\*',
-        'eof': r"M0?[02]\*",
-        'ignored': r"(?P<stmt>M01)\*",
+        'region_start': r'G36',
+        'region_end': r'G37',
+        'old_unit':r'(?P<mode>G7[01])',
+        'old_notation': r'(?P<mode>G9[01])',
+        'eof': r"M0?[02]",
+        'ignored': r"(?P<stmt>M01)",
         }
 
     STATEMENT_REGEXES = { key: re.compile(value) for key, value in STATEMENT_REGEXES.items() }
@@ -382,6 +392,7 @@ class GerberParser:
         self.file_settings = FileSettings()
         self.graphics_state = GraphicsState()
         self.aperture_map = {}
+        self.aperture_macros = {}
         self.current_region = None
         self.eof_found = False
         self.multi_quadrant_mode = None # used only for syntax checking
@@ -400,44 +411,46 @@ class GerberParser:
         for pos, c in enumerate(data):
             if c == '%':
                 if extended_command:
-                    yield data[start:pos+1]
+                    yield data[start:pos]
                     extended_command = False
-                    start = pos + 1
 
                 else:
                     extended_command = True
 
+                start = pos + 1
                 continue
 
             elif extended_command:
                 continue
 
             if c == '\r' or c == '\n' or c == '*':
-                word_command = data[start:pos+1].strip()
+                word_command = data[start:pos].strip()
                 if word_command and word_command != '*':
                     yield word_command
-                start = cur + 1
+                start = pos + 1
 
     def parse(self, data):
         for line in self._split_commands(data):
+            if not line.strip():
+                continue
+            line = line.rstrip('*').strip()
             # We cannot assume input gerber to use well-formed statement delimiters. Thus, we may need to parse
             # multiple statements from one line.
-            while line:
-                if line.strip() and self.eof_found:
-                    warnings.warn('Data found in gerber file after EOF.', SyntaxWarning)
-                for name, le_regex in self.STATEMENT_REGEXES.items():
-                    if (match := le_regex.match(line)):
-                        getattr(self, f'_parse_{name}')(self, match.groupdict())
-                        line = line[match.end(0):]
-                        break
+            if line.strip() and self.eof_found:
+                warnings.warn('Data found in gerber file after EOF.', SyntaxWarning)
 
-                else:
-                    if line[-1] == '*':
-                        warnings.warn(f'Unknown statement found: "{line}", ignoring.', SyntaxWarning)
-                        self.target.comments.append(f'Unknown statement found: "{line}", ignoring.')
-                        line = ''
+            for name, le_regex in self.STATEMENT_REGEXES.items():
+                if (match := le_regex.match(line)):
+                    getattr(self, f'_parse_{name}')(match.groupdict())
+                    line = line[match.end(0):]
+                    break
+
+            else:
+                warnings.warn(f'Unknown statement found: "{line}", ignoring.', SyntaxWarning)
+                self.target.comments.append(f'Unknown statement found: "{line}", ignoring.')
         
         self.target.apertures = list(self.aperture_map.values())
+        self.target.import_settings = self.file_settings
 
         if not self.eof_found:
                     warnings.warn('File is missing mandatory M02 EOF marker. File may be truncated.', SyntaxWarning)
@@ -519,17 +532,17 @@ class GerberParser:
         modifiers = [ float(val) for val in match['modifiers'].split(',') ]
 
         aperture_classes = {
-                'C': ApertureCircle,
-                'R': ApertureRectangle,
-                'O': ApertureObround,
-                'P': AperturePolygon,
+                'C': apertures.CircleAperture,
+                'R': apertures.RectangleAperture,
+                'O': apertures.ObroundAperture,
+                'P': apertures.PolygonAperture,
             }
 
         if (kls := aperture_classes.get(match['shape'])):
             new_aperture = kls(*modifiers)
 
-        elif (macro := self.target.aperture_macros.get(match['shape'])):
-            new_aperture = ApertureMacroInstance(match['shape'], macro, modifiers)
+        elif (macro := self.aperture_macros.get(match['shape'])):
+            new_aperture = apertures.ApertureMacroInstance(match['shape'], macro, modifiers)
 
         else:
             raise ValueError(f'Aperture shape "{match["shape"]}" is unknown')
@@ -537,11 +550,12 @@ class GerberParser:
         self.aperture_map[int(match['number'])] = new_aperture
 
     def _parse_aperture_macro(self, match):
-        self.target.aperture_macros[match['name']] = ApertureMacro.parse(match['macro'])
+        self.aperture_macros[match['name']] = ApertureMacro.parse_macro(
+                match['name'], match['macro'], self.file_settings.units)
     
     def _parse_format_spec(self, match):
         # This is a common problem in Eagle files, so just suppress it
-        self.file_settings.zero_suppression = {'L': 'leading', 'T': 'trailing'}.get(match['zero'], 'leading')
+        self.file_settings.zeros = {'L': 'leading', 'T': 'trailing'}.get(match['zero'], 'leading')
         self.file_settings.notation = 'absolute' if match['notation'] == 'A' else 'incremental'
 
         if match['x'] != match['y']:
@@ -604,7 +618,7 @@ class GerberParser:
     def _parse_image_polarity(self, match):
         warnings.warn('Deprecated IP (image polarity) statement found. This deprecated since rev. I4 (Oct 2013).',
                 DeprecationWarning)
-        self.graphics_state.image_polarity = match['polarity']
+        self.graphics_state.image_polarity = dict(POS='positive', NEG='negative')[match['polarity']]
     
     def _parse_image_rotation(self, match):
         warnings.warn('Deprecated IR (image rotation) statement found. This deprecated since rev. I1 (Dec 2012).',
@@ -672,4 +686,12 @@ def _match_one_from_many(exprs, data):
             return (match.groupdict(), data[match.end(0):])
 
     return ({}, None)
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('testfile')
+    args = parser.parse_args()
+
+    print(GerberFile.open(args.testfile).to_gerber())
 

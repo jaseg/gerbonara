@@ -16,10 +16,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import dataclass
 import math
 import re
 from .cam import CamFile, FileSettings
-from .primitives import TestRecord
 
 # Net Name Variables
 _NNAME = re.compile(r'^NNAME\d+$')
@@ -50,6 +50,11 @@ def read(filename):
     # File object should use settings from source file by default.
     return IPCNetlist.from_file(filename)
 
+@dataclass
+class TestRecord:
+    position : [float]
+    net_name : str
+    layer : str
 
 def loads(data, filename=None):
     """ Generate an IPCNetlist object from IPC-D-356 data in memory

@@ -8,15 +8,14 @@ import re
 import ast
 
 
+MILLIMETERS_PER_INCH = 25.4
+
+
 def expr(obj):
     return obj if isinstance(obj, Expression) else ConstantExpression(obj)
 
 
-class Expression(object):
-    @property
-    def value(self):
-        return self
-
+class Expression:
     def optimized(self, variable_binding={}):
         return self
 
@@ -79,17 +78,17 @@ class UnitExpression(Expression):
         return f'<{self._expr.to_gerber()} {self.unit}>'
 
     def converted(self, unit):
-        if unit is None or self.unit == unit:
+        if self.unit is None or unit is None or self.unit == unit:
             return self._expr
 
         elif unit == 'mm':
             return self._expr * MILLIMETERS_PER_INCH
 
         elif unit == 'inch':
-            return self._expr / MILLIMETERS_PER_INCH)
+            return self._expr / MILLIMETERS_PER_INCH
 
         else:
-            raise ValueError('invalid unit, must be "inch" or "mm".')
+            raise ValueError(f'invalid unit {unit}, must be "inch" or "mm".')
 
 
 class ConstantExpression(Expression):

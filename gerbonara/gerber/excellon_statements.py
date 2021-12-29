@@ -24,7 +24,7 @@ Excellon Statements
 import re
 import uuid
 import itertools
-from .utils import (parse_gerber_value, write_gerber_value, decimal_string,
+from .utils import (decimal_string,
                     inch, metric)
 
 
@@ -155,23 +155,21 @@ class ExcellonTool(ExcellonStatement):
         commands = pairwise(re.split('([BCFHSTZ])', line)[1:])
         args = {}
         args['id'] = id
-        nformat = settings.format
-        zero_suppression = settings.zero_suppression
         for cmd, val in commands:
             if cmd == 'B':
-                args['retract_rate'] = parse_gerber_value(val, nformat, zero_suppression)
+                args['retract_rate'] = settings.parse_gerber_value(val)
             elif cmd == 'C':
-                args['diameter'] = parse_gerber_value(val, nformat, zero_suppression)
+                args['diameter'] = settings.parse_gerber_value(val)
             elif cmd == 'F':
-                args['feed_rate'] = parse_gerber_value(val, nformat, zero_suppression)
+                args['feed_rate'] = settings.parse_gerber_value(val)
             elif cmd == 'H':
-                args['max_hit_count'] = parse_gerber_value(val, nformat, zero_suppression)
+                args['max_hit_count'] = settings.parse_gerber_value(val)
             elif cmd == 'S':
-                args['rpm'] = 1000 * parse_gerber_value(val, nformat, zero_suppression)
+                args['rpm'] = 1000 * settings.parse_gerber_value(val)
             elif cmd == 'T':
                 args['number'] = int(val)
             elif cmd == 'Z':
-                args['depth_offset'] = parse_gerber_value(val, nformat, zero_suppression)
+                args['depth_offset'] = settings.parse_gerber_value(val)
 
         if plated != ExcellonTool.PLATED_UNKNOWN:
             # Sometimees we can can parse the plating status
@@ -215,24 +213,22 @@ class ExcellonTool(ExcellonStatement):
     def to_excellon(self, settings=None):
         if self.settings and not settings:
             settings = self.settings
-        fmt = settings.format
-        zs = settings.zero_suppression
         stmt = 'T%02d' % self.number
         if self.retract_rate is not None:
-            stmt += 'B%s' % write_gerber_value(self.retract_rate, fmt, zs)
+            stmt += 'B%s' % settings.write_gerber_value(self.retract_rate)
         if self.feed_rate is not None:
-            stmt += 'F%s' % write_gerber_value(self.feed_rate, fmt, zs)
+            stmt += 'F%s' % settings.write_gerber_value(self.feed_rate)
         if self.max_hit_count is not None:
-            stmt += 'H%s' % write_gerber_value(self.max_hit_count, fmt, zs)
+            stmt += 'H%s' % settings.write_gerber_value(self.max_hit_count)
         if self.rpm is not None:
             if self.rpm < 100000.:
-                stmt += 'S%s' % write_gerber_value(self.rpm / 1000., fmt, zs)
+                stmt += 'S%s' % settings.write_gerber_value(self.rpm / 1000.)
             else:
                 stmt += 'S%g' % (self.rpm / 1000.)
         if self.diameter is not None:
             stmt += 'C%s' % decimal_string(self.diameter, fmt[1], True)
         if self.depth_offset is not None:
-            stmt += 'Z%s' % write_gerber_value(self.depth_offset, fmt, zs)
+            stmt += 'Z%s' % settings.write_gerber_value(self.depth_offset)
         return stmt
 
     def to_inch(self):
@@ -381,14 +377,11 @@ class CoordinateStmt(ExcellonStatement):
         y_coord = None
         if line[0] == 'X':
             splitline = line.strip('X').split('Y')
-            x_coord = parse_gerber_value(splitline[0], settings.format,
-                                         settings.zero_suppression)
+            x_coord = settings.parse_gerber_value(splitline[0])
             if len(splitline) == 2:
-                y_coord = parse_gerber_value(splitline[1], settings.format,
-                                             settings.zero_suppression)
+                y_coord = settings.parse_gerber_value(splitline[1])
         else:
-            y_coord = parse_gerber_value(line.strip(' Y'), settings.format,
-                                         settings.zero_suppression)
+            y_coord = settings.parse_gerber_value(line.strip(' Y'))
         c = cls(x_coord, y_coord, **kwargs)
         c.units = settings.units
         return c
@@ -406,11 +399,9 @@ class CoordinateStmt(ExcellonStatement):
         if self.mode == "LINEAR":
             stmt += "G01"
         if self.x is not None:
-            stmt += 'X%s' % write_gerber_value(self.x, settings.format,
-                                               settings.zero_suppression)
+            stmt += 'X%s' % settings.write_gerber_value(self.x)
         if self.y is not None:
-            stmt += 'Y%s' % write_gerber_value(self.y, settings.format,
-                                               settings.zero_suppression)
+            stmt += 'Y%s' % settings.write_gerber_value(self.y)
         return stmt
 
     def to_inch(self):
@@ -453,11 +444,9 @@ class RepeatHoleStmt(ExcellonStatement):
                            '(?P<ydelta>[+\-]?\d*\.?\d*)?').match(line)
         stmt = match.groupdict()
         count = int(stmt['rcount'])
-        xdelta = (parse_gerber_value(stmt['xdelta'], settings.format,
-                                     settings.zero_suppression)
+        xdelta = (settings.parse_gerber_value(stmt['xdelta'])
                   if stmt['xdelta'] is not '' else None)
-        ydelta = (parse_gerber_value(stmt['ydelta'], settings.format,
-                                     settings.zero_suppression)
+        ydelta = (settings.parse_gerber_value(stmt['ydelta'])
                   if stmt['ydelta'] is not '' else None)
         c = cls(count, xdelta, ydelta, **kwargs)
         c.units = settings.units
@@ -472,11 +461,9 @@ class RepeatHoleStmt(ExcellonStatement):
     def to_excellon(self, settings):
         stmt = 'R%d' % self.count
         if self.xdelta is not None and self.xdelta != 0.0:
-            stmt += 'X%s' % write_gerber_value(self.xdelta, settings.format,
-                                               settings.zero_suppression)
+            stmt += 'X%s' % settings.write_gerber_value(self.xdelta)
         if self.ydelta is not None and self.ydelta != 0.0:
-            stmt += 'Y%s' % write_gerber_value(self.ydelta, settings.format,
-                                               settings.zero_suppression)
+            stmt += 'Y%s' % settings.write_gerber_value(self.ydelta)
         return stmt
 
     def to_inch(self):
@@ -604,11 +591,9 @@ class EndOfProgramStmt(ExcellonStatement):
         match = re.compile(r'M30X?(?P<x>\d*\.?\d*)?Y?'
                            '(?P<y>\d*\.?\d*)?').match(line)
         stmt = match.groupdict()
-        x = (parse_gerber_value(stmt['x'], settings.format,
-                                settings.zero_suppression)
+        x = (settings.parse_gerber_value(stmt['x'])
              if stmt['x'] is not '' else None)
-        y = (parse_gerber_value(stmt['y'], settings.format,
-                                settings.zero_suppression)
+        y = (settings.parse_gerber_value(stmt['y'])
              if stmt['y'] is not '' else None)
         c = cls(x, y, **kwargs)
         c.units = settings.units
@@ -619,12 +604,12 @@ class EndOfProgramStmt(ExcellonStatement):
         self.x = x
         self.y = y
 
-    def to_excellon(self, settings=None):
+    def to_excellon(self, settings):
         stmt = 'M30'
         if self.x is not None:
-            stmt += 'X%s' % write_gerber_value(self.x)
+            stmt += 'X%s' % settings.write_gerber_value(self.x)
         if self.y is not None:
-            stmt += 'Y%s' % write_gerber_value(self.y)
+            stmt += 'Y%s' % settings.write_gerber_value(self.y)
         return stmt
 
     def to_inch(self):
@@ -878,14 +863,11 @@ class SlotStmt(ExcellonStatement):
 
         if line[0] == 'X':
             splitline = line.strip('X').split('Y')
-            x_coord = parse_gerber_value(splitline[0], settings.format,
-                                         settings.zero_suppression)
+            x_coord = settings.parse_gerber_value(splitline[0])
             if len(splitline) == 2:
-                y_coord = parse_gerber_value(splitline[1], settings.format,
-                                             settings.zero_suppression)
+                y_coord = settings.parse_gerber_value(splitline[1])
         else:
-            y_coord = parse_gerber_value(line.strip(' Y'), settings.format,
-                                         settings.zero_suppression)
+            y_coord = settings.parse_gerber_value(line.strip(' Y'))
 
         return (x_coord, y_coord)
 
@@ -902,20 +884,16 @@ class SlotStmt(ExcellonStatement):
         stmt = ''
 
         if self.x_start is not None:
-            stmt += 'X%s' % write_gerber_value(self.x_start, settings.format,
-                                               settings.zero_suppression)
+            stmt += 'X%s' % settings.write_gerber_value(self.x_start)
         if self.y_start is not None:
-            stmt += 'Y%s' % write_gerber_value(self.y_start, settings.format,
-                                               settings.zero_suppression)
+            stmt += 'Y%s' % settings.write_gerber_value(self.y_start)
 
         stmt += 'G85'
 
         if self.x_end is not None:
-            stmt += 'X%s' % write_gerber_value(self.x_end, settings.format,
-                                               settings.zero_suppression)
+            stmt += 'X%s' % settings.write_gerber_value(self.x_end)
         if self.y_end is not None:
-            stmt += 'Y%s' % write_gerber_value(self.y_end, settings.format,
-                                               settings.zero_suppression)
+            stmt += 'Y%s' % settings.write_gerber_value(self.y_end)
 
         return stmt
 

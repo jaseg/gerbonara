@@ -1,6 +1,10 @@
 
-import graphic_primitives as gp
+from dataclasses import dataclass, KW_ONLY
 
+from . import graphic_primitives as gp
+from .gerber_statements import *
+
+@dataclass
 class GerberObject:
     _ : KW_ONLY
     polarity_dark : bool = True
@@ -73,6 +77,7 @@ class Region(GerberObject):
         yield RegionEndStmt()
 
 
+@dataclass
 class Line(GerberObject):
     # Line with *round* end caps.
     x1 : float
@@ -107,6 +112,52 @@ class Line(GerberObject):
         yield from gs.set_interpolation_mode(LinearModeStmt)
         yield from gs.set_current_point(self.p1)
         yield InterpolateStmt(*self.p2)
+
+
+@dataclass
+class Drill(GerberObject):
+    x : float
+    y : float
+    diameter : float
+
+    def with_offset(self, dx, dy):
+        return replace(self, x=self.x+dx, y=self.y+dy)
+
+    def rotate(self, angle, cx=None, cy=None):
+        self.x, self.y = gp.rotate_point(self.x, self.y, angle, cx, cy)
+
+    def to_primitives(self):
+        yield gp.Circle(self.x, self.y, self.diameter/2)
+
+
+@dataclass
+class Slot(GerberObject):
+    x1 : float
+    y1 : float
+    x2 : float
+    y2 : float
+    width : float
+
+    def with_offset(self, dx, dy):
+        return replace(self, x1=self.x1+dx, y1=self.y1+dy, x2=self.x2+dx, y2=self.y2+dy)
+
+    def rotate(self, rotation, cx=None, cy=None):
+        if cx is None:
+            cx = (self.x1 + self.x2) / 2
+            cy = (self.y1 + self.y2) / 2
+        self.x1, self.y1 = gp.rotate_point(self.x1, self.y1, rotation, cx, cy)
+        self.x2, self.y2 = gp.rotate_point(self.x2, self.y2, rotation, cx, cy)
+
+    @property
+    def p1(self):
+        return self.x1, self.y1
+
+    @property
+    def p2(self):
+        return self.x2, self.y2
+
+    def to_primitives(self):
+        yield gp.Line(*self.p1, *self.p2, self.width, polarity_dark=self.polarity_dark)
 
 
 class Arc(GerberObject):
