@@ -317,9 +317,12 @@ class GraphicsState:
             if i is not None or j is not None:
                 raise SyntaxError("i/j coordinates given for linear D01 operation (which doesn't take i/j)")
 
+            #print('interpolate line')
             return self._create_line(old_point, self.map_coord(*self.point), aperture)
 
         else:
+            #print('interpolate arc')
+
             if i is None and j is None:
                 warnings.warn('Linear segment implied during arc interpolation mode through D01 w/o I, J values', SyntaxWarning)
                 return self._create_line(old_point, self.map_coord(*self.point), aperture)
@@ -363,7 +366,9 @@ class GraphicsState:
             yield ApertureStmt(self.aperture_map[id(aperture)])
 
     def set_current_point(self, point):
+        print(f'current point {self.point}')
         if self.point != point:
+            print(f'current point update {point}')
             self.point = point
             yield MoveStmt(*point)
 
@@ -469,7 +474,7 @@ class GerberParser:
 
             for name, le_regex in self.STATEMENT_REGEXES.items():
                 if (match := le_regex.match(line)):
-                    print(f'match {name}')
+                    #print(f'match {name}')
                     getattr(self, f'_parse_{name}')(match.groupdict())
                     line = line[match.end(0):]
                     break
@@ -524,10 +529,10 @@ class GerberParser:
                     raise SyntaxError('Circular arc interpolation in multi-quadrant mode (G74) is not implemented.')
 
             if self.current_region is None:
-                print('D01 outside region') 
+                #print('D01 outside region') 
                 self.target.objects.append(self.graphics_state.interpolate(x, y, i, j))
             else:
-                print(f'D01 inside region {id(self.current_region)} of length {len(self.current_region)}') 
+                #print(f'D01 inside region {id(self.current_region)} of length {len(self.current_region)}') 
                 self.current_region.append(self.graphics_state.interpolate(x, y, i, j))
 
         else:
@@ -674,14 +679,14 @@ class GerberParser:
 
     def _parse_region_start(self, _match):
         self.current_region = go.Region(polarity_dark=self.graphics_state.polarity_dark)
-        print(f'Region start of {id(self.current_region)}')
+        #print(f'Region start of {id(self.current_region)}')
 
     def _parse_region_end(self, _match):
         if self.current_region is None:
             raise SyntaxError('Region end command (G37) outside of region')
         
         if self.current_region: # ignore empty regions
-            print(f'Region end of {id(self.current_region)}')
+            #print(f'Region end of {id(self.current_region)}')
             self.target.objects.append(self.current_region)
         self.current_region = None
 

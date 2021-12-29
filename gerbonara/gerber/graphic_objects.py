@@ -54,7 +54,6 @@ class Region(GerberObject):
         self.poly.arc_centers = [ gp.rotate_point(x, y, angle, cx, cy) for x, y in self.poly.arc_centers ]
 
     def append(self, obj):
-        print('append', obj)
         if not self.poly.outline:
             self.poly.outline.append(obj.p1)
         self.poly.outline.append(obj.p2)
@@ -121,7 +120,9 @@ class Line(GerberObject):
         yield from gs.set_aperture(self.aperture)
         yield from gs.set_interpolation_mode(LinearModeStmt)
         yield from gs.set_current_point(self.p1)
+        print('interpolate', self.p2)
         yield InterpolateStmt(*self.p2)
+        gs.update_point(*self.p2)
 
 
 @dataclass
