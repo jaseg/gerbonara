@@ -158,7 +158,7 @@ class OperatorExpression(Expression):
 
         op = {operator.add: '+',
               operator.sub: '-',
-              operator.mul: 'x',
+              operator.mul: 'X',
               operator.truediv: '/'} [self.op]
 
         return f'{lval}{op}{rval}'

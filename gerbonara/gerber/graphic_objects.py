@@ -34,9 +34,17 @@ class Flash(GerberObject):
         yield FlashStmt(self.x, self.y)
 
 class Region(GerberObject):
-    def __init__(self, outline=[], arc_centers=None, *, polarity_dark):
-        super().__init__(self, polarity_dark=polarity_dark)
-        self.poly = gp.ArcPoly()
+    def __init__(self, outline=None, arc_centers=None, *, polarity_dark):
+        super().__init__(polarity_dark=polarity_dark)
+        outline = [] if outline is None else outline
+        arc_centers = [] if arc_centers is None else arc_centers
+        self.poly = gp.ArcPoly(outline, arc_centers)
+
+    def __len__(self):
+        return len(self.poly)
+
+    def __bool__(self):
+        return bool(self.poly)
 
     def with_offset(self, dx, dy):
         return Region([ (x+dx, y+dy) for x, y in outline ], radii, polarity_dark=self.polarity_dark)
@@ -46,7 +54,8 @@ class Region(GerberObject):
         self.poly.arc_centers = [ gp.rotate_point(x, y, angle, cx, cy) for x, y in self.poly.arc_centers ]
 
     def append(self, obj):
-        if not self.outline:
+        print('append', obj)
+        if not self.poly.outline:
             self.poly.outline.append(obj.p1)
         self.poly.outline.append(obj.p2)
 
@@ -64,7 +73,7 @@ class Region(GerberObject):
 
         yield from gs.set_current_point(self.poly.outline[0])
 
-        for point, arc_center in zip(self.poly.outline, self.poly.arc_centers):
+        for point, arc_center in zip(self.poly.outline[1:], self.poly.arc_centers):
             if arc_center is None:
                 yield from gs.set_interpolation_mode(LinearModeStmt)
                 yield InterpolateStmt(*point)

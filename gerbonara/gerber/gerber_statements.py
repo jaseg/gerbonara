@@ -170,11 +170,11 @@ class SingleQuadrantModeStmt(InterpolationModeStmt):
     """ G75 single-quadrant arc interpolation mode statement """
     code = 'G75'
 
-class RegionStartStatement(InterpolationModeStmt):
+class RegionStartStmt(InterpolationModeStmt):
     """ G36 Region Mode Start Statement. """
     code = 'G36'
 
-class RegionEndStatement(InterpolationModeStmt):
+class RegionEndStmt(InterpolationModeStmt):
     """ G37 Region Mode End Statement. """
     code = 'G37'
 

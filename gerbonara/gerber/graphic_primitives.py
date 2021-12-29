@@ -82,6 +82,12 @@ class ArcPoly(GraphicPrimitive):
         for (x1, y1), (x2, y2), radius in self.segments:
             return 
 
+    def __len__(self):
+        return len(self.outline)
+
+    def __bool__(self):
+        return bool(len(self))
+
 
 @dataclass
 class Line(GraphicPrimitive):

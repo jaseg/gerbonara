@@ -297,12 +297,10 @@ class GraphicsState:
 
         if not relative:
             rx, ry = (a*x + b*y + self.image_offset[0]), (c*x + d*y + self.image_offset[1])
-            print(f'map {x},{y} to {rx},{ry}')
             return rx, ry
         else:
             # Apply mirroring, scale and rotation, but do not apply offset
             rx, ry = (a*x + b*y), (c*x + d*y)
-            print(f'map {x},{y} to {rx},{ry}')
             return rx, ry
 
     def flash(self, x, y):
@@ -344,7 +342,6 @@ class GraphicsState:
                 flipped=(direction == 'cw'), aperture=(self.aperture if aperture else None), polarity_dark=self.polarity_dark)
 
     def update_point(self, x, y):
-        print(f'update_point {x=} {y=}')
         old_point = self.point
         if x is None:
             x = self.point[0]
@@ -383,7 +380,7 @@ class GerberParser:
 
     STATEMENT_REGEXES = {
         'unit_mode': r"MO(?P<unit>(MM|IN))",
-        'interpolation_mode': r"(?P<code>G0?[123]|G74|G75)",
+        'interpolation_mode': r"(?P<code>G0?[123]|G74|G75)$",
         'coord': fr"(X(?P<x>{NUMBER}))?(Y(?P<y>{NUMBER}))?" \
             fr"(I(?P<i>{NUMBER}))?(J(?P<j>{NUMBER}))?" \
             fr"(?P<operation>D0?[123])$",
@@ -472,6 +469,7 @@ class GerberParser:
 
             for name, le_regex in self.STATEMENT_REGEXES.items():
                 if (match := le_regex.match(line)):
+                    print(f'match {name}')
                     getattr(self, f'_parse_{name}')(match.groupdict())
                     line = line[match.end(0):]
                     break
@@ -526,8 +524,10 @@ class GerberParser:
                     raise SyntaxError('Circular arc interpolation in multi-quadrant mode (G74) is not implemented.')
 
             if self.current_region is None:
+                print('D01 outside region') 
                 self.target.objects.append(self.graphics_state.interpolate(x, y, i, j))
             else:
+                print(f'D01 inside region {id(self.current_region)} of length {len(self.current_region)}') 
                 self.current_region.append(self.graphics_state.interpolate(x, y, i, j))
 
         else:
@@ -540,7 +540,7 @@ class GerberParser:
                     # Start a new region for every outline. As gerber has no concept of fill rules or winding numbers,
                     # it does not make a graphical difference, and it makes the implementation slightly easier.
                     self.target.objects.append(self.current_region)
-                    self.current_region = gp.Region(polarity_dark=gp.polarity_dark)
+                    self.current_region = go.Region(polarity_dark=self.graphics_state.polarity_dark)
 
             else: # D03
                 if self.current_region is None:
@@ -673,13 +673,15 @@ class GerberParser:
         self.target.comments.append(match["comment"])
 
     def _parse_region_start(self, _match):
-        self.current_region = gp.Region(polarity_dark=gp.polarity_dark)
+        self.current_region = go.Region(polarity_dark=self.graphics_state.polarity_dark)
+        print(f'Region start of {id(self.current_region)}')
 
     def _parse_region_end(self, _match):
         if self.current_region is None:
             raise SyntaxError('Region end command (G37) outside of region')
         
         if self.current_region: # ignore empty regions
+            print(f'Region end of {id(self.current_region)}')
             self.target.objects.append(self.current_region)
         self.current_region = None
 
