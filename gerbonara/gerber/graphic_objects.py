@@ -32,6 +32,7 @@ class Flash(GerberObject):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
         yield FlashStmt(self.x, self.y)
+        gs.update_point(self.x, self.y)
 
 class Region(GerberObject):
     def __init__(self, outline=None, arc_centers=None, *, polarity_dark):
@@ -120,7 +121,6 @@ class Line(GerberObject):
         yield from gs.set_aperture(self.aperture)
         yield from gs.set_interpolation_mode(LinearModeStmt)
         yield from gs.set_current_point(self.p1)
-        print('interpolate', self.p2)
         yield InterpolateStmt(*self.p2)
         gs.update_point(*self.p2)
 

@@ -366,9 +366,7 @@ class GraphicsState:
             yield ApertureStmt(self.aperture_map[id(aperture)])
 
     def set_current_point(self, point):
-        print(f'current point {self.point}')
         if self.point != point:
-            print(f'current point update {point}')
             self.point = point
             yield MoveStmt(*point)
 
