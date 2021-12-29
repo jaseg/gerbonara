@@ -156,7 +156,7 @@ class GerberFile(CamFile):
 
             yield ApertureDefStmt(number, aperture)
 
-            aperture_map[aperture] = number
+            aperture_map[id(aperture)] = number
 
         gs = GraphicsState(aperture_map=aperture_map)
         for primitive in self.objects:
@@ -296,33 +296,63 @@ class GraphicsState:
         a, b, c, d = self._mat
 
         if not relative:
-            return (a*x + b*y + self.image_offset[0]), (c*x + d*y + self.image_offset[1])
+            rx, ry = (a*x + b*y + self.image_offset[0]), (c*x + d*y + self.image_offset[1])
+            print(f'map {x},{y} to {rx},{ry}')
+            return rx, ry
         else:
             # Apply mirroring, scale and rotation, but do not apply offset
-            return (a*x + b*y), (c*x + d*y)
+            rx, ry = (a*x + b*y), (c*x + d*y)
+            print(f'map {x},{y} to {rx},{ry}')
+            return rx, ry
 
     def flash(self, x, y):
-        return gp.Flash(self.aperture, *self.map_coord(x, y), polarity_dark=self.polarity_dark)
+        self.update_point(x, y)
+        return go.Flash(*self.map_coord(*self.point), self.aperture, polarity_dark=self.polarity_dark)
 
     def interpolate(self, x, y, i=None, j=None, aperture=True):
+        if self.point is None:
+            warnings.warn('D01 interpolation without preceding D02 move.', SyntaxWarning)
+            self.point = (0, 0)
+        old_point = self.map_coord(*self.update_point(x, y))
+
         if self.interpolation_mode == LinearModeStmt:
             if i is not None or j is not None:
                 raise SyntaxError("i/j coordinates given for linear D01 operation (which doesn't take i/j)")
 
-            return self._create_line(x, y, aperture)
+            return self._create_line(old_point, self.map_coord(*self.point), aperture)
 
         else:
-            return self._create_arc(x, y, i, j, aperture)
+            if i is None and j is None:
+                warnings.warn('Linear segment implied during arc interpolation mode through D01 w/o I, J values', SyntaxWarning)
+                return self._create_line(old_point, self.map_coord(*self.point), aperture)
 
-    def _create_line(self, x, y, aperture=True):
-        old_point, self.point = self.point, self.map_coord(x, y)
-        return go.Line(*old_point, *self.point, self.aperture if aperture else None, polarity_dark=self.polarity_dark)
+            else:
+                if i is None:
+                    warnings.warn('Arc is missing I value', SyntaxWarning)
+                    i = 0
+                if j is None:
+                    warnings.warn('Arc is missing J value', SyntaxWarning)
+                    j = 0
+                return self._create_arc(old_point, self.map_coord(*self.point), (i, j), aperture)
 
-    def _create_arc(self, x, y, i, j, aperture=True):
-        old_point, self.point = self.point, self.map_coord(x, y)
+    def _create_line(self, old_point, new_point, aperture=True):
+        return go.Line(*old_point, *new_point, self.aperture if aperture else None, polarity_dark=self.polarity_dark)
+
+    def _create_arc(self, old_point, new_point, control_point, aperture=True):
         direction = 'ccw' if self.interpolation_mode == CircularCCWModeStmt else 'cw'
-        return go.Arc.from_coords(old_point, self.point, *self.map_coord(i, j, relative=True),
+        return go.Arc(*old_point, *new_point,* self.map_coord(*control_point, relative=True),
                 flipped=(direction == 'cw'), aperture=(self.aperture if aperture else None), polarity_dark=self.polarity_dark)
+
+    def update_point(self, x, y):
+        print(f'update_point {x=} {y=}')
+        old_point = self.point
+        if x is None:
+            x = self.point[0]
+        if y is None:
+            y = self.point[1]
+        if self.point != (x, y):
+            self.point = (x, y)
+        return old_point
 
     # Helpers for gerber generation
     def set_polarity(self, polarity_dark):
@@ -333,7 +363,7 @@ class GraphicsState:
     def set_aperture(self, aperture):
         if self.aperture != aperture:
             self.aperture = aperture
-            yield ApertureStmt(self.aperture_map[aperture])
+            yield ApertureStmt(self.aperture_map[id(aperture)])
 
     def set_current_point(self, point):
         if self.point != point:
@@ -342,7 +372,7 @@ class GraphicsState:
 
     def set_interpolation_mode(self, mode):
         if self.interpolation_mode != mode:
-            gs.interpolation_mode = mode
+            self.interpolation_mode = mode
             yield mode()
 
 
@@ -438,6 +468,7 @@ class GerberParser:
             # multiple statements from one line.
             if line.strip() and self.eof_found:
                 warnings.warn('Data found in gerber file after EOF.', SyntaxWarning)
+            print('line', line)
 
             for name, le_regex in self.STATEMENT_REGEXES.items():
                 if (match := le_regex.match(line)):
@@ -504,7 +535,7 @@ class GerberParser:
                 raise SyntaxError("i/j coordinates given for D02/D03 operation (which doesn't take i/j)")
                 
             if op in ('D2', 'D02'):
-                self.graphics_state.point = (x, y)
+                self.graphics_state.update_point(x, y)
                 if self.current_region:
                     # Start a new region for every outline. As gerber has no concept of fill rules or winding numbers,
                     # it does not make a graphical difference, and it makes the implementation slightly easier.
@@ -529,7 +560,7 @@ class GerberParser:
 
     def _parse_aperture_definition(self, match):
         # number, shape, modifiers
-        modifiers = [ float(val) for val in match['modifiers'].split(',') ]
+        modifiers = [ float(val) for val in match['modifiers'].split('X') ] if match['modifiers'].strip() else []
 
         aperture_classes = {
                 'C': apertures.CircleAperture,
@@ -542,7 +573,7 @@ class GerberParser:
             new_aperture = kls(*modifiers)
 
         elif (macro := self.aperture_macros.get(match['shape'])):
-            new_aperture = apertures.ApertureMacroInstance(match['shape'], macro, modifiers)
+            new_aperture = apertures.ApertureMacroInstance(macro, modifiers)
 
         else:
             raise ValueError(f'Aperture shape "{match["shape"]}" is unknown')
@@ -556,7 +587,7 @@ class GerberParser:
     def _parse_format_spec(self, match):
         # This is a common problem in Eagle files, so just suppress it
         self.file_settings.zeros = {'L': 'leading', 'T': 'trailing'}.get(match['zero'], 'leading')
-        self.file_settings.notation = 'absolute' if match['notation'] == 'A' else 'incremental'
+        self.file_settings.notation = 'incremental' if match['notation'] == 'I' else 'absolute'
 
         if match['x'] != match['y']:
             raise SyntaxError(f'FS specifies different coordinate formats for X and Y ({match["x"]} != {match["y"]})')
@@ -616,8 +647,9 @@ class GerberParser:
         self.graphics_state.output_axes = match['axes']
 
     def _parse_image_polarity(self, match):
-        warnings.warn('Deprecated IP (image polarity) statement found. This deprecated since rev. I4 (Oct 2013).',
-                DeprecationWarning)
+        # Do not warn, this is still common.
+        # warnings.warn('Deprecated IP (image polarity) statement found. This deprecated since rev. I4 (Oct 2013).',
+        #         DeprecationWarning)
         self.graphics_state.image_polarity = dict(POS='positive', NEG='negative')[match['polarity']]
     
     def _parse_image_rotation(self, match):
@@ -657,9 +689,9 @@ class GerberParser:
                     DeprecationWarning)
         self.target.comments.append('Replaced deprecated {match["mode"]} unit mode statement with MO statement')
 
-    def _parse_old_unit(self, match):
+    def _parse_old_notation(self, match):
         # FIXME make sure we always have FS at end of processing.
-        self.settings.notation = 'absolute' if match['mode'] == 'G90' else 'incremental'
+        self.file_settings.notation = 'absolute' if match['mode'] == 'G90' else 'incremental'
         warnings.warn(f'Deprecated {match["mode"]} notation mode statement found. This deprecated since 2012.',
                     DeprecationWarning)
         self.target.comments.append('Replaced deprecated {match["mode"]} notation mode statement with FS statement')

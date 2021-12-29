@@ -1,6 +1,6 @@
 
 import math
-from dataclasses import dataclass, replace, astuple
+from dataclasses import dataclass, replace, astuple, InitVar
 
 from .aperture_macros.parse import GenericMacros
 
@@ -61,7 +61,7 @@ class Aperture:
             return {'hole_dia': self.hole_rect_h, 'hole_rect_h': self.hole_dia}
 
 
-@dataclass(frozen=True)
+@dataclass
 class CircleAperture(Aperture):
     gerber_shape_code = 'C'
     human_readable_shape = 'circle'
@@ -96,7 +96,7 @@ class CircleAperture(Aperture):
         return strip_right(self.diameter, self.hole_dia, self.hole_rect_h)
 
 
-@dataclass(frozen=True)
+@dataclass
 class RectangleAperture(Aperture):
     gerber_shape_code = 'R'
     human_readable_shape = 'rect'
@@ -134,7 +134,7 @@ class RectangleAperture(Aperture):
         return strip_right(self.w, self.h, self.hole_dia, self.hole_rect_h)
 
 
-@dataclass(frozen=True)
+@dataclass
 class ObroundAperture(Aperture):
     gerber_shape_code = 'O'
     human_readable_shape = 'obround'
@@ -170,7 +170,7 @@ class ObroundAperture(Aperture):
         return strip_right(self.w, self.h, self.hole_dia, self.hole_rect_h)
 
 
-@dataclass(frozen=True)
+@dataclass
 class PolygonAperture(Aperture):
     gerber_shape_code = 'P'
     diameter : float
@@ -187,7 +187,6 @@ class PolygonAperture(Aperture):
     flash = _flash_hole
 
     def _rotated(self):
-        self.rotation %= (2*math.pi / self.n_vertices)
         return self
 
     def to_macro(self):
@@ -195,22 +194,22 @@ class PolygonAperture(Aperture):
 
     @property
     def params(self):
+        rotation = self.rotation % (2*math.pi / self.n_vertices) if self.rotation is not None else None
         if self.hole_dia is not None:
-            return self.diameter, self.n_vertices, self.rotation, self.hole_dia
-        elif self.rotation:
-            return self.diameter, self.n_vertices, self.rotation
+            return self.diameter, self.n_vertices, rotation, self.hole_dia
+        elif rotation is not None and not math.isclose(rotation, 0):
+            return self.diameter, self.n_vertices, rotation
         else:
             return self.diameter, self.n_vertices
 
-
+@dataclass
 class ApertureMacroInstance(Aperture):
-    params : [float]
+    macro : object
+    parameters : [float]
     rotation : float = 0
 
-    def __init__(self, macro, *parameters):
-        self.params = parameters
+    def __post__init__(self, macro):
         self._primitives = macro.to_graphic_primitives(parameters)
-        self.macro = macro
 
     @property
     def gerber_shape_code(self):
@@ -227,7 +226,7 @@ class ApertureMacroInstance(Aperture):
             return self.to_macro()
 
     def to_macro(self):
-        return type(self)(self.macro.rotated(self.rotation), self.params)
+        return replace(self, macro=macro.rotated(self.rotation))
 
     def __eq__(self, other):
         return hasattr(other, 'macro') and self.macro == other.macro and \
@@ -236,6 +235,6 @@ class ApertureMacroInstance(Aperture):
 
     @property
     def params(self):
-        return astuple(self)[:-1]
+        return tuple(self.parameters)
 
 

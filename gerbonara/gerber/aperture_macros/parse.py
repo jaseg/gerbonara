@@ -76,6 +76,8 @@ class ApertureMacro:
                 primitive = ap.PRIMITIVE_CLASSES[int(primitive)](unit=unit, args=args)
                 macro.primitives.append(primitive)
 
+        return macro
+
     @property
     def name(self):
         if self._name is not None:

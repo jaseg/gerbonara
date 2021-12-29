@@ -3,6 +3,7 @@
 
 # Author: Hamilton Kibbe <ham@hamiltonkib.be>
 import os
+import re
 import pytest
 import functools
 import tempfile
@@ -18,8 +19,10 @@ from .image_support import gerber_difference
 fail_dir = Path('gerbonara_test_failures')
 @pytest.fixture(scope='session', autouse=True)
 def clear_failure_dir(request):
-    if fail_dir.is_dir():
-        shutil.rmtree(fail_dir)
+    for f in fail_dir.glob('*.gbr'):
+        f.unlink()
+
+reference_path = lambda reference: Path(__file__).parent / 'resources' / reference
 
 @pytest.fixture
 def tmp_gbr(request):
@@ -30,61 +33,63 @@ def tmp_gbr(request):
         if request.node.rep_call.failed:
             module, _, test_name = request.node.nodeid.rpartition('::')
             _test, _, test_name = test_name.partition('_')
-            test_name = test_name.replace('[', '_').replace(']', '_')
+            test_name, _, _ext = test_name.partition('.')
+            test_name = re.sub(r'[^\w\d]', '_', test_name)
             fail_dir.mkdir(exist_ok=True)
             perm_path = fail_dir / f'failure_{test_name}.gbr'
             shutil.copy(tmp_out_gbr.name, perm_path)
-            print('Failing output saved to {perm_path}')
+            print(f'Failing output saved to {perm_path}')
+            print(f'Reference file is {reference_path(request.node.funcargs["reference"])}')
 
+@pytest.mark.filterwarnings('ignore:Deprecated.*statement found.*:DeprecationWarning')
+@pytest.mark.filterwarnings('ignore::SyntaxWarning')
 @pytest.mark.parametrize('reference', [ l.strip() for l in '''
 board_outline.GKO
 example_outline_with_arcs.gbr
-'''
-#example_two_square_boxes.gbr
-#example_coincident_hole.gbr
-#example_cutin.gbr
-#example_cutin_multiple.gbr
-#example_flash_circle.gbr
-#example_flash_obround.gbr
-#example_flash_polygon.gbr
-#example_flash_rectangle.gbr
-#example_fully_coincident.gbr
-#example_guess_by_content.g0
-#example_holes_dont_clear.gbr
-#example_level_holes.gbr
-#example_not_overlapping_contour.gbr
-#example_not_overlapping_touching.gbr
-#example_overlapping_contour.gbr
-#example_overlapping_touching.gbr
-#example_simple_contour.gbr
-#example_single_contour_1.gbr
-#example_single_contour_2.gbr
-#example_single_contour_3.gbr
-#example_am_exposure_modifier.gbr
-#bottom_copper.GBL
-#bottom_mask.GBS
-#bottom_silk.GBO
-#eagle_files/copper_bottom_l4.gbr
-#eagle_files/copper_inner_l2.gbr
-#eagle_files/copper_inner_l3.gbr
-#eagle_files/copper_top_l1.gbr
-#eagle_files/profile.gbr
-#eagle_files/silkscreen_bottom.gbr
-#eagle_files/silkscreen_top.gbr
-#eagle_files/soldermask_bottom.gbr
-#eagle_files/soldermask_top.gbr
-#eagle_files/solderpaste_bottom.gbr
-#eagle_files/solderpaste_top.gbr
-#multiline_read.ger
-#test_fine_lines_x.gbr
-#test_fine_lines_y.gbr
-#top_copper.GTL
-#top_mask.GTS
-#top_silk.GTO
-'''
+example_two_square_boxes.gbr
+example_coincident_hole.gbr
+example_cutin.gbr
+example_cutin_multiple.gbr
+example_flash_circle.gbr
+example_flash_obround.gbr
+example_flash_polygon.gbr
+example_flash_rectangle.gbr
+example_fully_coincident.gbr
+example_guess_by_content.g0
+example_holes_dont_clear.gbr
+example_level_holes.gbr
+example_not_overlapping_contour.gbr
+example_not_overlapping_touching.gbr
+example_overlapping_contour.gbr
+example_overlapping_touching.gbr
+example_simple_contour.gbr
+example_single_contour_1.gbr
+example_single_contour_2.gbr
+example_single_contour_3.gbr
+example_am_exposure_modifier.gbr
+bottom_copper.GBL
+bottom_mask.GBS
+bottom_silk.GBO
+eagle_files/copper_bottom_l4.gbr
+eagle_files/copper_inner_l2.gbr
+eagle_files/copper_inner_l3.gbr
+eagle_files/copper_top_l1.gbr
+eagle_files/profile.gbr
+eagle_files/silkscreen_bottom.gbr
+eagle_files/silkscreen_top.gbr
+eagle_files/soldermask_bottom.gbr
+eagle_files/soldermask_top.gbr
+eagle_files/solderpaste_bottom.gbr
+eagle_files/solderpaste_top.gbr
+multiline_read.ger
+test_fine_lines_x.gbr
+test_fine_lines_y.gbr
+top_copper.GTL
+top_mask.GTS
+top_silk.GTO
 '''.splitlines() if l ])
 def test_round_trip(tmp_gbr, reference):
-    ref = Path(__file__).parent / 'resources' / reference
+    ref = reference_path(reference)
     GerberFile.open(ref).save(tmp_gbr)
-    assert gerber_difference(ref, tmp_gbr) < 0.02
+    assert gerber_difference(ref, tmp_gbr) < 1e-5
 

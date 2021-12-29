@@ -1,13 +1,28 @@
 import subprocess
 from pathlib import Path
 import tempfile
+import os
+from functools import total_ordering
 
 import numpy as np
+from PIL import Image
 
-class ImageDifference(float):
-    def __init__(self, value, ref_path, out_path):
-        super().__init__(value)
-        self.ref_path, self.out_path = ref_path, out_path
+class ImageDifference:
+    def __init__(self, value, ref_path, act_path):
+        self.value, self.ref_path, self.act_path = value, ref_path, act_path
+
+    def __float__(self):
+        return float(self.value)
+
+    def __eq__(self, other):
+        return float(self) == float(other)
+
+    def __lt__(self, other):
+        return float(self) < float(other)
+
+    def __str__(self):
+        return str(float(self))
+
 
 def run_cargo_cmd(cmd, args, **kwargs):
     if cmd.upper() in os.environ:
@@ -22,16 +37,18 @@ def run_cargo_cmd(cmd, args, **kwargs):
 def svg_to_png(in_svg, out_png):
     run_cargo_cmd('resvg', [in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
 
-def gbr_to_svg(in_gbr, out_svg):
+def gbr_to_svg(in_gbr, out_svg, origin=(0, 0), size=(10, 10)):
+    x, y = origin
+    w, h = size
     cmd = ['gerbv', '-x', 'svg',
         '--border=0',
-        #f'--origin={origin_x:.6f}x{origin_y:.6f}', f'--window_inch={width:.6f}x{height:.6f}',
+        f'--origin={x:.6f}x{y:.6f}', f'--window_inch={w:.6f}x{h:.6f}',
         '--foreground=#ffffff',
         '-o', str(out_svg), str(in_gbr)]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def gerber_difference(reference, actual):
-    with tempfile.NamedTemporaryFile(suffix='.svg') as out_svg,\
+    with tempfile.NamedTemporaryFile(suffix='.svg') as act_svg,\
         tempfile.NamedTemporaryFile(suffix='.svg') as ref_svg:
 
         gbr_to_svg(reference, ref_svg.name)
@@ -58,6 +75,6 @@ def image_difference(reference, actual):
 
     ref, out = ref.mean(axis=2), out.mean(axis=2) # convert to grayscale
     delta = np.abs(out - ref).astype(float) / 255
-    return ImageDifference(delta.mean(), ref, out)
+    return ImageDifference(delta.mean(), reference, actual)
 
 

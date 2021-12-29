@@ -38,7 +38,7 @@ class FormatSpecStmt(ParamStmt):
 
     def to_gerber(self, settings):
         zeros = 'T' if settings.zeros == 'trailing' else 'L' # default to leading if "None" is specified
-        notation = 'A' if settings.notation == 'absolute' else 'I'
+        notation = 'I' if settings.notation == 'incremental' else 'A' # default to absolute
         number_format = str(settings.number_format[0]) + str(settings.number_format[1])
 
         return f'%FS{zeros}{notation}X{number_format}Y{number_format}*%'

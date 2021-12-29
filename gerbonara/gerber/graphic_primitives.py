@@ -95,11 +95,13 @@ class Line(GraphicPrimitive):
 
 @dataclass
 class Arc(GraphicPrimitive):
-    x : float
-    y : float
-    r : float
-    angle1 : float # radians!
-    angle2 : float # radians!
+    x1 : float
+    y1 : float
+    x2 : float
+    y2 : float
+    cx : float
+    cy : float
+    flipped : bool
     width : float
 
     # FIXME bounds
