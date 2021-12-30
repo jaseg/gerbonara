@@ -78,6 +78,7 @@ class FileSettings:
         value = value.lstrip('+-')
 
         if self.zeros == 'leading':
+            value = '0'*decimal_digits + value # pad with zeros to ensure we have enough decimals
             return float(sign + value[:-decimal_digits] + '.' + value[-decimal_digits:])
 
         else: # no or trailing zero suppression

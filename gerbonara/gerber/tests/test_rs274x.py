@@ -25,10 +25,11 @@ def clear_failure_dir(request):
 reference_path = lambda reference: Path(__file__).parent / 'resources' / reference
 
 @pytest.fixture
-def tmp_gbr(request):
-    with tempfile.NamedTemporaryFile(suffix='.gbr') as tmp_out_gbr:
+def temp_files(request):
+    with tempfile.NamedTemporaryFile(suffix='.gbr') as tmp_out_gbr,\
+         tempfile.NamedTemporaryFile(suffix='.png') as tmp_out_png:
 
-        yield Path(tmp_out_gbr.name)
+        yield Path(tmp_out_gbr.name), Path(tmp_out_png.name)
 
         if request.node.rep_call.failed:
             module, _, test_name = request.node.nodeid.rpartition('::')
@@ -36,9 +37,12 @@ def tmp_gbr(request):
             test_name, _, _ext = test_name.partition('.')
             test_name = re.sub(r'[^\w\d]', '_', test_name)
             fail_dir.mkdir(exist_ok=True)
-            perm_path = fail_dir / f'failure_{test_name}.gbr'
-            shutil.copy(tmp_out_gbr.name, perm_path)
-            print(f'Failing output saved to {perm_path}')
+            perm_path_gbr = fail_dir / f'failure_{test_name}.gbr'
+            perm_path_png = fail_dir / f'failure_{test_name}.png'
+            shutil.copy(tmp_out_gbr.name, perm_path_gbr)
+            shutil.copy(tmp_out_png.name, perm_path_png)
+            print(f'Failing output saved to {perm_path_gbr}')
+            print(f'Difference image saved to {perm_path_png}')
             print(f'Reference file is {reference_path(request.node.funcargs["reference"])}')
 
 @pytest.mark.filterwarnings('ignore:Deprecated.*statement found.*:DeprecationWarning')
@@ -88,8 +92,11 @@ top_copper.GTL
 top_mask.GTS
 top_silk.GTO
 '''.splitlines() if l ])
-def test_round_trip(tmp_gbr, reference):
+def test_round_trip(temp_files, reference):
+    tmp_gbr, tmp_png = temp_files
     ref = reference_path(reference)
     GerberFile.open(ref).save(tmp_gbr)
-    assert gerber_difference(ref, tmp_gbr) < 1e-5
+    mean, max = gerber_difference(ref, tmp_gbr, diff_out=tmp_png)
+    assert mean < 1e-6
+    assert max < 0.1
 

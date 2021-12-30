@@ -505,6 +505,7 @@ class GerberParser:
         y = self.file_settings.parse_gerber_value(match['y'])
         i = self.file_settings.parse_gerber_value(match['i'])
         j = self.file_settings.parse_gerber_value(match['j'])
+        print(f'coord x={x} y={y} i={i} j={j}')
 
         if not (op := match['operation']):
             if self.last_operation == 'D01':

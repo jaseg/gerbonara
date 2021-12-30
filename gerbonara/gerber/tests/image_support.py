@@ -8,8 +8,8 @@ import numpy as np
 from PIL import Image
 
 class ImageDifference:
-    def __init__(self, value, ref_path, act_path):
-        self.value, self.ref_path, self.act_path = value, ref_path, act_path
+    def __init__(self, value):
+        self.value = value
 
     def __float__(self):
         return float(self.value)
@@ -47,34 +47,32 @@ def gbr_to_svg(in_gbr, out_svg, origin=(0, 0), size=(10, 10)):
         '-o', str(out_svg), str(in_gbr)]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-def gerber_difference(reference, actual):
+def gerber_difference(reference, actual, diff_out=None):
     with tempfile.NamedTemporaryFile(suffix='.svg') as act_svg,\
         tempfile.NamedTemporaryFile(suffix='.svg') as ref_svg:
 
         gbr_to_svg(reference, ref_svg.name)
         gbr_to_svg(actual, act_svg.name)
 
-        diff = svg_difference(ref_svg.name, act_svg.name)
-        diff.ref_path, diff.act_path = reference, actual
-        return diff
+        return svg_difference(ref_svg.name, act_svg.name, diff_out=diff_out)
 
-def svg_difference(reference, actual):
+def svg_difference(reference, actual, diff_out=None):
     with tempfile.NamedTemporaryFile(suffix='.png') as ref_png,\
         tempfile.NamedTemporaryFile(suffix='.png') as act_png:
 
         svg_to_png(reference, ref_png.name)
         svg_to_png(actual, act_png.name)
 
-        diff = image_difference(ref_png.name, act_png.name)
-        diff.ref_path, diff.act_path = reference, actual
-        return diff
+        return image_difference(ref_png.name, act_png.name, diff_out=diff_out)
 
-def image_difference(reference, actual):
+def image_difference(reference, actual, diff_out=None):
     ref = np.array(Image.open(reference)).astype(float)
     out = np.array(Image.open(actual)).astype(float)
 
     ref, out = ref.mean(axis=2), out.mean(axis=2) # convert to grayscale
     delta = np.abs(out - ref).astype(float) / 255
-    return ImageDifference(delta.mean(), reference, actual)
+    if diff_out:
+        Image.fromarray((delta*255).astype(np.uint8), mode='L').save(diff_out)
+    return ImageDifference(delta.mean()), ImageDifference(delta.max())
 
 
