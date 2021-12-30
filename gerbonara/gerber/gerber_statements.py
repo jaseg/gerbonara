@@ -83,7 +83,7 @@ class ApertureDefStmt(ParamStmt):
         self.aperture = aperture
 
     def to_gerber(self, settings=None):
-        return f'%ADD{self.number}{self.aperture.to_gerber()}*%'
+        return f'%ADD{self.number}{self.aperture.to_gerber(settings)}*%'
 
     def __str__(self):
         return f'<AD aperture def for {str(self.aperture).strip("<>")}>'

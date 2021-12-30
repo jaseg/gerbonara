@@ -92,6 +92,7 @@ class FileSettings:
         # negative sign affects padding, so deal with it at the end...
         sign = '-' if value < 0 else ''
 
+        # FIXME never use exponential notation here
         num = format(abs(value), f'0{integer_digits+decimal_digits+1}.{decimal_digits}f').replace('.', '')
 
         # Suppression...

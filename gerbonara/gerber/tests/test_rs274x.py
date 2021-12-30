@@ -118,9 +118,10 @@ def test_round_trip(temp_files, reference):
 
     GerberFile.open(ref).save(tmp_gbr)
 
-    mean, max = gerber_difference(ref, tmp_gbr, diff_out=tmp_png)
-    assert mean < 1e-6
-    assert max < 0.1
+    mean, _max, hist = gerber_difference(ref, tmp_gbr, diff_out=tmp_png)
+    assert mean < 5e-5
+    assert hist[9] == 0
+    assert hist[3:].sum() < 5e-5*hist.size
 
 TEST_ANGLES = [90, 180, 270, 30, 1.5, 10, 360, 1024, -30, -90]
 TEST_OFFSETS = [(0, 0), (100, 0), (0, 100), (2, 0), (10, 100)]
@@ -165,11 +166,12 @@ def test_rotation_center(temp_files, reference, angle, center):
     # calculate circle center in SVG coordinates 
     size = (10, 10) # inches
     cx, cy = to_gerbv_svg_units(center[0]), to_gerbv_svg_units(10, 'inch')-to_gerbv_svg_units(center[1], 'mm')
-    mean, _max = gerber_difference(ref, tmp_gbr, diff_out=tmp_png,
+    mean, _max, hist = gerber_difference(ref, tmp_gbr, diff_out=tmp_png,
             svg_transform=f'rotate({angle} {cx} {cy})',
             size=size)
     assert mean < 1e-3
-    assert hist[9] == 0
+    assert hist[9] < 50
+    assert hist[3:].sum() < 1e-3*hist.size
 
 @pytest.mark.filterwarnings('ignore:Deprecated.*statement found.*:DeprecationWarning')
 @pytest.mark.filterwarnings('ignore::SyntaxWarning')
@@ -205,13 +207,13 @@ def test_combined(temp_files, reference, angle, center, offset):
     f = GerberFile.open(ref)
     f.rotate(deg_to_rad(angle), center=center)
     f.offset(*offset)
-    f.save(tmp_gbr)
+    f.save(tmp_gbr, settings=FileSettings(unit=f.unit, number_format=(4,7)))
 
     size = (10, 10) # inches
     cx, cy = to_gerbv_svg_units(center[0]), to_gerbv_svg_units(10, 'inch')-to_gerbv_svg_units(center[1], 'mm')
     dx, dy = to_gerbv_svg_units(offset[0]), -to_gerbv_svg_units(offset[1])
     mean, _max, hist = gerber_difference(ref, tmp_gbr, diff_out=tmp_png,
-            svg_transform=f'rotate({angle} {cx} {cy}) translate({dx} {dy})',
+            svg_transform=f'translate({dx} {dy}) rotate({angle} {cx} {cy})',
             size=size)
     assert mean < 1e-3
     assert hist[9] < 100

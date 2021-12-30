@@ -1,6 +1,6 @@
 
 import math
-from dataclasses import dataclass, replace, astuple, InitVar
+from dataclasses import dataclass, replace, fields, InitVar, KW_ONLY
 
 from .aperture_macros.parse import GenericMacros
 
@@ -20,7 +20,17 @@ def strip_right(*args):
     return args
 
 
+class Length:
+    def __init__(self, obj_type):
+        self.type = obj_type
+
+CONVERSION_FACTOR = {None: 1, 'mm': 25.4, 'inch': 1/25.4}
+
+@dataclass
 class Aperture:
+    _ : KW_ONLY
+    unit : str = None
+
     @property
     def hole_shape(self):
         if self.hole_rect_h is not None:
@@ -32,9 +42,26 @@ class Aperture:
     def hole_size(self):
         return (self.hole_dia, self.hole_rect_h)
 
-    @property
-    def params(self):
-        return astuple(self)
+    def convert(self, value, unit):
+        if self.unit == unit or self.unit is None or unit is None or value is None:
+            return value
+        elif unit == 'mm':
+            return value * 25.4
+        else:
+            return value / 25.4
+
+    def params(self, unit=None):
+        out = []
+        for f in fields(self):
+            if f.kw_only:
+                continue
+
+            val = getattr(self, f.name)
+            if isinstance(f.type, Length):
+                val = self.convert(val, unit)
+            out.append(val)
+
+        return out
 
     def flash(self, x, y):
         return self.primitives(x, y)
@@ -43,16 +70,19 @@ class Aperture:
     def equivalent_width(self):
         raise ValueError('Non-circular aperture used in interpolation statement, line width is not properly defined.')
 
-    def to_gerber(self):
+    def to_gerber(self, settings=None):
         # Hack: The standard aperture shapes C, R, O do not have a rotation parameter. To make this API easier to use,
         # we emulate this parameter. Our circle, rectangle and oblong classes below have a rotation parameter. Only at
         # export time during to_gerber, this parameter is evaluated. 
+        unit = settings.unit if settings else None
+        #print(f'aperture to gerber {self.unit=} {settings=} {unit=}')
         actual_inst = self._rotated()
-        params = 'X'.join(f'{float(par):.4}' for par in actual_inst.params if par is not None)
+        params = 'X'.join(f'{float(par):.4}' for par in actual_inst.params(unit) if par is not None)
         return f'{actual_inst.gerber_shape_code},{params}'
 
     def __eq__(self, other):
-        return hasattr(other, to_gerber) and self.to_gerber() == other.to_gerber()
+        # We need to choose some unit here.
+        return hasattr(other, to_gerber) and self.to_gerber('mm') == other.to_gerber('mm')
 
     def _rotate_hole_90(self):
         if self.hole_rect_h is None:
@@ -65,9 +95,9 @@ class Aperture:
 class CircleAperture(Aperture):
     gerber_shape_code = 'C'
     human_readable_shape = 'circle'
-    diameter : float
-    hole_dia : float = None
-    hole_rect_h : float = None
+    diameter : Length(float)
+    hole_dia : Length(float) = None
+    hole_rect_h : Length(float) = None
     rotation : float = 0 # radians; for rectangular hole; see hack in Aperture.to_gerber
 
     def primitives(self, x, y, rotation):
@@ -89,21 +119,23 @@ class CircleAperture(Aperture):
             return self.to_macro(self.rotation)
 
     def to_macro(self):
-        return ApertureMacroInstance(GenericMacros.circle, self.params)
+        return ApertureMacroInstance(GenericMacros.circle, self.params(unit='mm'))
 
-    @property
-    def params(self):
-        return strip_right(self.diameter, self.hole_dia, self.hole_rect_h)
+    def params(self, unit=None):
+        return strip_right(
+                self.convert(self.diameter, unit),
+                self.convert(self.hole_dia, unit),
+                self.convert(self.hole_rect_h, unit))
 
 
 @dataclass
 class RectangleAperture(Aperture):
     gerber_shape_code = 'R'
     human_readable_shape = 'rect'
-    w : float
-    h : float
-    hole_dia : float = None
-    hole_rect_h : float = None
+    w : Length(float)
+    h : Length(float)
+    hole_dia : Length(float) = None
+    hole_rect_h : Length(float) = None
     rotation : float = 0 # radians
 
     def primitives(self, x, y):
@@ -128,21 +160,28 @@ class RectangleAperture(Aperture):
 
     def to_macro(self):
         return ApertureMacroInstance(GenericMacros.rect,
-                [self.w, self.h, self.hole_dia or 0, self.hole_rect_h or 0, self.rotation])
+                [self.convert(self.w, 'mm'),
+                    self.convert(self.h, 'mm'),
+                    self.convert(self.hole_dia, 'mm') or 0,
+                    self.convert(self.hole_rect_h, 'mm') or 0,
+                    self.rotation])
 
-    @property
-    def params(self):
-        return strip_right(self.w, self.h, self.hole_dia, self.hole_rect_h)
+    def params(self, unit=None):
+        return strip_right(
+                self.convert(self.w, unit),
+                self.convert(self.h, unit),
+                self.convert(self.hole_dia, unit),
+                self.convert(self.hole_rect_h, unit))
 
 
 @dataclass
 class ObroundAperture(Aperture):
     gerber_shape_code = 'O'
     human_readable_shape = 'obround'
-    w : float
-    h : float
-    hole_dia : float = None
-    hole_rect_h : float = None
+    w : Length(float)
+    h : Length(float)
+    hole_dia : Length(float) = None
+    hole_rect_h : Length(float) = None
     rotation : float = 0
 
     def primitives(self, x, y):
@@ -165,20 +204,27 @@ class ObroundAperture(Aperture):
         # generic macro only supports w > h so flip x/y if h > w
         inst = self if self.w > self.h else replace(self, w=self.h, h=self.w, **_rotate_hole_90(self), rotation=self.rotation-90)
         return ApertureMacroInstance(GenericMacros.obround,
-                [inst.w, ints.h, inst.hole_dia, inst.hole_rect_h, inst.rotation])
+                [self.convert(inst.w, 'mm'),
+                    self.convert(ints.h, 'mm'),
+                    self.convert(inst.hole_dia, 'mm'),
+                    self.convert(inst.hole_rect_h, 'mm'),
+                    inst.rotation])
 
-    @property
-    def params(self):
-        return strip_right(self.w, self.h, self.hole_dia, self.hole_rect_h)
+    def params(self, unit=None):
+        return strip_right(
+                self.convert(self.w, unit),
+                self.convert(self.h, unit),
+                self.convert(self.hole_dia, unit),
+                self.convert(self.hole_rect_h, unit))
 
 
 @dataclass
 class PolygonAperture(Aperture):
     gerber_shape_code = 'P'
-    diameter : float
+    diameter : Length(float)
     n_vertices : int
     rotation : float = 0
-    hole_dia : float = None
+    hole_dia : Length(float) = None
 
     def primitives(self, x, y):
         return [ gp.RegularPolygon(x, y, diameter, n_vertices, rotation=self.rotation) ]
@@ -192,17 +238,16 @@ class PolygonAperture(Aperture):
         return self
 
     def to_macro(self):
-        return ApertureMacroInstance(GenericMacros.polygon, self.params)
+        return ApertureMacroInstance(GenericMacros.polygon, self.params('mm'))
 
-    @property
-    def params(self):
+    def params(self, unit=None):
         rotation = self.rotation % (2*math.pi / self.n_vertices) if self.rotation is not None else None
         if self.hole_dia is not None:
-            return self.diameter, self.n_vertices, rotation, self.hole_dia
+            return self.convert(self.diameter, unit), self.n_vertices, rotation, self.convert(self.hole_dia, unit)
         elif rotation is not None and not math.isclose(rotation, 0):
-            return self.diameter, self.n_vertices, rotation
+            return self.convert(self.diameter, unit), self.n_vertices, rotation
         else:
-            return self.diameter, self.n_vertices
+            return self.convert(self.diameter, unit), self.n_vertices
 
 @dataclass
 class ApertureMacroInstance(Aperture):
@@ -235,8 +280,9 @@ class ApertureMacroInstance(Aperture):
                 hasattr(other, 'params') and self.params == other.params and \
                 hasattr(other, 'rotation') and self.rotation == other.rotation
 
-    @property
-    def params(self):
+    def params(self, unit=None):
+        # We ignore "unit" here as we convert the actual macro, not this instantiation.
+        # We do this because here we do not have information about which parameter has which physical units.
         return tuple(self.parameters)
 
 

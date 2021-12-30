@@ -129,6 +129,7 @@ def image_difference(reference, actual, diff_out=None):
     out = np.array(Image.open(actual)).astype(float)
 
     ref, out = ref.mean(axis=2), out.mean(axis=2) # convert to grayscale
+    # FIXME blur images here before comparison to mitigate aliasing issue
     delta = np.abs(out - ref).astype(float) / 255
     if diff_out:
         Image.fromarray((delta*255).astype(np.uint8), mode='L').save(diff_out)

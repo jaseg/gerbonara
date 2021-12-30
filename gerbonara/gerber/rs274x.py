@@ -165,9 +165,6 @@ class GerberFile(CamFile):
 
         yield EofStmt()
 
-    def to_gerber(self):
-        return '\n'.join(self.generate_statements())
-
     def __str__(self):
         return f'<GerberFile with {len(self.apertures)} apertures, {len(self.objects)} objects>'
 
@@ -599,10 +596,10 @@ class GerberParser:
             }
 
         if (kls := aperture_classes.get(match['shape'])):
-            new_aperture = kls(*modifiers)
+            new_aperture = kls(*modifiers, unit=self.file_settings.unit)
 
         elif (macro := self.aperture_macros.get(match['shape'])):
-            new_aperture = apertures.ApertureMacroInstance(macro, modifiers)
+            new_aperture = apertures.ApertureMacroInstance(macro, modifiers, unit=self.file_settings.unit)
 
         else:
             raise ValueError(f'Aperture shape "{match["shape"]}" is unknown')

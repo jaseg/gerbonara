@@ -10,6 +10,7 @@ from .gerber_statements import *
 class GraphicPrimitive:
     _ : KW_ONLY
     polarity_dark : bool = True
+    unit : str = None
 
 
 def rotate_point(x, y, angle, cx=0, cy=0):
