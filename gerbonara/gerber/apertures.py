@@ -89,7 +89,7 @@ class CircleAperture(Aperture):
             return self.to_macro(self.rotation)
 
     def to_macro(self):
-        return ApertureMacroInstance(GenericMacros.circle, *self.params)
+        return ApertureMacroInstance(GenericMacros.circle, self.params)
 
     @property
     def params(self):
@@ -122,12 +122,13 @@ class RectangleAperture(Aperture):
         if math.isclose(self.rotation % math.pi, 0):
             return self
         elif math.isclose(self.rotation % math.pi, math.pi/2):
-            return replace(self, w=self.h, h=self.w, **self._rotate_hole_90())
+            return replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=0)
         else: # odd angle
             return self.to_macro()
 
     def to_macro(self):
-        return ApertureMacroInstance(GenericMacros.rect, *self.params)
+        return ApertureMacroInstance(GenericMacros.rect,
+                [self.w, self.h, self.hole_dia or 0, self.hole_rect_h or 0, self.rotation])
 
     @property
     def params(self):
@@ -156,14 +157,15 @@ class ObroundAperture(Aperture):
         if math.isclose(self.rotation % math.pi, 0):
             return self
         elif math.isclose(self.rotation % math.pi, math.pi/2):
-            return replace(self, w=self.h, h=self.w, **self._rotate_hole_90())
+            return replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=0)
         else:
             return self.to_macro()
 
-    def to_macro(self, rotation:'radians'=0):
+    def to_macro(self):
         # generic macro only supports w > h so flip x/y if h > w
-        inst = self if self.w > self.h else replace(self, w=self.h, h=self.w, **_rotate_hole_90(self))
-        return ApertureMacroInstance(GenericMacros.obround, *inst.params)
+        inst = self if self.w > self.h else replace(self, w=self.h, h=self.w, **_rotate_hole_90(self), rotation=self.rotation-90)
+        return ApertureMacroInstance(GenericMacros.obround,
+                [inst.w, ints.h, inst.hole_dia, inst.hole_rect_h, inst.rotation])
 
     @property
     def params(self):
@@ -190,7 +192,7 @@ class PolygonAperture(Aperture):
         return self
 
     def to_macro(self):
-        return ApertureMacroInstance(GenericMacros.polygon, *self.params)
+        return ApertureMacroInstance(GenericMacros.polygon, self.params)
 
     @property
     def params(self):
@@ -226,7 +228,7 @@ class ApertureMacroInstance(Aperture):
             return self.to_macro()
 
     def to_macro(self):
-        return replace(self, macro=macro.rotated(self.rotation))
+        return replace(self, macro=self.macro.rotated(self.rotation), rotation=0)
 
     def __eq__(self, other):
         return hasattr(other, 'macro') and self.macro == other.macro and \

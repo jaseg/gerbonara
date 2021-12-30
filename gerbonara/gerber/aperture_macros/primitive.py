@@ -42,7 +42,7 @@ class Primitive:
 
     def to_gerber(self, unit=None):
         return f'{self.code},' + ','.join(
-                getattr(self, name).to_gerber(unit) for name in type(self).__annotations__) + '*'
+                getattr(self, name).to_gerber(unit) for name in type(self).__annotations__)
 
     def __str__(self):
         attrs = ','.join(str(getattr(self, name)).strip('<>') for name in type(self).__annotations__)
@@ -75,7 +75,12 @@ class Circle(Primitive):
     # center x/y
     x : UnitExpression
     y : UnitExpression
-    rotation : Expression = ConstantExpression(0.0)
+    rotation : Expression = None
+
+    def __init__(self, unit, args):
+        super().__init__(unit, args)
+        if self.rotation is None:
+            self.rotation = ConstantExpression(0)
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
         with self.Calculator(variable_binding, unit) as calc:

@@ -12,12 +12,11 @@ class GraphicPrimitive:
     polarity_dark : bool = True
 
 
-def rotate_point(x, y, angle, cx=None, cy=None):
-    if cx is None:
-        return (x, y)
-    else:
-        return (cx + (x - cx) * math.cos(angle) - (y - cy) * math.sin(angle),
-                cy + (x - cx) * math.sin(angle) + (y - cy) * math.cos(angle))
+def rotate_point(x, y, angle, cx=0, cy=0):
+    """ rotate point (x,y) around (cx,cy) clockwise angle radians """
+
+    return (cx + (x - cx) * math.cos(-angle) - (y - cy) * math.sin(-angle),
+            cy + (x - cx) * math.sin(-angle) + (y - cy) * math.cos(-angle))
 
 
 @dataclass

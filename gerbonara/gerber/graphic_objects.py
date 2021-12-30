@@ -1,6 +1,6 @@
 
 import math
-from dataclasses import dataclass, KW_ONLY, astuple
+from dataclasses import dataclass, KW_ONLY, astuple, replace
 
 from . import graphic_primitives as gp
 from .gerber_statements import *
@@ -22,7 +22,7 @@ class Flash(GerberObject):
     def with_offset(self, dx, dy):
         return replace(self, x=self.x+dx, y=self.y+dy)
 
-    def rotate(self, rotation, cx=None, cy=None):
+    def rotate(self, rotation, cx=0, cy=0):
         self.x, self.y = gp.rotate_point(self.x, self.y, rotation, cx, cy)
 
     def to_primitives(self):
@@ -48,11 +48,15 @@ class Region(GerberObject):
         return bool(self.poly)
 
     def with_offset(self, dx, dy):
-        return Region([ (x+dx, y+dy) for x, y in outline ], radii, polarity_dark=self.polarity_dark)
+        return Region([ (x+dx, y+dy) for x, y in self.poly.outline ],
+                self.poly.arc_centers,
+                polarity_dark=self.polarity_dark)
 
     def rotate(self, angle, cx=0, cy=0):
         self.poly.outline = [ gp.rotate_point(x, y, angle, cx, cy) for x, y in self.poly.outline ]
-        self.poly.arc_centers = [ gp.rotate_point(x, y, angle, cx, cy) for x, y in self.poly.arc_centers ]
+        self.poly.arc_centers = [
+                gp.rotate_point(*center, angle, cx, cy) if center else None
+                for center in self.poly.arc_centers ]
 
     def append(self, obj):
         if not self.poly.outline:
@@ -69,6 +73,7 @@ class Region(GerberObject):
         yield self.poly
 
     def to_statements(self, gs):
+        yield from gs.set_polarity(self.polarity_dark)
         yield RegionStartStmt()
 
         yield from gs.set_current_point(self.poly.outline[0])
@@ -99,10 +104,7 @@ class Line(GerberObject):
     def with_offset(self, dx, dy):
         return replace(self, x1=self.x1+dx, y1=self.y1+dy, x2=self.x2+dx, y2=self.y2+dy)
 
-    def rotate(self, rotation, cx=None, cy=None):
-        if cx is None:
-            cx = (self.x1 + self.x2) / 2
-            cy = (self.y1 + self.y2) / 2
+    def rotate(self, rotation, cx=0, cy=0):
         self.x1, self.y1 = gp.rotate_point(self.x1, self.y1, rotation, cx, cy)
         self.x2, self.y2 = gp.rotate_point(self.x2, self.y2, rotation, cx, cy)
 
@@ -118,6 +120,7 @@ class Line(GerberObject):
         yield gp.Line(*self.p1, *self.p2, self.aperture.equivalent_width, polarity_dark=self.polarity_dark)
 
     def to_statements(self, gs):
+        yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
         yield from gs.set_interpolation_mode(LinearModeStmt)
         yield from gs.set_current_point(self.p1)
@@ -134,7 +137,7 @@ class Drill(GerberObject):
     def with_offset(self, dx, dy):
         return replace(self, x=self.x+dx, y=self.y+dy)
 
-    def rotate(self, angle, cx=None, cy=None):
+    def rotate(self, angle, cx=0, cy=0):
         self.x, self.y = gp.rotate_point(self.x, self.y, angle, cx, cy)
 
     def to_primitives(self):
@@ -152,7 +155,7 @@ class Slot(GerberObject):
     def with_offset(self, dx, dy):
         return replace(self, x1=self.x1+dx, y1=self.y1+dy, x2=self.x2+dx, y2=self.y2+dy)
 
-    def rotate(self, rotation, cx=None, cy=None):
+    def rotate(self, rotation, cx=0, cy=0):
         if cx is None:
             cx = (self.x1 + self.x2) / 2
             cy = (self.y1 + self.y2) / 2
@@ -183,7 +186,7 @@ class Arc(GerberObject):
     aperture : object
 
     def with_offset(self, dx, dy):
-        return replace(self, x=self.x+dx, y=self.y+dy)
+        return replace(self, x1=self.x1+dx, y1=self.y1+dy, x2=self.x2+dx, y2=self.y2+dy)
 
     @property
     def p1(self):
@@ -195,18 +198,20 @@ class Arc(GerberObject):
 
     @property
     def center(self):
-        return self.x1 + self.cx, self.y1 + self.cy
+        return self.cx + self.x1, self.cy + self.y1
 
-    def rotate(self, rotation, cx=None, cy=None):
-        cx, cy = gp.rotate_point(*self.center, rotation, cx, cy)
+    def rotate(self, rotation, cx=0, cy=0):
+        # rotate center first since we need old x1, y1 here
+        new_cx, new_cy = gp.rotate_point(*self.center, rotation, cx, cy)
         self.x1, self.y1 = gp.rotate_point(self.x1, self.y1, rotation, cx, cy)
         self.x2, self.y2 = gp.rotate_point(self.x2, self.y2, rotation, cx, cy)
-        self.cx, self.cy = cx - self.x1, cy - self.y1
+        self.cx, self.cy = new_cx - self.x1, new_cy - self.y1
 
     def to_primitives(self):
         yield gp.Arc(*astuple(self)[:7], width=self.aperture.equivalent_width, polarity_dark=self.polarity_dark)
 
     def to_statements(self, gs):
+        yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
         yield from gs.set_interpolation_mode(CircularCCWModeStmt)
         yield from gs.set_current_point(self.p1)

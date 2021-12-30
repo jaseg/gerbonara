@@ -31,19 +31,19 @@ class FileSettings:
         `zeros='trailing'`
     '''
     notation : str = 'absolute'
-    units : str = 'inch'
-    angle_units : str = 'degrees'
+    unit : str = 'inch'
+    angle_unit : str = 'degree'
     zeros : bool = None
     number_format : tuple = (2, 5)
 
     # input validation
     def __setattr__(self, name, value):
-        if name == 'units' and value not in ['inch', 'mm']:
-            raise ValueError(f'Units must be either "inch" or "mm", not {value}')
+        if name == 'unit' and value not in ['inch', 'mm']:
+            raise ValueError(f'Unit must be either "inch" or "mm", not {value}')
         elif name == 'notation' and value not in ['absolute', 'incremental']:
             raise ValueError(f'Notation must be either "absolute" or "incremental", not {value}')
-        elif name == 'angle_units' and value not in ('degrees', 'radians'):
-            raise ValueError(f'Angle units may be "degrees" or "radians", not {value}')
+        elif name == 'angle_unit' and value not in ('degree', 'radian'):
+            raise ValueError(f'Angle unit may be "degree" or "radian", not {value}')
         elif name == 'zeros' and value not in [None, 'leading', 'trailing']:
             raise ValueError(f'zeros must be either "leading" or "trailing" or None, not {value}')
         elif name == 'number_format':
@@ -60,7 +60,7 @@ class FileSettings:
         return deepcopy(self)
 
     def __str__(self):
-        return f'<File settings: units={self.units}/{self.angle_units} notation={self.notation} zeros={self.zeros} number_format={self.number_format}>'
+        return f'<File settings: unit={self.unit}/{self.angle_unit} notation={self.notation} zeros={self.zeros} number_format={self.number_format}>'
 
     def parse_gerber_value(self, value):
         if not value:

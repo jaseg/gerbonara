@@ -51,7 +51,7 @@ class UnitStmt(ParamStmt):
     """ MO - Coordinate unit mode statement """
 
     def to_gerber(self, settings):
-        return '%MOMM*%' if settings.units == 'mm' else '%MOIN*%'
+        return '%MOMM*%' if settings.unit == 'mm' else '%MOIN*%'
 
     def __str__(self):
         return ('<MO Coordinate unit mode statement>' % mode_str)
@@ -96,7 +96,7 @@ class ApertureMacroStmt(ParamStmt):
         self.macro = macro
 
     def to_gerber(self, settings=None):
-        unit = settings.units if settings else None
+        unit = settings.unit if settings else None
         return f'%AM{self.macro.name}*\n{self.macro.to_gerber(unit=unit)}*\n%'
 
     def __str__(self):

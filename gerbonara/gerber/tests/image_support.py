@@ -3,6 +3,9 @@ from pathlib import Path
 import tempfile
 import os
 from functools import total_ordering
+import shutil
+import bs4
+from contextlib import contextmanager
 
 import numpy as np
 from PIL import Image
@@ -35,9 +38,9 @@ def run_cargo_cmd(cmd, args, **kwargs):
         return subprocess.run([str(Path.home() / '.cargo' / 'bin' / cmd), *args], **kwargs)
 
 def svg_to_png(in_svg, out_png):
-    run_cargo_cmd('resvg', [in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
+    run_cargo_cmd('resvg', ['--dpi', '200', in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
 
-def gbr_to_svg(in_gbr, out_svg, origin=(0, 0), size=(10, 10)):
+def gbr_to_svg(in_gbr, out_svg, origin=(0, 0), size=(6, 6)):
     x, y = origin
     w, h = size
     cmd = ['gerbv', '-x', 'svg',
@@ -47,18 +50,51 @@ def gbr_to_svg(in_gbr, out_svg, origin=(0, 0), size=(10, 10)):
         '-o', str(out_svg), str(in_gbr)]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-def gerber_difference(reference, actual, diff_out=None):
+@contextmanager
+def svg_soup(filename):
+    with open(filename, 'r') as f:
+        soup = bs4.BeautifulSoup(f.read(), 'xml')
+
+    yield soup
+
+    with open(filename, 'w') as f:
+        f.write(str(soup))
+
+def cleanup_clips(soup):
+    for group in soup.find_all('g'):
+        # gerbv uses Cairo's SVG canvas. Cairo's SVG canvas is kind of broken. It has no support for unit
+        # handling at all, which means the output files just end up being in pixels at 72 dpi. Further, it
+        # seems gerbv's aperture macro rendering interacts poorly with Cairo's SVG export. gerbv renders
+        # aperture macros into a new surface, which for some reason gets clipped by Cairo to the given
+        # canvas size. This is just wrong, so we just nuke the clip path from these SVG groups here.
+        #
+        # Apart from being graphically broken, this additionally causes very bad rendering performance.
+        del group['clip-path'] # remove broken clip
+
+def gerber_difference(reference, actual, diff_out=None, svg_transform=None, size=(10,10)):
     with tempfile.NamedTemporaryFile(suffix='.svg') as act_svg,\
         tempfile.NamedTemporaryFile(suffix='.svg') as ref_svg:
 
-        gbr_to_svg(reference, ref_svg.name)
-        gbr_to_svg(actual, act_svg.name)
+        gbr_to_svg(reference, ref_svg.name, size=size)
+        gbr_to_svg(actual, act_svg.name, size=size)
+
+        with svg_soup(ref_svg.name) as soup:
+            if svg_transform is not None:
+                soup.find('g', attrs={'id': 'surface1'})['transform'] = svg_transform
+            cleanup_clips(soup)
+
+        with svg_soup(act_svg.name) as soup:
+            cleanup_clips(soup)
+
+        # FIXME DEBUG
+        shutil.copyfile(act_svg.name, '/tmp/test-act.svg')
+        shutil.copyfile(ref_svg.name, '/tmp/test-ref.svg')
 
         return svg_difference(ref_svg.name, act_svg.name, diff_out=diff_out)
 
 def svg_difference(reference, actual, diff_out=None):
-    with tempfile.NamedTemporaryFile(suffix='.png') as ref_png,\
-        tempfile.NamedTemporaryFile(suffix='.png') as act_png:
+    with tempfile.NamedTemporaryFile(suffix='-ref.png') as ref_png,\
+        tempfile.NamedTemporaryFile(suffix='-act.png') as act_png:
 
         svg_to_png(reference, ref_png.name)
         svg_to_png(actual, act_png.name)

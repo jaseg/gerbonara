@@ -25,6 +25,7 @@ import json
 import os
 import re
 import sys
+import math
 import warnings
 import functools
 from pathlib import Path
@@ -79,7 +80,7 @@ class GerberFile(CamFile):
                 for m in [ GenericMacros.circle, GenericMacros.rect, GenericMacros.obround, GenericMacros.polygon] }
         for ap in new_apertures:
             if isinstance(aperture, apertures.ApertureMacroInstance):
-                macro_grb = ap.macro.to_gerber() # use native units to compare macros
+                macro_grb = ap.macro.to_gerber() # use native unit to compare macros
                 if macro_grb in macros:
                     ap.macro = macros[macro_grb]
                 else:
@@ -149,10 +150,10 @@ class GerberFile(CamFile):
         for number, aperture in enumerate(self.apertures, start=10):
 
             if isinstance(aperture, apertures.ApertureMacroInstance):
-                macro_grb = aperture.macro.to_gerber() # use native units to compare macros
+                macro_grb = aperture._rotated().macro.to_gerber() # use native unit to compare macros
                 if macro_grb not in processed_macros:
                     processed_macros.add(macro_grb)
-                    yield ApertureMacroStmt(aperture.macro)
+                    yield ApertureMacroStmt(aperture._rotated().macro)
 
             yield ApertureDefStmt(number, aperture)
 
@@ -170,9 +171,9 @@ class GerberFile(CamFile):
     def __str__(self):
         return f'<GerberFile with {len(self.apertures)} apertures, {len(self.objects)} objects>'
 
-    def save(self, filename):
+    def save(self, filename, settings=None):
         with open(filename, 'w', encoding='utf-8') as f: # Encoding is specified as UTF-8 by spec.
-            f.write(self.to_gerber())
+            f.write(self.to_gerber(settings))
 
     def to_gerber(self, settings=None):
         # Use given settings, or use same settings as original file if not given, or use defaults if not imported from a
@@ -183,30 +184,60 @@ class GerberFile(CamFile):
             settings.number_format = (5,6)
         return '\n'.join(stmt.to_gerber(settings) for stmt in self.generate_statements())
 
-    def offset(self, dx=0,  dy=0):
+    def offset(self, dx=0,  dy=0, unit='mm'):
         # TODO round offset to file resolution
+    
+        dx, dy = self.convert_length(dx, unit), self.convert_length(dy, unit)
+        #print(f'offset {dx},{dy} file unit')
+        #for obj in self.objects:
+        #    print('   ', obj)
         self.objects = [ obj.with_offset(dx, dy) for obj in self.objects ]
+        #print('after:')
+        #for obj in self.objects:
+        #    print('   ', obj)
 
-    def rotate(self, angle:'radians', center=(0,0)):
+    def convert_length(self, value, unit='mm'):
+        """ Convert length into file unit """
+
+        if unit == 'mm':
+            if self.unit == 'inch':
+                return value / 25.4
+        elif unit == 'inch':
+            if self.unit == 'mm':
+                return value * 25.4
+
+        return value
+
+    def rotate(self, angle:'radian', center=(0,0), unit='mm'):
         """ Rotate file contents around given point.
 
             Arguments:
-            angle -- Rotation angle in radians counter-clockwise.
+            angle -- Rotation angle in radian clockwise.
             center -- Center of rotation (default: document origin (0, 0))
 
-            Note that when rotating by odd angles other than 0, 90, 180 or 270 degrees this method may replace standard
+            Note that when rotating by odd angles other than 0, 90, 180 or 270 degree this method may replace standard
             rect and oblong apertures by macro apertures. Existing macro apertures are re-written.
         """
-        if angle % (2*math.pi) == 0:
+        if math.isclose(angle % (2*math.pi), 0):
             return
+
+        center = self.convert_length(center[0], unit), self.convert_length(center[1], unit)
 
         # First, rotate apertures. We do this separately from rotating the individual objects below to rotate each
         # aperture exactly once.
         for ap in self.apertures:
             ap.rotation += angle
 
+        #print(f'rotate {angle} @ {center}')
+        #for obj in self.objects:
+        #    print('   ', obj)
+
         for obj in self.objects:
-            obj.rotate(rotation, *center)
+            obj.rotate(angle, *center)
+
+        #print('after')
+        #for obj in self.objects:
+        #    print('   ', obj)
     
     def invert_polarity(self):
         for obj in self.objects:
@@ -221,11 +252,11 @@ class GraphicsState:
     interpolation_mode : InterpolationModeStmt = LinearModeStmt
     multi_quadrant_mode : bool = None # used only for syntax checking
     aperture_mirroring = (False, False) # LM mirroring (x, y)
-    aperture_rotation = 0 # LR rotation in degrees, ccw
+    aperture_rotation = 0 # LR rotation in degree, ccw
     aperture_scale = 1 # LS scale factor, NOTE: same for both axes
     # The following are deprecated file-wide settings. We normalize these during parsing.
     image_offset : (float, float) = (0, 0)
-    image_rotation: int = 0 # IR image rotation in degrees ccw, one of 0, 90, 180 or 270; deprecated
+    image_rotation: int = 0 # IR image rotation in degree ccw, one of 0, 90, 180 or 270; deprecated
     image_mirror : tuple = (False, False) # IM image mirroring, (x, y); deprecated
     image_scale : tuple = (1.0, 1.0) # SF image scaling (x, y); deprecated
     image_axes : str = 'AXBY' # AS axis mapping; deprecated
@@ -317,11 +348,9 @@ class GraphicsState:
             if i is not None or j is not None:
                 raise SyntaxError("i/j coordinates given for linear D01 operation (which doesn't take i/j)")
 
-            #print('interpolate line')
             return self._create_line(old_point, self.map_coord(*self.point), aperture)
 
         else:
-            #print('interpolate arc')
 
             if i is None and j is None:
                 warnings.warn('Linear segment implied during arc interpolation mode through D01 w/o I, J values', SyntaxWarning)
@@ -468,11 +497,9 @@ class GerberParser:
             # multiple statements from one line.
             if line.strip() and self.eof_found:
                 warnings.warn('Data found in gerber file after EOF.', SyntaxWarning)
-            print('line', line)
 
             for name, le_regex in self.STATEMENT_REGEXES.items():
                 if (match := le_regex.match(line)):
-                    #print(f'match {name}')
                     getattr(self, f'_parse_{name}')(match.groupdict())
                     line = line[match.end(0):]
                     break
@@ -483,6 +510,7 @@ class GerberParser:
         
         self.target.apertures = list(self.aperture_map.values())
         self.target.import_settings = self.file_settings
+        self.target.unit = self.file_settings.unit
 
         if not self.eof_found:
                     warnings.warn('File is missing mandatory M02 EOF marker. File may be truncated.', SyntaxWarning)
@@ -505,7 +533,6 @@ class GerberParser:
         y = self.file_settings.parse_gerber_value(match['y'])
         i = self.file_settings.parse_gerber_value(match['i'])
         j = self.file_settings.parse_gerber_value(match['j'])
-        print(f'coord x={x} y={y} i={i} j={j}')
 
         if not (op := match['operation']):
             if self.last_operation == 'D01':
@@ -528,10 +555,8 @@ class GerberParser:
                     raise SyntaxError('Circular arc interpolation in multi-quadrant mode (G74) is not implemented.')
 
             if self.current_region is None:
-                #print('D01 outside region') 
                 self.target.objects.append(self.graphics_state.interpolate(x, y, i, j))
             else:
-                #print(f'D01 inside region {id(self.current_region)} of length {len(self.current_region)}') 
                 self.current_region.append(self.graphics_state.interpolate(x, y, i, j))
 
         else:
@@ -586,7 +611,7 @@ class GerberParser:
 
     def _parse_aperture_macro(self, match):
         self.aperture_macros[match['name']] = ApertureMacro.parse_macro(
-                match['name'], match['macro'], self.file_settings.units)
+                match['name'], match['macro'], self.file_settings.unit)
     
     def _parse_format_spec(self, match):
         # This is a common problem in Eagle files, so just suppress it
@@ -599,9 +624,9 @@ class GerberParser:
 
     def _parse_unit_mode(self, match):
         if match['unit'] == 'MM':
-            self.file_settings.units = 'mm'
+            self.file_settings.unit = 'mm'
         else:
-            self.file_settings.units = 'inch'
+            self.file_settings.unit = 'inch'
 
     def _parse_load_polarity(self, match):
         self.graphics_state.polarity_dark = match['polarity'] == 'D'
@@ -678,19 +703,17 @@ class GerberParser:
 
     def _parse_region_start(self, _match):
         self.current_region = go.Region(polarity_dark=self.graphics_state.polarity_dark)
-        #print(f'Region start of {id(self.current_region)}')
 
     def _parse_region_end(self, _match):
         if self.current_region is None:
             raise SyntaxError('Region end command (G37) outside of region')
         
         if self.current_region: # ignore empty regions
-            #print(f'Region end of {id(self.current_region)}')
             self.target.objects.append(self.current_region)
         self.current_region = None
 
     def _parse_old_unit(self, match):
-        self.file_settings.units = 'inch' if match['mode'] == 'G70' else 'mm'
+        self.file_settings.unit = 'inch' if match['mode'] == 'G70' else 'mm'
         warnings.warn(f'Deprecated {match["mode"]} unit mode statement found. This deprecated since 2012.',
                     DeprecationWarning)
         self.target.comments.append('Replaced deprecated {match["mode"]} unit mode statement with MO statement')

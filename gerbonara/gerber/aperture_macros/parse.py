@@ -114,10 +114,11 @@ class ApertureMacro:
         return [ primitive.to_graphic_primitives(offset, rotation, variables, unit) for primitive in self.primitives ]
 
     def rotated(self, angle):
-        copy = copy.deepcopy(self)
-        for primitive in copy.primitives:
-            primitive.rotation += rad_to_deg(angle)
-        return copy
+        dup = copy.deepcopy(self)
+        for primitive in dup.primitives:
+            # aperture macro primitives use degree counter-clockwise, our API uses radians clockwise
+            primitive.rotation -= rad_to_deg(angle)
+        return dup
 
 
 cons, var = ConstantExpression, VariableExpression
@@ -127,26 +128,28 @@ class GenericMacros:
 
     _generic_hole = lambda n: [
             ap.Circle(None, [0, var(n), 0, 0]),
-            ap.CenterLine(None, [0, var(n), var(n+1), 0, 0, var(n+2) * deg_per_rad])]
+            ap.CenterLine(None, [0, var(n), var(n+1), 0, 0, var(n+2) * -deg_per_rad])]
 
     # Initialize all these with "None" units so they inherit file units, and do not convert their arguments.
+    # NOTE: All generic macros have rotation values specified in **clockwise radians** like the rest of the user-facing
+    # API.
     circle = ApertureMacro('GNC', [
-        ap.Circle(None, [1, var(1), 0, 0, var(4) * deg_per_rad]),
+        ap.Circle(None, [1, var(1), 0, 0, var(4) * -deg_per_rad]),
         *_generic_hole(2)])
 
     rect = ApertureMacro('GNR', [
-        ap.CenterLine(None, [1, var(1), var(2), 0, 0, var(5) * deg_per_rad]),
+        ap.CenterLine(None, [1, var(1), var(2), 0, 0, var(5) * -deg_per_rad]),
         *_generic_hole(3) ])
 
     # w must be larger than h
     obround = ApertureMacro('GNO', [
-        ap.CenterLine(None, [1, var(1), var(2), 0, 0, var(5) * deg_per_rad]),
-        ap.Circle(None, [1, var(2), +var(1)/2, 0, var(5) * deg_per_rad]),
-        ap.Circle(None, [1, var(2), -var(1)/2, 0, var(5) * deg_per_rad]),
+        ap.CenterLine(None, [1, var(1), var(2), 0, 0, var(5) * -deg_per_rad]),
+        ap.Circle(None, [1, var(2), +var(1)/2, 0, var(5) * -deg_per_rad]),
+        ap.Circle(None, [1, var(2), -var(1)/2, 0, var(5) * -deg_per_rad]),
         *_generic_hole(3) ])
 
     polygon = ApertureMacro('GNP', [
-        ap.Polygon(None, [1, var(2), 0, 0, var(1), var(3) * deg_per_rad]),
+        ap.Polygon(None, [1, var(2), 0, 0, var(1), var(3) * -deg_per_rad]),
         ap.Circle(None, [0, var(4), 0, 0])])
 
 

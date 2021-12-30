@@ -8,8 +8,6 @@ def pytest_assertrepr_compare(op, left, right):
         diff = left if isinstance(left, ImageDifference) else right
         return [
             f'Image difference assertion failed.',
-            f'    Reference: {diff.ref_path}',
-            f'    Actual: {diff.act_path}',
             f'    Calculated difference: {diff}', ]
 
 # store report in node object so tmp_gbr can determine if the test failed.
