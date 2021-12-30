@@ -10,9 +10,11 @@ from contextlib import contextmanager
 import numpy as np
 from PIL import Image
 
+@total_ordering
 class ImageDifference:
-    def __init__(self, value):
+    def __init__(self, value, histogram):
         self.value = value
+        self.histogram = histogram
 
     def __float__(self):
         return float(self.value)
@@ -26,6 +28,27 @@ class ImageDifference:
     def __str__(self):
         return str(float(self))
 
+@total_ordering
+class Histogram:
+    def __init__(self, value, size):
+        self.value, self.size = value, size
+
+    def __eq__(self, other):
+        other = np.array(other)
+        other[other == None] = self.value[other == None]
+        return (self.value == other).all()
+
+    def __lt__(self, other):
+        other = np.array(other)
+        other[other == None] = self.value[other == None]
+        return (self.value <= other).all()
+
+    def __getitem__(self, index):
+        return self.value[index]
+
+    def __str__(self):
+        return f'{list(self.value)} size={self.size}'
+
 
 def run_cargo_cmd(cmd, args, **kwargs):
     if cmd.upper() in os.environ:
@@ -38,7 +61,7 @@ def run_cargo_cmd(cmd, args, **kwargs):
         return subprocess.run([str(Path.home() / '.cargo' / 'bin' / cmd), *args], **kwargs)
 
 def svg_to_png(in_svg, out_png):
-    run_cargo_cmd('resvg', ['--dpi', '200', in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
+    run_cargo_cmd('resvg', ['--dpi', '100', in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
 
 def gbr_to_svg(in_gbr, out_svg, origin=(0, 0), size=(6, 6)):
     x, y = origin
@@ -109,6 +132,10 @@ def image_difference(reference, actual, diff_out=None):
     delta = np.abs(out - ref).astype(float) / 255
     if diff_out:
         Image.fromarray((delta*255).astype(np.uint8), mode='L').save(diff_out)
-    return ImageDifference(delta.mean()), ImageDifference(delta.max())
+
+    hist, _bins = np.histogram(delta, bins=10, range=(0, 1))
+    return (ImageDifference(delta.mean(), hist),
+            ImageDifference(delta.max(), hist),
+            Histogram(hist, out.size))
 
 
