@@ -98,6 +98,20 @@ class ApertureMacro:
     def __hash__(self):
         return hash(self.to_gerber())
 
+    def dilated(self, offset, unit='mm'):
+        dup = copy.deepcopy(self)
+        new_primitives = []
+        for primitive in dup.primitives:
+            try:
+                if primitive.exposure.calculate():
+                    primitive.dilate(offset, unit)
+                    new_primitives.append(primitive)
+            except IndexError:
+                warnings.warn('Cannot dilate aperture macro primitive with exposure value computed from macro variable.')
+                pass
+        dup.primitives = new_primitives
+        return dup
+
     def to_gerber(self, unit=None):
         comments = [ c.to_gerber() for c in self.comments ]
         variable_defs = [ f'${var.to_gerber(unit)}={expr}' for var, expr in self.variables.items() ]

@@ -92,7 +92,7 @@ def cleanup_clips(soup):
         # canvas size. This is just wrong, so we just nuke the clip path from these SVG groups here.
         #
         # Apart from being graphically broken, this additionally causes very bad rendering performance.
-        del group['clip-path'] # remove broken clip
+        del group['clip-path']
 
 def gerber_difference(reference, actual, diff_out=None, svg_transform=None, size=(10,10)):
     with tempfile.NamedTemporaryFile(suffix='.svg') as act_svg,\

@@ -49,6 +49,16 @@ def convert(self, value, src, dst):
         else:
             return value / 25.4
 
+def points_close(a, b):
+    if a == b:
+        return True
+    elif a is None or b is None:
+        return False
+    elif None in a or None in b:
+        return False
+    else:
+        return math.isclose(a[0], b[0]) and math.isclose(a[1], b[1])
+
 class GerberFile(CamFile):
     """ A class representing a single gerber file
 
@@ -102,6 +112,32 @@ class GerberFile(CamFile):
             macro.name = new_name
             seen_macro_names.add(new_name)
 
+    def dilate(self, offset, unit='mm', polarity_dark=True):
+
+        self.apertures = [ aperture.dilated(offset, unit) for aperture in self.apertures ]
+
+        offset_circle = CircleAperture(offset, unit=unit)
+        self.apertures.append(offset_circle)
+
+        new_primitives = []
+        for p in self.primitives:
+
+            p.polarity_dark = polarity_dark
+
+            # Ignore Line, Arc, Flash. Their actual dilation has already been done by dilating the apertures above.
+            if isinstance(p, Region):
+                ol = p.poly.outline
+                for start, end, arc_center in zip(ol, ol[1:] + ol[0], p.poly.arc_centers):
+                    if arc_center is not None:
+                        new_primitives.append(Arc(*start, *end, *arc_center,
+                            polarity_dark=polarity_dark, unit=p.unit, aperture=offset_circle))
+
+                    else:
+                        new_primitives.append(Line(*start, *end,
+                            polarity_dark=polarity_dark, unit=p.unit, aperture=offset_circle))
+
+        # it's safe to append these at the end since we compute a logical OR of opaque areas anyway.
+        self.primitives.extend(new_primitives)
 
     @classmethod
     def open(kls, filename, enable_includes=False, enable_include_dir=None):
@@ -406,14 +442,13 @@ class GraphicsState:
             yield ApertureStmt(self.aperture_map[id(aperture)])
 
     def set_current_point(self, point, unit=None):
-        # FIXME use math.isclose for point comparisons here and elsewhere due to converted coords
-        # FIXME maybe even calculate appropriate precision given file_settings.notation
+        # TODO calculate appropriate precision for math.isclose given file_settings.notation
         if unit == 'inch':
             point_mm = point[0]*25.4, point[1]*25.4
         else:
             point_mm = point
 
-        if self.point != point_mm:
+        if not points_close(self.point, point_mm):
             self.point = point_mm
             yield MoveStmt(*point, unit=unit)
 

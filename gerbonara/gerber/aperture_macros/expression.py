@@ -90,6 +90,47 @@ class UnitExpression(Expression):
         else:
             raise ValueError(f'invalid unit {unit}, must be "inch" or "mm".')
 
+    def __add__(self, other):
+        if not isinstance(other, UnitExpression):
+            raise ValueError('Unit mismatch: Can only add/subtract UnitExpression from UnitExpression, not scalar.')
+
+        if self.unit == other.unit or self.unit is None or other.unit is None:
+            return UnitExpression(self._expr + other._expr, self.unit)
+
+        if other.unit == 'mm': # -> and self.unit == 'inch'
+            return UnitExpression(self._expr + (other._expr / MILLIMETERS_PER_INCH), self.unit)
+        else: # other.unit == 'inch' and self.unit == 'mm'
+            return UnitExpression(self._expr + (other._expr * MILLIMETERS_PER_INCH), self.unit)
+
+    def __radd__(self, other):
+        # left hand side cannot have been an UnitExpression or __radd__ would not have been called
+        raise ValueError('Unit mismatch: Can only add/subtract UnitExpression from UnitExpression, not scalar.')
+
+    def __sub__(self, other):
+        return (self + (-other)).optimize()
+
+    def __rsub__(self, other):
+        # see __radd__ above
+        raise ValueError('Unit mismatch: Can only add/subtract UnitExpression from UnitExpression, not scalar.')
+
+    def __mul__(self, other):
+        return UnitExpression(self._expr * other, self.unit)
+
+    def __rmul__(self, other):
+        return UnitExpression(other * self._expr, self.unit)
+
+    def __truediv__(self, other):
+        return UnitExpression(self._expr / other, self.unit)
+
+    def __rtruediv__(self, other):
+        return UnitExpression(other / self._expr, self.unit)
+
+    def __neg__(self):
+        return UnitExpression(-self._expr, self.unit)
+
+    def __pos__(self):
+        return self
+
 
 class ConstantExpression(Expression):
     def __init__(self, value):

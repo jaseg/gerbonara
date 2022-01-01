@@ -50,6 +50,14 @@ class Aperture:
         else:
             return value / 25.4
 
+    def convert_from(self, value, unit):
+        if self.unit == unit or self.unit is None or unit is None or value is None:
+            return value
+        elif unit == 'mm':
+            return value / 25.4
+        else:
+            return value * 25.4
+
     def params(self, unit=None):
         out = []
         for f in fields(self):
@@ -112,6 +120,10 @@ class CircleAperture(Aperture):
     def equivalent_width(self):
         return self.diameter
 
+    def dilated(self, offset, unit='mm'):
+        offset = self.convert_from(offset, unit)
+        return replace(self, diameter=self.diameter+2*offset, hole_dia=None, hole_rect_h=None)
+
     def _rotated(self):
         if math.isclose(self.rotation % (2*math.pi), 0) or self.hole_rect_h is None:
             return self
@@ -149,6 +161,10 @@ class RectangleAperture(Aperture):
     @property
     def equivalent_width(self):
         return math.sqrt(self.w**2 + self.h**2)
+
+    def dilated(self, offset, unit='mm'):
+        offset = self.convert_from(offset, unit)
+        return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None, hole_rect_h=None)
 
     def _rotated(self):
         if math.isclose(self.rotation % math.pi, 0):
@@ -192,6 +208,10 @@ class ObroundAperture(Aperture):
 
     flash = _flash_hole
 
+    def dilated(self, offset, unit='mm'):
+        offset = self.convert_from(offset, unit)
+        return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None, hole_rect_h=None)
+
     def _rotated(self):
         if math.isclose(self.rotation % math.pi, 0):
             return self
@@ -232,6 +252,10 @@ class PolygonAperture(Aperture):
     def __str__(self):
         return f'<{self.n_vertices}-gon aperture d={self.diameter:.3}'
 
+    def dilated(self, offset, unit='mm'):
+        offset = self.convert_from(offset, unit)
+        return replace(self, diameter=self.diameter+2*offset, hole_dia=None)
+
     flash = _flash_hole
 
     def _rotated(self):
@@ -265,6 +289,9 @@ class ApertureMacroInstance(Aperture):
     def primitives(self, x, y):
         # FIXME return graphical primitives not macro primitives here
         return [ primitive.with_offset(x, y).rotated(self.rotation, cx=0, cy=0) for primitive in self._primitives ]
+
+    def dilated(self, offset, unit='mm'):
+        return replace(self, macro=self.macro.dilated(offset, unit))
 
     def _rotated(self):
         if math.isclose(self.rotation % (2*math.pi), 0):

@@ -4,6 +4,7 @@
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 # Copyright 2022 Jan Götte <gerbonara@jaseg.de>
 
+import warnings
 import contextlib
 import math
 
@@ -20,6 +21,13 @@ def point_distance(a, b):
 def deg_to_rad(a):
     return (a / 180) * math.pi
 
+def convert(value, src, dst):
+        if src == dst or src is None or dst is None or value is None:
+            return value
+        elif dst == 'mm':
+            return value * 25.4
+        else:
+            return value / 25.4
 
 class Primitive:
     def __init__(self, unit, args):
@@ -88,6 +96,9 @@ class Circle(Primitive):
             x, y = x+offset[0], y+offset[1]
             return [ gp.Circle(x, y, calc.r, polarity_dark=bool(calc.exposure)) ]
 
+    def dilate(self, offset, unit):
+        self.diameter += UnitExpression(offset, unit)
+
 class VectorLine(Primitive):
     code = 20
     exposure : Expression
@@ -112,6 +123,9 @@ class VectorLine(Primitive):
             return [ gp.Rectangle(center_x, center_y, length, calc.width, rotation=rotation,
                         polarity_dark=bool(calc.exposure)) ]
 
+    def dilate(self, offset, unit):
+        self.width += UnitExpression(2*offset, unit)
+
 
 class CenterLine(Primitive):
     code = 21
@@ -131,6 +145,9 @@ class CenterLine(Primitive):
             w, h = calc.width, calc.height
 
             return [ gp.Rectangle(x, y, w, h, rotation, polarity_dark=bool(calc.exposure)) ]
+
+    def dilate(self, offset, unit):
+        self.width += UnitExpression(2*offset, unit)
             
 
 class Polygon(Primitive):
@@ -150,6 +167,9 @@ class Polygon(Primitive):
             x, y = x+offset[0], y+offset[1]
             return [ gp.RegularPolygon(calc.x, calc.y, calc.diameter/2, calc.n_vertices, rotation,
                         polarity_dark=bool(calc.exposure)) ]
+
+    def dilate(self, offset, unit):
+        self.diameter += UnitExpression(2*offset, unit)
 
 
 class Thermal(Primitive):
@@ -177,6 +197,11 @@ class Thermal(Primitive):
                     gp.Rectangle(x, y, d_outer, gap_w, rotation=rotation, polarity_dark=not dark),
                     gp.Rectangle(x, y, gap_w, d_outer, rotation=rotation, polarity_dark=not dark),
                     ]
+
+    def dilate(self, offset, unit):
+        # I'd rather print a warning and produce graphically slightly incorrect output in these few cases here than
+        # producing macros that may evaluate to primitives with negative values.
+        warnings.warn('Attempted dilation of macro aperture thermal primitive. This is not supported.')
 
 
 class Outline(Primitive):
@@ -219,6 +244,10 @@ class Outline(Primitive):
             bound_coords = [ rotate_point(*p, rotation, 0, 0) for p in bound_coords ]
 
             return gp.ArcPoly(bound_coords, bound_radii, polarity_dark=calc.exposure)
+
+    def dilate(self, offset, unit):
+        # we would need a whole polygon offset/clipping library here
+        warnings.warn('Attempted dilation of macro aperture outline primitive. This is not supported.')
 
 
 class Comment:
