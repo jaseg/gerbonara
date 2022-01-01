@@ -154,7 +154,6 @@ def gerber_difference_merge(ref1, ref2, actual, diff_out=None, composite_out=Non
                     if hasattr(c, 'attrs'):
                         c['id'] = 'gn-merge-b-' + c.attrs.get('id', str(id(c)))
                     svg1.append(c)
-            # FIXME prefix all group ids with "b-"
 
         if composite_out:
             shutil.copyfile(ref1_svg.name, composite_out)
@@ -178,7 +177,7 @@ def image_difference(reference, actual, diff_out=None):
     out = np.array(Image.open(actual)).astype(float)
 
     ref, out = ref.mean(axis=2), out.mean(axis=2) # convert to grayscale
-    # FIXME blur images here before comparison to mitigate aliasing issue
+    # TODO blur images here before comparison to mitigate aliasing issue
     delta = np.abs(out - ref).astype(float) / 255
     if diff_out:
         Image.fromarray((delta*255).astype(np.uint8), mode='L').save(diff_out)
