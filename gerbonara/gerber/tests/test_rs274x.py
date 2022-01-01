@@ -17,7 +17,7 @@ import pytest
 from ..rs274x import GerberFile
 from ..cam import FileSettings
 
-from .image_support import gerber_difference
+from .image_support import gerber_difference, gerber_difference_merge
 
 
 deg_to_rad = lambda a: a/180 * math.pi
@@ -28,9 +28,10 @@ reference_path = lambda reference: Path(__file__).parent / 'resources' / referen
 @pytest.fixture
 def temp_files(request):
     with tempfile.NamedTemporaryFile(suffix='.gbr') as tmp_out_gbr,\
+         tempfile.NamedTemporaryFile(suffix='.svg') as tmp_out_svg,\
          tempfile.NamedTemporaryFile(suffix='.png') as tmp_out_png:
 
-        yield Path(tmp_out_gbr.name), Path(tmp_out_png.name)
+        yield Path(tmp_out_gbr.name), Path(tmp_out_svg.name), Path(tmp_out_png.name)
 
         if request.node.rep_call.failed:
             module, _, test_name = request.node.nodeid.rpartition('::')
@@ -39,14 +40,27 @@ def temp_files(request):
             test_name = re.sub(r'[^\w\d]', '_', test_name)
             fail_dir.mkdir(exist_ok=True)
             perm_path_gbr = fail_dir / f'failure_{test_name}.gbr'
+            perm_path_svg = fail_dir / f'failure_{test_name}.svg'
             perm_path_png = fail_dir / f'failure_{test_name}.png'
             shutil.copy(tmp_out_gbr.name, perm_path_gbr)
+            if Path(tmp_out_svg.name).is_file():
+                shutil.copy(tmp_out_svg.name, perm_path_svg)
             shutil.copy(tmp_out_png.name, perm_path_png)
             print(f'Failing output saved to {perm_path_gbr}')
-            print(f'Reference file is {reference_path(request.node.funcargs["reference"])}')
+            args = request.node.funcargs
+            if 'reference' in args:
+                print(f'Reference file is {reference_path(args["reference"])}')
+            else:
+                print(f'Reference file A is {reference_path(args["file_a"])}')
+                print(f'Reference file B is {reference_path(args["file_b"])}')
             print(f'Difference image saved to {perm_path_png}')
+            if Path(tmp_out_svg.name).is_file():
+                print(f'Sum SVG saved to {perm_path_svg}')
             print(f'gerbv command line:')
-            print(f'gerbv {perm_path_gbr} {reference_path(request.node.funcargs["reference"])}')
+            if 'reference' in args:
+                print(f'gerbv {perm_path_gbr} {reference_path(request.node.funcargs["reference"])}')
+            else:
+                print(f'gerbv {perm_path_gbr} {reference_path(args["file_a"])} {reference_path(args["file_b"])}')
 
 to_gerbv_svg_units = lambda val, unit='mm': val*72 if unit == 'inch' else val/25.4*72
 
@@ -109,11 +123,12 @@ MIN_REFERENCE_FILES = [
     'eagle_files/copper_bottom_l4.gbr'
     ]
 
+
 @pytest.mark.filterwarnings('ignore:Deprecated.*statement found.*:DeprecationWarning')
 @pytest.mark.filterwarnings('ignore::SyntaxWarning')
 @pytest.mark.parametrize('reference', REFERENCE_FILES)
 def test_round_trip(temp_files, reference):
-    tmp_gbr, tmp_png = temp_files
+    tmp_gbr, _tmp_svg, tmp_png = temp_files
     ref = reference_path(reference)
 
     GerberFile.open(ref).save(tmp_gbr)
@@ -135,7 +150,7 @@ def test_rotation(temp_files, reference, angle):
         # gerbv's rendering of this is broken, the hole is missing.
         return
 
-    tmp_gbr, tmp_png = temp_files
+    tmp_gbr, _tmp_svg, tmp_png = temp_files
     ref = reference_path(reference)
 
     f = GerberFile.open(ref)
@@ -156,7 +171,7 @@ def test_rotation_center(temp_files, reference, angle, center):
     if 'flash_rectangle' in reference and angle in (30, 1024):
         # gerbv's rendering of this is broken, the hole is missing.
         return
-    tmp_gbr, tmp_png = temp_files
+    tmp_gbr, _tmp_svg, tmp_png = temp_files
     ref = reference_path(reference)
 
     f = GerberFile.open(ref)
@@ -165,7 +180,7 @@ def test_rotation_center(temp_files, reference, angle, center):
 
     # calculate circle center in SVG coordinates 
     size = (10, 10) # inches
-    cx, cy = to_gerbv_svg_units(center[0]), to_gerbv_svg_units(10, 'inch')-to_gerbv_svg_units(center[1], 'mm')
+    cx, cy = to_gerbv_svg_units(center[0]), to_gerbv_svg_units(size[1], 'inch')-to_gerbv_svg_units(center[1], 'mm')
     mean, _max, hist = gerber_difference(ref, tmp_gbr, diff_out=tmp_png,
             svg_transform=f'rotate({angle} {cx} {cy})',
             size=size)
@@ -178,7 +193,7 @@ def test_rotation_center(temp_files, reference, angle, center):
 @pytest.mark.parametrize('reference', MIN_REFERENCE_FILES)
 @pytest.mark.parametrize('offset', TEST_OFFSETS)
 def test_offset(temp_files, reference, offset):
-    tmp_gbr, tmp_png = temp_files
+    tmp_gbr, _tmp_svg, tmp_png = temp_files
     ref = reference_path(reference)
 
     f = GerberFile.open(ref)
@@ -201,7 +216,7 @@ def test_combined(temp_files, reference, angle, center, offset):
     if 'flash_rectangle' in reference and angle in (30, 1024):
         # gerbv's rendering of this is broken, the hole is missing.
         return
-    tmp_gbr, tmp_png = temp_files
+    tmp_gbr, _tmp_svg, tmp_png = temp_files
     ref = reference_path(reference)
 
     f = GerberFile.open(ref)
@@ -210,7 +225,7 @@ def test_combined(temp_files, reference, angle, center, offset):
     f.save(tmp_gbr, settings=FileSettings(unit=f.unit, number_format=(4,7)))
 
     size = (10, 10) # inches
-    cx, cy = to_gerbv_svg_units(center[0]), to_gerbv_svg_units(10, 'inch')-to_gerbv_svg_units(center[1], 'mm')
+    cx, cy = to_gerbv_svg_units(center[0]), to_gerbv_svg_units(size[1], 'inch')-to_gerbv_svg_units(center[1], 'mm')
     dx, dy = to_gerbv_svg_units(offset[0]), -to_gerbv_svg_units(offset[1])
     mean, _max, hist = gerber_difference(ref, tmp_gbr, diff_out=tmp_png,
             svg_transform=f'translate({dx} {dy}) rotate({angle} {cx} {cy})',
@@ -218,4 +233,55 @@ def test_combined(temp_files, reference, angle, center, offset):
     assert mean < 1e-3
     assert hist[9] < 100
     assert hist[3:].sum() < 1e-3*hist.size
+
+@pytest.mark.filterwarnings('ignore:Deprecated.*statement found.*:DeprecationWarning')
+@pytest.mark.filterwarnings('ignore::SyntaxWarning')
+@pytest.mark.parametrize('file_a', MIN_REFERENCE_FILES)
+@pytest.mark.parametrize('file_b', [
+    'example_two_square_boxes.gbr',
+    'example_outline_with_arcs.gbr',
+    'example_am_exposure_modifier.gbr',
+    'bottom_silk.GBO',
+    'eagle_files/copper_bottom_l4.gbr', ])
+@pytest.mark.parametrize('angle', [0, 10, 90])
+@pytest.mark.parametrize('offset', [(0, 0, 0, 0), (100, 0, 0, 0), (0, 0, 0, 100), (100, 0, 0, 100)])
+def test_compositing(temp_files, file_a, file_b, angle, offset):
+
+    # TODO bottom_silk.GBO renders incorrectly with gerbv: the outline does not exist in svg. In GUI, the logo only
+    # renders at very high magnification. Skip, and once we have our own SVG export maybe use that instead. Or just use
+    # KiCAD's gerbview.
+    # TODO check if this and the issue with aperture holes not rendering in test_combined actually are bugs in gerbv
+    # and fix/report upstream.
+    if file_a == 'bottom_silk.GBO' or file_b == 'bottom_silk.GBO':
+        return
+
+    tmp_gbr, tmp_svg, tmp_png = temp_files
+    ref_a = reference_path(file_a)
+    ref_b = reference_path(file_b)
+
+    ax, ay, bx, by = offset
+    grb_a = GerberFile.open(ref_a)
+    grb_a.rotate(deg_to_rad(angle))
+    grb_a.offset(ax, ay)
+
+    grb_b = GerberFile.open(ref_b)
+    grb_b.offset(bx, by)
+
+    grb_a.merge(grb_b)
+    grb_a.save(tmp_gbr, settings=FileSettings(unit=grb_a.unit, number_format=(4,7)))
+
+    size = (10, 10) # inches
+    ax, ay = to_gerbv_svg_units(ax), -to_gerbv_svg_units(ay)
+    bx, by = to_gerbv_svg_units(bx), -to_gerbv_svg_units(by)
+    # note that we have to specify cx, cy even if we rotate around the origin since gerber's origin lies at (x=0
+    # y=+document size) in SVG's coordinate space because svg's y axis is flipped compared to gerber's.
+    cx, cy = 0, to_gerbv_svg_units(size[1], 'inch')
+    mean, _max, hist = gerber_difference_merge(ref_a, ref_b, tmp_gbr, composite_out=tmp_svg, diff_out=tmp_png,
+            svg_transform1=f'translate({ax} {ay}) rotate({angle} {cx} {cy})',
+            svg_transform2=f'translate({bx} {by})',
+            size=size)
+    assert mean < 1e-3
+    assert hist[9] < 100
+    assert hist[3:].sum() < 1e-3*hist.size
+
 

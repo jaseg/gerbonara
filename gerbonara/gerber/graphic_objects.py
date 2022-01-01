@@ -9,6 +9,7 @@ from .gerber_statements import *
 class GerberObject:
     _ : KW_ONLY
     polarity_dark : bool = True
+    unit : str = None
 
     def to_primitives(self):
         raise NotImplementedError()
@@ -31,12 +32,12 @@ class Flash(GerberObject):
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
-        yield FlashStmt(self.x, self.y)
-        gs.update_point(self.x, self.y)
+        yield FlashStmt(self.x, self.y, unit=self.unit)
+        gs.update_point(self.x, self.y, unit=self.unit)
 
 class Region(GerberObject):
-    def __init__(self, outline=None, arc_centers=None, *, polarity_dark):
-        super().__init__(polarity_dark=polarity_dark)
+    def __init__(self, outline=None, arc_centers=None, *, unit, polarity_dark):
+        super().__init__(unit=unit, polarity_dark=polarity_dark)
         outline = [] if outline is None else outline
         arc_centers = [] if arc_centers is None else arc_centers
         self.poly = gp.ArcPoly(outline, arc_centers)
@@ -50,7 +51,8 @@ class Region(GerberObject):
     def with_offset(self, dx, dy):
         return Region([ (x+dx, y+dy) for x, y in self.poly.outline ],
                 self.poly.arc_centers,
-                polarity_dark=self.polarity_dark)
+                polarity_dark=self.polarity_dark,
+                unit=self.unit)
 
     def rotate(self, angle, cx=0, cy=0):
         self.poly.outline = [ gp.rotate_point(x, y, angle, cx, cy) for x, y in self.poly.outline ]
@@ -76,18 +78,20 @@ class Region(GerberObject):
         yield from gs.set_polarity(self.polarity_dark)
         yield RegionStartStmt()
 
-        yield from gs.set_current_point(self.poly.outline[0])
+        yield from gs.set_current_point(self.poly.outline[0], unit=self.unit)
 
         for point, arc_center in zip(self.poly.outline[1:], self.poly.arc_centers):
             if arc_center is None:
                 yield from gs.set_interpolation_mode(LinearModeStmt)
-                yield InterpolateStmt(*point)
+                yield InterpolateStmt(*point, unit=self.unit)
+                gs.update_point(*point, unit=self.unit)
 
             else:
                 cx, cy = arc_center
                 x2, y2 = point
                 yield from gs.set_interpolation_mode(CircularCCWModeStmt)
-                yield InterpolateStmt(x2, y2, cx-x2, cy-y2)
+                yield InterpolateStmt(x2, y2, cx-x2, cy-y2, unit=self.unit)
+                gs.update_point(x2, y2, unit=self.unit)
 
         yield RegionEndStmt()
 
@@ -123,9 +127,9 @@ class Line(GerberObject):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
         yield from gs.set_interpolation_mode(LinearModeStmt)
-        yield from gs.set_current_point(self.p1)
-        yield InterpolateStmt(*self.p2)
-        gs.update_point(*self.p2)
+        yield from gs.set_current_point(self.p1, unit=self.unit)
+        yield InterpolateStmt(*self.p2, unit=self.unit)
+        gs.update_point(*self.p2, unit=self.unit)
 
 
 @dataclass
@@ -214,7 +218,8 @@ class Arc(GerberObject):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
         yield from gs.set_interpolation_mode(CircularCCWModeStmt)
-        yield from gs.set_current_point(self.p1)
-        yield InterpolateStmt(self.x2, self.y2, self.cx, self.cy)
+        yield from gs.set_current_point(self.p1, unit=self.unit)
+        yield InterpolateStmt(self.x2, self.y2, self.cx, self.cy, unit=self.unit)
+        gs.update_point(*self.p2, unit=self.unit)
 
 

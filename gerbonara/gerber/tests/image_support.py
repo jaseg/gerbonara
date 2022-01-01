@@ -109,11 +109,60 @@ def gerber_difference(reference, actual, diff_out=None, svg_transform=None, size
         with svg_soup(act_svg.name) as soup:
             cleanup_clips(soup)
 
-        # FIXME DEBUG
-        shutil.copyfile(act_svg.name, '/tmp/test-act.svg')
-        shutil.copyfile(ref_svg.name, '/tmp/test-ref.svg')
-
         return svg_difference(ref_svg.name, act_svg.name, diff_out=diff_out)
+
+def gerber_difference_merge(ref1, ref2, actual, diff_out=None, composite_out=None, svg_transform1=None, svg_transform2=None, size=(10,10)):
+    with tempfile.NamedTemporaryFile(suffix='.svg') as act_svg,\
+        tempfile.NamedTemporaryFile(suffix='.svg') as ref1_svg,\
+        tempfile.NamedTemporaryFile(suffix='.svg') as ref2_svg:
+
+        gbr_to_svg(ref1, ref1_svg.name, size=size)
+        gbr_to_svg(ref2, ref2_svg.name, size=size)
+        gbr_to_svg(actual, act_svg.name, size=size)
+
+        with svg_soup(ref1_svg.name) as soup1:
+            if svg_transform1 is not None:
+                soup1.find('g', attrs={'id': 'surface1'})['transform'] = svg_transform1
+            cleanup_clips(soup1)
+
+            with svg_soup(ref2_svg.name) as soup2:
+                if svg_transform2 is not None:
+                    soup2.find('g', attrs={'id': 'surface1'})['transform'] = svg_transform2
+                cleanup_clips(soup2)
+
+                defs1 = soup1.find('defs')
+                if not defs1:
+                    defs1 = soup1.new_tag('defs')
+                    soup1.find('svg').insert(0, defs1)
+
+                defs2 = soup2.find('defs')
+                if defs2:
+                    defs2 = defs2.extract()
+                    # explicitly convert .contents into list here and below because else bs4 stumbles over itself
+                    # iterating because we modify the tree in the loop body.
+                    for c in list(defs2.contents):
+                        if hasattr(c, 'attrs'):
+                            c['id'] = 'gn-merge-b-' + c.attrs.get('id', str(id(c)))
+                        defs1.append(c)
+
+                for use in soup2.find_all('use', recursive=True):
+                    if (href := use.get('xlink:href', '')).startswith('#'):
+                        use['xlink:href'] = f'#gn-merge-b-{href[1:]}'
+
+                svg1 = soup1.find('svg')
+                for c in list(soup2.find('svg').contents):
+                    if hasattr(c, 'attrs'):
+                        c['id'] = 'gn-merge-b-' + c.attrs.get('id', str(id(c)))
+                    svg1.append(c)
+            # FIXME prefix all group ids with "b-"
+
+        if composite_out:
+            shutil.copyfile(ref1_svg.name, composite_out)
+
+        with svg_soup(act_svg.name) as soup:
+            cleanup_clips(soup)
+
+        return svg_difference(ref1_svg.name, act_svg.name, diff_out=diff_out)
 
 def svg_difference(reference, actual, diff_out=None):
     with tempfile.NamedTemporaryFile(suffix='-ref.png') as ref_png,\

@@ -41,6 +41,14 @@ from . import graphic_objects as go
 from . import apertures
 
 
+def convert(self, value, src, dst):
+        if src == dst or src is None or dst is None or value is None:
+            return value
+        elif dst == 'mm':
+            return value * 25.4
+        else:
+            return value / 25.4
+
 class GerberFile(CamFile):
     """ A class representing a single gerber file
 
@@ -55,8 +63,6 @@ class GerberFile(CamFile):
 
     def merge(self, other):
         """ Merge other GerberFile into this one """
-        # FIXME unit handling
-
         self.comments += other.comments
 
         # dedup apertures
@@ -68,18 +74,19 @@ class GerberFile(CamFile):
                 new_apertures[gbr] = ap
             else:
                 replace_apertures[id(ap)] = new_apertures[gbr]
-        self.apertures = new_apertures
+        self.apertures = list(new_apertures.values())
 
         self.objects += other.objects
         for obj in self.objects:
-            if (ap := replace_apertures.get(id(getattr(obj, 'aperture')))):
+            # If object has an aperture attribute, replace that aperture.
+            if (ap := replace_apertures.get(id(getattr(obj, 'aperture', None)))):
                 obj.aperture = ap
 
         # dedup aperture macros
         macros = { m.to_gerber(): m
                 for m in [ GenericMacros.circle, GenericMacros.rect, GenericMacros.obround, GenericMacros.polygon] }
-        for ap in new_apertures:
-            if isinstance(aperture, apertures.ApertureMacroInstance):
+        for ap in new_apertures.values():
+            if isinstance(ap, apertures.ApertureMacroInstance):
                 macro_grb = ap.macro.to_gerber() # use native unit to compare macros
                 if macro_grb in macros:
                     ap.macro = macros[macro_grb]
@@ -246,6 +253,7 @@ class GraphicsState:
     image_polarity : str = 'positive' # IP image polarity; deprecated
     point : tuple = None
     aperture : apertures.Aperture = None
+    file_settings : FileSettings = None
     interpolation_mode : InterpolationModeStmt = LinearModeStmt
     multi_quadrant_mode : bool = None # used only for syntax checking
     aperture_mirroring = (False, False) # LM mirroring (x, y)
@@ -261,8 +269,9 @@ class GraphicsState:
     aperture_map = {}
 
 
-    def __init__(self, aperture_map=None):
+    def __init__(self, file_settings=None, aperture_map=None):
         self._mat = None
+        self.file_settings = file_settings
         if aperture_map is not None:
             self.aperture_map = aperture_map
 
@@ -333,7 +342,9 @@ class GraphicsState:
 
     def flash(self, x, y):
         self.update_point(x, y)
-        return go.Flash(*self.map_coord(*self.point), self.aperture, polarity_dark=self.polarity_dark)
+        return go.Flash(*self.map_coord(*self.point), self.aperture,
+                polarity_dark=self.polarity_dark,
+                unit=self.file_settings.unit)
 
     def interpolate(self, x, y, i=None, j=None, aperture=True):
         if self.point is None:
@@ -363,21 +374,24 @@ class GraphicsState:
                 return self._create_arc(old_point, self.map_coord(*self.point), (i, j), aperture)
 
     def _create_line(self, old_point, new_point, aperture=True):
-        return go.Line(*old_point, *new_point, self.aperture if aperture else None, polarity_dark=self.polarity_dark)
+        return go.Line(*old_point, *new_point, self.aperture if aperture else None,
+                polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
 
     def _create_arc(self, old_point, new_point, control_point, aperture=True):
         direction = 'ccw' if self.interpolation_mode == CircularCCWModeStmt else 'cw'
         return go.Arc(*old_point, *new_point,* self.map_coord(*control_point, relative=True),
-                flipped=(direction == 'cw'), aperture=(self.aperture if aperture else None), polarity_dark=self.polarity_dark)
+                flipped=(direction == 'cw'), aperture=(self.aperture if aperture else None),
+                polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
 
-    def update_point(self, x, y):
+    def update_point(self, x, y, unit=None):
         old_point = self.point
         if x is None:
             x = self.point[0]
         if y is None:
             y = self.point[1]
-        if self.point != (x, y):
-            self.point = (x, y)
+        if unit == 'inch':
+            x, y = x*25.4, y*25.4
+        self.point = (x, y)
         return old_point
 
     # Helpers for gerber generation
@@ -391,10 +405,17 @@ class GraphicsState:
             self.aperture = aperture
             yield ApertureStmt(self.aperture_map[id(aperture)])
 
-    def set_current_point(self, point):
-        if self.point != point:
-            self.point = point
-            yield MoveStmt(*point)
+    def set_current_point(self, point, unit=None):
+        # FIXME use math.isclose for point comparisons here and elsewhere due to converted coords
+        # FIXME maybe even calculate appropriate precision given file_settings.notation
+        if unit == 'inch':
+            point_mm = point[0]*25.4, point[1]*25.4
+        else:
+            point_mm = point
+
+        if self.point != point_mm:
+            self.point = point_mm
+            yield MoveStmt(*point, unit=unit)
 
     def set_interpolation_mode(self, mode):
         if self.interpolation_mode != mode:
@@ -446,7 +467,7 @@ class GerberParser:
         self.include_dir = include_dir
         self.include_stack = []
         self.file_settings = FileSettings()
-        self.graphics_state = GraphicsState()
+        self.graphics_state = GraphicsState(file_settings=self.file_settings)
         self.aperture_map = {}
         self.aperture_macros = {}
         self.current_region = None
@@ -566,7 +587,9 @@ class GerberParser:
                     # Start a new region for every outline. As gerber has no concept of fill rules or winding numbers,
                     # it does not make a graphical difference, and it makes the implementation slightly easier.
                     self.target.objects.append(self.current_region)
-                    self.current_region = go.Region(polarity_dark=self.graphics_state.polarity_dark)
+                    self.current_region = go.Region(
+                            polarity_dark=self.graphics_state.polarity_dark,
+                            unit=self.file_settings.unit)
 
             else: # D03
                 if self.current_region is None:
@@ -699,7 +722,9 @@ class GerberParser:
         self.target.comments.append(match["comment"])
 
     def _parse_region_start(self, _match):
-        self.current_region = go.Region(polarity_dark=self.graphics_state.polarity_dark)
+        self.current_region = go.Region(
+                polarity_dark=self.graphics_state.polarity_dark,
+                unit=self.file_settings.unit)
 
     def _parse_region_end(self, _match):
         if self.current_region is None:

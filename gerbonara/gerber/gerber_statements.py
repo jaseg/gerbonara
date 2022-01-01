@@ -21,6 +21,14 @@ Gerber (RS-274X) Statements
 
 """
 
+def convert(value, src, dst):
+        if src == dst or src is None or dst is None or value is None:
+            return value
+        elif dst == 'mm':
+            return value * 25.4
+        else:
+            return value / 25.4
+
 class Statement:
     pass
 
@@ -88,6 +96,9 @@ class ApertureDefStmt(ParamStmt):
     def __str__(self):
         return f'<AD aperture def for {str(self.aperture).strip("<>")}>'
 
+    def __repr__(self):
+        return f'ApertureDefStmt({self.number}, {repr(self.aperture)})'
+
 
 class ApertureMacroStmt(ParamStmt):
     """ AM - Aperture Macro Statement """
@@ -117,13 +128,14 @@ class ImagePolarityStmt(ParamStmt):
 class CoordStmt(Statement):
     """ D01 - D03 operation statements """
 
-    def __init__(self, x, y, i=None, j=None):
+    def __init__(self, x, y, i=None, j=None, unit=None):
         self.x, self.y, self.i, self.j = x, y, i, j
+        self.unit = unit
 
     def to_gerber(self, settings=None):
         ret = ''
         for var in 'xyij':
-            val = getattr(self, var)
+            val = convert(getattr(self, var), self.unit, settings.unit)
             if val is not None:
                 ret += var.upper() + settings.write_gerber_value(val)
         return ret + self.code + '*'
