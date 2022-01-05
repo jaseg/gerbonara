@@ -59,6 +59,18 @@ def points_close(a, b):
     else:
         return math.isclose(a[0], b[0]) and math.isclose(a[1], b[1])
 
+def Tag:
+    def __init__(self, name, children=None, **attrs):
+        self.name, self.children, self.attrs = name, children, attrs
+
+    def __str__(self):
+        opening = ' '.join([self.name] + [f'{key}="{value}"' for key, value in self.attrs.items()])
+        if self.children:
+            children = '\n'.join(textwrap.indent(str(c), '  ') for c in children)
+            return f'<{opening}>\n{children}\n</{self.name}>'
+        else:
+            return f'<{opening}/>'
+
 class GerberFile(CamFile):
     """ A class representing a single gerber file
 
@@ -70,6 +82,27 @@ class GerberFile(CamFile):
         self.apertures = []
         self.comments = []
         self.objects = []
+
+    def to_svg(self, tag=Tag, margin=0, margin_unit='mm', svg_unit='mm'):
+
+        (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit)
+
+        if margin:
+            margin = convert(margin, margin_unit, svg_unit)
+            min_x -= margin
+            min_y -= margin
+            max_x += margin
+            max_y += margin
+
+        w, h = max_x - min_x, max_y - min_y
+
+        primitives = [
+                [ tag(*prim.to_svg()) for prim in obj.to_primitives(unit=svg_unit) ]
+                for obj in self.objects ]
+
+        # FIXME setup viewport transform flipping y axis
+
+        return tag('svg', [defs, *primitives], width=w, height=h, viewBox=f'{min_x} {min_y} {w} {h}')
 
     def merge(self, other):
         """ Merge other GerberFile into this one """
@@ -158,8 +191,8 @@ class GerberFile(CamFile):
         return (x1 - x0, y1 - y0)
 
     @property
-    def bounding_box(self):
-        bounds = [ p.bounding_box for p in self.pDeprecatedrimitives ]
+    def bounding_box(self, unit='mm'):
+        bounds = [ p.bounding_box(unit) for p in self.objects ]
 
         min_x = min(x0 for (x0, y0), (x1, y1) in bounds)
         min_y = min(y0 for (x0, y0), (x1, y1) in bounds)
@@ -227,26 +260,13 @@ class GerberFile(CamFile):
     def offset(self, dx=0,  dy=0, unit='mm'):
         # TODO round offset to file resolution
     
-        dx, dy = self.convert_length(dx, unit), self.convert_length(dy, unit)
         #print(f'offset {dx},{dy} file unit')
         #for obj in self.objects:
         #    print('   ', obj)
-        self.objects = [ obj.with_offset(dx, dy) for obj in self.objects ]
+        self.objects = [ obj.with_offset(dx, dy, unit) for obj in self.objects ]
         #print('after:')
         #for obj in self.objects:
         #    print('   ', obj)
-
-    def convert_length(self, value, unit='mm'):
-        """ Convert length into file unit """
-
-        if unit == 'mm':
-            if self.unit == 'inch':
-                return value / 25.4
-        elif unit == 'inch':
-            if self.unit == 'mm':
-                return value * 25.4
-
-        return value
 
     def rotate(self, angle:'radian', center=(0,0), unit='mm'):
         """ Rotate file contents around given point.
@@ -261,8 +281,6 @@ class GerberFile(CamFile):
         if math.isclose(angle % (2*math.pi), 0):
             return
 
-        center = self.convert_length(center[0], unit), self.convert_length(center[1], unit)
-
         # First, rotate apertures. We do this separately from rotating the individual objects below to rotate each
         # aperture exactly once.
         for ap in self.apertures:
@@ -273,7 +291,7 @@ class GerberFile(CamFile):
         #    print('   ', obj)
 
         for obj in self.objects:
-            obj.rotate(angle, *center)
+            obj.rotate(angle, *center, unit)
 
         #print('after')
         #for obj in self.objects:
@@ -414,9 +432,9 @@ class GraphicsState:
                 polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
 
     def _create_arc(self, old_point, new_point, control_point, aperture=True):
-        direction = 'ccw' if self.interpolation_mode == CircularCCWModeStmt else 'cw'
+        clockwise = self.interpolation_mode == CircularCWModeStmt
         return go.Arc(*old_point, *new_point,* self.map_coord(*control_point, relative=True),
-                flipped=(direction == 'cw'), aperture=(self.aperture if aperture else None),
+                clockwise=clockwise, aperture=(self.aperture if aperture else None),
                 polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
 
     def update_point(self, x, y, unit=None):

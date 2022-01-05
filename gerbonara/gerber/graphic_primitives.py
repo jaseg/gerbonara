@@ -10,7 +10,6 @@ from .gerber_statements import *
 class GraphicPrimitive:
     _ : KW_ONLY
     polarity_dark : bool = True
-    unit : str = None
 
 
 def rotate_point(x, y, angle, cx=0, cy=0):
@@ -19,6 +18,26 @@ def rotate_point(x, y, angle, cx=0, cy=0):
     return (cx + (x - cx) * math.cos(-angle) - (y - cy) * math.sin(-angle),
             cy + (x - cx) * math.sin(-angle) + (y - cy) * math.cos(-angle))
 
+def min_none(a, b):
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return min(a, b)
+
+def max_none(a, b):
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return max(a, b)
+
+def add_bounds(b1, b2):
+    (min_x_1, min_y_1), (max_x_1, max_y_1) = b1
+    (min_x_2, min_y_2), (max_x_2, max_y_2) = b2
+    min_x, min_y = min_none(min_x_1, min_x_2), min_none(min_y_1, min_y_2)
+    max_x, max_y = max_none(max_x_1, max_x_2), max_none(max_y_1, max_y_2)
+    return ((min_x, min_y), (max_x, max_y))
 
 @dataclass
 class Circle(GraphicPrimitive):
@@ -26,8 +45,11 @@ class Circle(GraphicPrimitive):
     y : float
     r : float # Here, we use radius as common in modern computer graphics, not diameter as gerber uses.
 
-    def bounds(self):
+    def bounding_box(self):
         return ((self.x-self.r, self.y-self.r), (self.x+self.r, self.y+self.r))
+
+    def to_svg(self):
+        return 'circle', (), dict(cx=x, cy=y, r=r)
 
 
 @dataclass
@@ -38,30 +60,121 @@ class Obround(GraphicPrimitive):
     h : float
     rotation : float # radians!
 
-    def decompose(self):
-        ''' decompose obround to two circles and one rectangle '''
-
-        cx = self.x + self.w/2
-        cy = self.y + self.h/2
-
+    def to_line(self):
         if self.w > self.h:
-            x = self.x + self.h/2
-            yield Circle(x, cy, self.h/2)
-            yield Circle(x + self.w, cy, self.h/2)
-            yield Rectangle(x, self.y, self.w - self.h, self.h)
-
-        elif self.h > self.w:
-            y = self.y + self.w/2
-            yield Circle(cx, y, self.w/2)
-            yield Circle(cx, y + self.h, self.w/2)
-            yield Rectangle(self.x, y, self.w, self.h - self.w)
-
+            w, a, b = self.h, self.w, 0
         else:
-            yield Circle(cx, cy, self.w/2)
+            w, a, b = self.w, 0, self.h
+        return Line(
+                *rotate_point(self.x-a/2, self.y-b/2, self.rotation, self.x, self.y),
+                *rotate_point(self.x+a/2, self.y+b/2, self.rotation, self.x, self.y),
+                w)
 
-    def bounds(self):
-        return ((self.x-self.w/2, self.y-self.h/2), (self.x+self.w/2, self.y+self.h/2))
+    def bounding_box(self):
+        return self.to_line().bounding_box()
 
+    def to_svg(self):
+        return self.to_line().to_svg()
+
+
+def arc_bounds(x1, y1, x2, y2, cx, cy, clockwise):
+    # This is one of these problems typical for computer geometry where out of nowhere a seemingly simple task just
+    # happens to be anything but in practice.
+    #
+    # Online there are a number of algorithms to be found solving this problem. Often, they solve the more general
+    # problem for elliptic arcs. We can keep things simple here since we only have circular arcs.
+    # 
+    # This solution manages to handle circular arcs given in gerber format (with explicit center and endpoints, plus
+    # sweep direction instead of a format with e.g. angles and radius) without any trigonometric functions (e.g. atan2).
+
+    # Center arc on cx, cy
+    x1 -= cx
+    x2 -= cx
+    y1 -= cy
+    y2 -= cy
+    clockwise = bool(clockwise) # bool'ify for XOR/XNOR below
+
+    # Calculate radius
+    r = math.sqrt(x1**2 + y1**2)
+
+    # Calculate in which half-planes (north/south, west/east) P1 and P2 lie.
+    # Note that we assume the y axis points upwards, as in Gerber and maths.
+    # SVG has its y axis pointing downwards.
+    p1_west = x1 < 0
+    p1_north = y1 > 0
+    p2_west = x2 < 0
+    p2_north = y2 > 0
+
+    # Calculate bounding box of P1 and P2
+    min_x = min(x1, x2)
+    min_y = min(y1, y2)
+    max_x = max(x1, x2)
+    max_y = max(y1, y2)
+
+    #               North
+    #                 ^
+    #                 |
+    #                 |(0,0)
+    #      West <-----X-----> East
+    #                 |
+    #  +Y             |
+    #   ^             v
+    #   |           South
+    #   |
+    #   +-----> +X
+    #
+    # Check whether the arc sweeps over any coordinate axes. If it does, add the intersection point to the bounding box.
+    # Note that, since this intersection point is at radius r, it has coordinate e.g. (0, r) for the north intersection.
+    # Since we know that the points lie on either side of the coordinate axis, the '0' coordinate of the intersection
+    # point will not change the bounding box in that axis--only its 'r' coordinate matters. We also know that the
+    # absolute value of that coordinate will be greater than or equal to the old coordinate in that direction since the
+    # intersection with the axis is the point where the full circle is tangent to the AABB. Thus, we can blindly set the
+    # corresponding coordinate of the bounding box without min()/max()'ing first.
+
+    # Handle north/south halfplanes
+    if p1_west != p2_west: # arc starts in west half-plane, ends in east half-plane
+        if p1_west == clockwise: # arc is clockwise west -> east or counter-clockwise east -> west
+            max_y = r # add north to bounding box
+        else: # arc is counter-clockwise west -> east or clockwise east -> west
+            min_y = -r # south
+    else: # Arc starts and ends in same halfplane west/east
+        # Since both points are on the arc (at same radius) in one halfplane, we can use the y coord as a proxy for
+        # angle comparisons. 
+        small_arc_is_north_to_south = y1 > y2
+        small_arc_is_clockwise = small_arc_is_north_to_south == p1_west
+        if small_arc_is_clockwise != clockwise:
+            min_y, max_y = -r, r # intersect aabb with both north and south
+
+    # Handle west/east halfplanes
+    if p1_north != p2_north:
+        if p1_north == clockwise:
+            max_x = r # east
+        else:
+            min_x = -r # west
+    else:
+        small_arc_is_west_to_east = x1 < x2
+        small_arc_is_clockwise = small_arc_is_west_to_east == p1_north
+        if small_arc_is_clockwise != clockwise:
+            min_x, max_x = -r, r # intersect aabb with both north and south
+
+    return (min_x+cx, min_y+cy), (max_x+cx, max_y+cy)
+
+
+def point_distance(a, b):
+    return math.sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2)
+
+def point_line_distance(l1, l2, p):
+    x1, y1 = l1
+    x2, y2 = l2
+    x0, y0 = p
+    return abs((x2-x1)*(y1-y0) - (x1-x0)*(y2-y1))/point_distance(l1, l2)
+
+def svg_arc(old, new, center, clockwise):
+    r = point_distance(old, new)
+    d = point_line_distance(old, new, center)
+    sweep_flag = int(clockwise)
+    large_arc = int((d > 0) == clockwise) # FIXME check signs
+    return f'A {r:.6} {r:.6} {large_arc} {sweep_flag} {new[0]:.6} {new[1]:.6}'
 
 @dataclass
 class ArcPoly(GraphicPrimitive):
@@ -72,21 +185,44 @@ class ArcPoly(GraphicPrimitive):
     outline : [(float,)]
     # list of radii of segments, must be either None (all segments are straight lines) or same length as outline.
     # Straight line segments have None entry.
-    arc_centers : [(float,)]
+    arc_centers : [(float,)] = None
 
     @property
     def segments(self):
-        return itertools.zip_longest(self.outline[:-1], self.outline[1:], self.radii or [])
+        ol = self.outline
+        return itertools.zip_longest(ol, ol[1:] + [ol[0]], self.arc_centers)
 
-    def bounds(self):
-        for (x1, y1), (x2, y2), radius in self.segments:
-            return 
+    def bounding_box(self):
+        bbox = (None, None), (None, None)
+        for (x1, y1), (x2, y2), arc in self.segments:
+            if arc:
+                clockwise, center = arc
+                bbox = add_bounds(bbox, arc_bounds(x1, y1, x2, y2, *center, clockwise))
+
+            else:
+                line_bounds = (min(x1, x2), min(y1, y2)), (max(x1, x2), max(y1, y2))
+                bbox = add_bounds(bbox, line_bounds)
 
     def __len__(self):
         return len(self.outline)
 
     def __bool__(self):
         return bool(len(self))
+
+    def _path_d(self):
+        if len(self.outline) == 0:
+            return
+
+        yield f'M {outline[0][0]:.6}, {outline[0][1]:.6}'
+        for old, new, arc in self.segments:
+            if not arc:
+                yield f'L {new[0]:.6} {new[1]:.6}'
+            else:
+                clockwise, center = arc
+                yield svg_arc(old, new, center, clockwise)
+
+    def to_svg(self):
+        return 'path', [], {'d': ' '.join(self._path_d())}
 
 
 @dataclass
@@ -97,7 +233,14 @@ class Line(GraphicPrimitive):
     y2 : float
     width : float
 
-    # FIXME bounds
+    def bounding_box(self):
+        r = self.width / 2
+        return add_bounds(Circle(self.x1, self.y1, r).bounding_box(), Circle(self.x2, self.y2, r).bounding_box())
+
+    def to_svg(self):
+        return 'path', [], dict(
+                d=f'M {self.x1:.6} {self.y1:.6} L {self.x2:.6} {self.y2:.6}',
+                style=f'stroke-width: {self.width:.6}; stroke-linecap: round')
 
 @dataclass
 class Arc(GraphicPrimitive):
@@ -107,10 +250,36 @@ class Arc(GraphicPrimitive):
     y2 : float
     cx : float
     cy : float
-    flipped : bool
+    clockwise : bool
     width : float
 
-    # FIXME bounds
+    def bounding_box(self):
+        r = self.w/2
+        endpoints = add_bounds(Circle(self.x1, self.y1, r).bounding_box(), Circle(self.x2, self.y2, r).bounding_box())
+
+        arc_r = point_distance((self.cx, self.cy), (self.x1, self.y1))
+
+        # extend C -> P1 line by line width / 2 along radius
+        dx, dy = self.x1 - self.cx, self.y1 - self.cy
+        x1 = self.x1 + dx/arc_r * r
+        y1 = self.y1 + dy/arc_r * r
+
+        # same for C -> P2
+        dx, dy = self.x2 - self.cx, self.y2 - self.cy
+        x2 = self.x2 + dx/arc_r * r
+        y2 = self.y2 + dy/arc_r * r
+
+        arc = arc_bounds(x1, y1, x2, y2, cx, cy, self.clockwise)
+        return add_bounds(endpoints, arc) # FIXME add "include_center" switch
+
+    def to_svg(self):
+        arc = svg_arc((self.x1, self.y1), (self.x2, self.y2), (self.cx, self.cy), self.clockwise)
+        return 'path', [], dict(
+                d=f'M {self.x1:.6} {self.y1:.6} {arc}',
+                style=f'stroke-width: {self.width:.6}; stroke-linecap: round')
+
+def svg_rotation(angle_rad):
+    return f'rotation({angle_rad/math.pi*180:.4})'
 
 @dataclass
 class Rectangle(GraphicPrimitive):
@@ -121,12 +290,28 @@ class Rectangle(GraphicPrimitive):
     h : float
     rotation : float # radians, around center!
 
-    def bounds(self):
-        return ((self.x, self.y), (self.x+self.w, self.y+self.h))
+    def bounding_box(self):
+        return self.to_arc_poly().bounding_box()
+
+    def to_arc_poly(self):
+        sin, cos = math.sin(self.rotation), math.cos(self.rotation)
+        sw, cw = sin*self.w/2, cos*self.w/2
+        sh, ch = sin*self.h/2, cos*self.h/2
+        x, y = self.x, self.y
+        return ArcPoly([
+            (x - (cw+sh), y - (ch+sw)),
+            (x - (cw+sh), y + (ch+sw)),
+            (x + (cw+sh), y + (ch+sw)),
+            (x + (cw+sh), y - (ch+sw)),
+            ])
 
     @property
     def center(self):
         return self.x + self.w/2, self.y + self.h/2
+
+    def to_svg(self):
+        x, y = self.x - self.w/2, self.y - self.h/2
+        return 'rect', [], dict(x=x, y=y, w=self.w, h=self.h, transform=svg_rotation(self.rotation))
 
 
 class RegularPolygon(GraphicPrimitive):
@@ -136,13 +321,19 @@ class RegularPolygon(GraphicPrimitive):
     n : int
     rotation : float # radians!
 
-    def decompose(self):
-        ''' convert n-sided gerber polygon to normal Region defined by outline '''
+    def to_arc_poly(self):
+        ''' convert n-sided gerber polygon to normal ArcPoly defined by outline '''
 
         delta = 2*math.pi / self.n
 
-        yield Region([
+        return ArcPoly([
                 (self.x + math.cos(self.rotation + i*delta) * self.r,
                  self.y + math.sin(self.rotation + i*delta) * self.r)
                 for i in range(self.n) ])
+
+    def bounding_box(self):
+        return self.to_arc_poly().bounding_box()
+
+    def to_svg(self):
+        return self.to_arc_poly().to_svg()
 

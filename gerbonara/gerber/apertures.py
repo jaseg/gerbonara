@@ -7,9 +7,12 @@ from .aperture_macros.parse import GenericMacros
 from . import graphic_primitives as gp
 
 
-def _flash_hole(self, x, y):
+def _flash_hole(self, x, y, unit=None):
     if self.hole_rect_h is not None:
-        return self.primitives(x, y), Rectangle((x, y), (self.hole_dia, self.hole_rect_h), rotation=self.rotation, polarity_dark=False)
+        return [*self.primitives(x, y, unit),
+                Rectangle((x, y),
+                    (self.convert(self.hole_dia, unit), self.convert(self.hole_rect_h, unit)),
+                    rotation=self.rotation, polarity_dark=False)]
     else:
         return self.primitives(x, y), Circle((x, y), self.hole_dia, polarity_dark=False)
 
@@ -71,11 +74,10 @@ class Aperture:
 
         return out
 
-    def flash(self, x, y):
-        return self.primitives(x, y)
+    def flash(self, x, y, unit=None):
+        return self.primitives(x, y, unit)
 
-    @property
-    def equivalent_width(self):
+    def equivalent_width(self, unit=None):
         raise ValueError('Non-circular aperture used in interpolation statement, line width is not properly defined.')
 
     def to_gerber(self, settings=None):
@@ -108,17 +110,16 @@ class CircleAperture(Aperture):
     hole_rect_h : Length(float) = None
     rotation : float = 0 # radians; for rectangular hole; see hack in Aperture.to_gerber
 
-    def primitives(self, x, y, rotation):
-        return [ gp.Circle(x, y, self.diameter/2) ]
+    def primitives(self, x, y, unit=None):
+        return [ gp.Circle(x, y, self.convert(self.diameter/2, unit)) ]
 
     def __str__(self):
         return f'<circle aperture d={self.diameter:.3}>'
 
     flash = _flash_hole
 
-    @property
-    def equivalent_width(self):
-        return self.diameter
+    def equivalent_width(self, unit=None):
+        return self.convert(self.diameter, unit)
 
     def dilated(self, offset, unit='mm'):
         offset = self.convert_from(offset, unit)
@@ -150,17 +151,16 @@ class RectangleAperture(Aperture):
     hole_rect_h : Length(float) = None
     rotation : float = 0 # radians
 
-    def primitives(self, x, y):
-        return [ gp.Rectangle(x, y, self.w, self.h, rotation=self.rotation) ]
+    def primitives(self, x, y, unit=None):
+        return [ gp.Rectangle(x, y, self.convert(self.w, unit), self.convert(self.h, unit), rotation=self.rotation) ]
 
     def __str__(self):
         return f'<rect aperture {self.w:.3}x{self.h:.3}>'
 
     flash = _flash_hole
 
-    @property
-    def equivalent_width(self):
-        return math.sqrt(self.w**2 + self.h**2)
+    def equivalent_width(self, unit=None):
+        return self.convert(math.sqrt(self.w**2 + self.h**2), unit)
 
     def dilated(self, offset, unit='mm'):
         offset = self.convert_from(offset, unit)
@@ -200,8 +200,8 @@ class ObroundAperture(Aperture):
     hole_rect_h : Length(float) = None
     rotation : float = 0
 
-    def primitives(self, x, y):
-        return [ gp.Obround(x, y, self.w, self.h, rotation=self.rotation) ]
+    def primitives(self, x, y, unit=None):
+        return [ gp.Obround(x, y, self.convert(self.w, unit), self.convert(self.h, unit), rotation=self.rotation) ]
 
     def __str__(self):
         return f'<obround aperture {self.w:.3}x{self.h:.3}>'
@@ -246,8 +246,8 @@ class PolygonAperture(Aperture):
     rotation : float = 0
     hole_dia : Length(float) = None
 
-    def primitives(self, x, y):
-        return [ gp.RegularPolygon(x, y, diameter, n_vertices, rotation=self.rotation) ]
+    def primitives(self, x, y, unit=None):
+        return [ gp.RegularPolygon(x, y, self.convert(diameter, unit), n_vertices, rotation=self.rotation) ]
 
     def __str__(self):
         return f'<{self.n_vertices}-gon aperture d={self.diameter:.3}'
@@ -279,16 +279,13 @@ class ApertureMacroInstance(Aperture):
     parameters : [float]
     rotation : float = 0
 
-    def __post__init__(self, macro):
-        self._primitives = macro.to_graphic_primitives(parameters)
-
     @property
     def gerber_shape_code(self):
         return self.macro.name
 
-    def primitives(self, x, y):
-        # FIXME return graphical primitives not macro primitives here
-        return [ primitive.with_offset(x, y).rotated(self.rotation, cx=0, cy=0) for primitive in self._primitives ]
+    def primitives(self, x, y, unit=None):
+        return [ primitive.with_offset(x, y).rotated(self.rotation, cx=0, cy=0)
+                for primitive in self.macro.to_graphic_primitives(self.parameters, unit=unit) ]
 
     def dilated(self, offset, unit='mm'):
         return replace(self, macro=self.macro.dilated(offset, unit))
