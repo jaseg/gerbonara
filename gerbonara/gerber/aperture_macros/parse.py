@@ -118,14 +118,15 @@ class ApertureMacro:
         primitive_defs = [ prim.to_gerber(unit) for prim in self.primitives ]
         return '*\n'.join(comments + variable_defs + primitive_defs)
 
-    def to_graphic_primitives(self, offset, rotation:'radians', parameters : [float], unit=None):
+    def to_graphic_primitives(self, offset, rotation, parameters : [float], unit=None):
         variables = dict(self.variables)
         for number, value in enumerate(parameters):
             if i in variables:
                 raise SyntaxError(f'Re-definition of aperture macro variable {i} through parameter {value}')
             variables[i] = value
 
-        return [ primitive.to_graphic_primitives(offset, rotation, variables, unit) for primitive in self.primitives ]
+        for primitive in self.primitives:
+            yield from primitive.to_graphic_primitives(offset, rotation, variables, unit)
 
     def rotated(self, angle):
         dup = copy.deepcopy(self)

@@ -60,16 +60,16 @@ def run_cargo_cmd(cmd, args, **kwargs):
     except FileNotFoundError:
         return subprocess.run([str(Path.home() / '.cargo' / 'bin' / cmd), *args], **kwargs)
 
-def svg_to_png(in_svg, out_png):
-    run_cargo_cmd('resvg', ['--dpi', '100', in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
+def svg_to_png(in_svg, out_png, dpi=100):
+    run_cargo_cmd('resvg', ['--dpi', str(dpi), in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
 
-def gbr_to_svg(in_gbr, out_svg, origin=(0, 0), size=(6, 6)):
+def gerbv_export(in_gbr, out_svg, format='svg', origin=(0, 0), size=(6, 6), fg='#ffffff'):
     x, y = origin
     w, h = size
-    cmd = ['gerbv', '-x', 'svg',
+    cmd = ['gerbv', '-x', format,
         '--border=0',
         f'--origin={x:.6f}x{y:.6f}', f'--window_inch={w:.6f}x{h:.6f}',
-        '--foreground=#ffffff',
+        f'--foreground={fg}',
         '-o', str(out_svg), str(in_gbr)]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -94,12 +94,16 @@ def cleanup_clips(soup):
         # Apart from being graphically broken, this additionally causes very bad rendering performance.
         del group['clip-path']
 
+def cleanup_gerbv_svg(filename):
+    with svg_soup(filename) as soup:
+        cleanup_clips(soup)
+
 def gerber_difference(reference, actual, diff_out=None, svg_transform=None, size=(10,10)):
     with tempfile.NamedTemporaryFile(suffix='.svg') as act_svg,\
         tempfile.NamedTemporaryFile(suffix='.svg') as ref_svg:
 
-        gbr_to_svg(reference, ref_svg.name, size=size)
-        gbr_to_svg(actual, act_svg.name, size=size)
+        gerbv_export(reference, ref_svg.name, size=size, format='svg')
+        gerbv_export(actual, act_svg.name, size=size, format='svg')
 
         with svg_soup(ref_svg.name) as soup:
             if svg_transform is not None:
@@ -116,9 +120,9 @@ def gerber_difference_merge(ref1, ref2, actual, diff_out=None, composite_out=Non
         tempfile.NamedTemporaryFile(suffix='.svg') as ref1_svg,\
         tempfile.NamedTemporaryFile(suffix='.svg') as ref2_svg:
 
-        gbr_to_svg(ref1, ref1_svg.name, size=size)
-        gbr_to_svg(ref2, ref2_svg.name, size=size)
-        gbr_to_svg(actual, act_svg.name, size=size)
+        gerbv_export(ref1, ref1_svg.name, size=size, format='svg')
+        gerbv_export(ref2, ref2_svg.name, size=size, format='svg')
+        gerbv_export(actual, act_svg.name, size=size, format='svg')
 
         with svg_soup(ref1_svg.name) as soup1:
             if svg_transform1 is not None:

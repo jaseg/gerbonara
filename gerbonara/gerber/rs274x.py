@@ -31,6 +31,7 @@ import functools
 from pathlib import Path
 from itertools import count, chain
 from io import StringIO
+import textwrap
 
 from .gerber_statements import *
 from .cam import CamFile, FileSettings
@@ -41,7 +42,7 @@ from . import graphic_objects as go
 from . import apertures
 
 
-def convert(self, value, src, dst):
+def convert(value, src, dst):
         if src == dst or src is None or dst is None or value is None:
             return value
         elif dst == 'mm':
@@ -60,16 +61,19 @@ def points_close(a, b):
         return math.isclose(a[0], b[0]) and math.isclose(a[1], b[1])
 
 class Tag:
-    def __init__(self, name, children=None, **attrs):
-        self.name, self.children, self.attrs = name, children, attrs
+    def __init__(self, name, children=None, root=False, **attrs):
+        self.name, self.attrs = name, attrs
+        self.children = children or []
+        self.root = root
 
     def __str__(self):
-        opening = ' '.join([self.name] + [f'{key}="{value}"' for key, value in self.attrs.items()])
+        prefix = '<?xml version="1.0" encoding="utf-8"?>\n' if self.root else ''
+        opening = ' '.join([self.name] + [f'{key.replace("__", ":")}="{value}"' for key, value in self.attrs.items()])
         if self.children:
-            children = '\n'.join(textwrap.indent(str(c), '  ') for c in children)
-            return f'<{opening}>\n{children}\n</{self.name}>'
+            children = '\n'.join(textwrap.indent(str(c), '  ') for c in self.children)
+            return f'{prefix}<{opening}>\n{children}\n</{self.name}>'
         else:
-            return f'<{opening}/>'
+            return f'{prefix}<{opening}/>'
 
 class GerberFile(CamFile):
     """ A class representing a single gerber file
@@ -83,12 +87,19 @@ class GerberFile(CamFile):
         self.comments = []
         self.objects = []
 
-    def to_svg(self, tag=Tag, margin=0, margin_unit='mm', svg_unit='mm'):
+    def to_svg(self, tag=Tag, margin=0, arg_unit='mm', svg_unit='mm', force_bounds=None, color='black'):
 
-        (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit)
+        if force_bounds is None:
+            (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit)
+        else:
+            (min_x, min_y), (max_x, max_y) = force_bounds
+            min_x = convert(min_x, arg_unit, svg_unit)
+            min_y = convert(min_y, arg_unit, svg_unit)
+            max_x = convert(max_x, arg_unit, svg_unit)
+            max_y = convert(max_y, arg_unit, svg_unit)
 
         if margin:
-            margin = convert(margin, margin_unit, svg_unit)
+            margin = convert(margin, arg_unit, svg_unit)
             min_x -= margin
             min_y -= margin
             max_x += margin
@@ -96,13 +107,17 @@ class GerberFile(CamFile):
 
         w, h = max_x - min_x, max_y - min_y
 
-        primitives = [
-                [ tag(*prim.to_svg()) for prim in obj.to_primitives(unit=svg_unit) ]
-                for obj in self.objects ]
+        primitives = [ prim.to_svg(tag, color) for obj in self.objects for prim in obj.to_primitives(unit=svg_unit) ]
 
-        # FIXME setup viewport transform flipping y axis
+        # setup viewport transform flipping y axis
+        xform = f'scale(0 -1) translate(0 {h})'
 
-        return tag('svg', [defs, *primitives], width=w, height=h, viewBox=f'{min_x} {min_y} {w} {h}')
+        svg_unit = 'in' if svg_unit == 'inch' else 'mm'
+        # TODO export apertures as <uses> where reasonable.
+        return tag('svg', [*primitives],
+                width=f'{w}{svg_unit}', height=f'{h}{svg_unit}',
+                viewBox=f'{min_x} {min_y} {w} {h}', transform=xform,
+                xmlns="http://www.w3.org/2000/svg", xmlns__xlink="http://www.w3.org/1999/xlink", root=True)
 
     def merge(self, other):
         """ Merge other GerberFile into this one """

@@ -17,7 +17,7 @@ import pytest
 from ..rs274x import GerberFile
 from ..cam import FileSettings
 
-from .image_support import gerber_difference, gerber_difference_merge
+from .image_support import *
 
 
 deg_to_rad = lambda a: a/180 * math.pi
@@ -61,6 +61,30 @@ def temp_files(request):
                 print(f'gerbv {perm_path_gbr} {reference_path(request.node.funcargs["reference"])}')
             else:
                 print(f'gerbv {perm_path_gbr} {reference_path(args["file_a"])} {reference_path(args["file_b"])}')
+
+@pytest.fixture
+def svg_temp_files(request):
+    with tempfile.NamedTemporaryFile(suffix='.svg') as out_svg,\
+         tempfile.NamedTemporaryFile(suffix='.png') as out_png,\
+         tempfile.NamedTemporaryFile(suffix='.png') as ref_png,\
+         tempfile.NamedTemporaryFile(suffix='.png') as tmp_png:
+        yield Path(out_svg.name), Path(out_png.name), Path(ref_png.name), Path(tmp_png.name)
+
+        if request.node.rep_call.failed:
+            module, _, test_name = request.node.nodeid.rpartition('::')
+            _test, _, test_name = test_name.partition('_')
+            test_name, _, _ext = test_name.partition('.')
+            test_name = re.sub(r'[^\w\d]', '_', test_name)
+            fail_dir.mkdir(exist_ok=True)
+            perm_path_out_svg = fail_dir / f'failure_{test_name}_actual.svg'
+            perm_path_png = fail_dir / f'failure_{test_name}_difference.png'
+            shutil.copy(out_svg.name, perm_path_out_svg)
+            shutil.copy(tmp_png.name, perm_path_png)
+            args = request.node.funcargs
+            print(f'Reference file is {reference_path(args["reference"])}')
+            print(f'Failing output saved to {perm_path_out_svg}')
+            print(f'Difference image saved to {perm_path_png}')
+
 
 to_gerbv_svg_units = lambda val, unit='mm': val*72 if unit == 'inch' else val/25.4*72
 
@@ -284,4 +308,26 @@ def test_compositing(temp_files, file_a, file_b, angle, offset):
     assert hist[9] < 100
     assert hist[3:].sum() < 1e-3*hist.size
 
+@pytest.mark.filterwarnings('ignore:Deprecated.*statement found.*:DeprecationWarning')
+@pytest.mark.filterwarnings('ignore::SyntaxWarning')
+@pytest.mark.parametrize('reference', REFERENCE_FILES)
+def test_svg_export(svg_temp_files, reference):
+    ref = reference_path(reference)
+    grb = GerberFile.open(ref)
+    out_svg, out_png, ref_png, tmp_png = svg_temp_files
+
+    bounds = (0.0, 0.0), (6.0, 6.0) # bottom left, top right
+
+    with open(out_svg, 'w') as f:
+        f.write(str(grb.to_svg(force_bounds=bounds, arg_unit='inch')))
+
+    gerbv_export(ref, ref_png, origin=bounds[0], size=bounds[1], format='png', fg='#000000')
+    svg_to_png(out_svg, out_png, dpi=72) # make dpi match Cairo's default
+
+    mean, _max, hist = image_difference(ref_png, out_png, diff_out=tmp_png)
+    assert mean < 1e-3
+    assert hist[9] < 1
+    assert hist[3:].sum() < 1e-3*hist.size
+
+# FIXME test svg margin, bounding box computation
 

@@ -8,13 +8,16 @@ from . import graphic_primitives as gp
 
 
 def _flash_hole(self, x, y, unit=None):
-    if self.hole_rect_h is not None:
+    if getattr(self, 'hole_rect_h', None) is not None:
         return [*self.primitives(x, y, unit),
-                Rectangle((x, y),
+                gp.Rectangle((x, y),
                     (self.convert(self.hole_dia, unit), self.convert(self.hole_rect_h, unit)),
                     rotation=self.rotation, polarity_dark=False)]
+    elif self.hole_dia is not None:
+        return [*self.primitives(x, y, unit),
+                gp.Circle(x, y, self.convert(self.hole_dia/2, unit), polarity_dark=False)]
     else:
-        return self.primitives(x, y), Circle((x, y), self.hole_dia, polarity_dark=False)
+        return self.primitives(x, y, unit)
 
 def strip_right(*args):
     args = list(args)
@@ -246,8 +249,11 @@ class PolygonAperture(Aperture):
     rotation : float = 0
     hole_dia : Length(float) = None
 
+    def __post_init__(self):
+        self.n_vertices = int(self.n_vertices)
+
     def primitives(self, x, y, unit=None):
-        return [ gp.RegularPolygon(x, y, self.convert(diameter, unit), n_vertices, rotation=self.rotation) ]
+        return [ gp.RegularPolygon(x, y, self.convert(self.diameter, unit)/2, self.n_vertices, rotation=self.rotation) ]
 
     def __str__(self):
         return f'<{self.n_vertices}-gon aperture d={self.diameter:.3}'
@@ -284,8 +290,9 @@ class ApertureMacroInstance(Aperture):
         return self.macro.name
 
     def primitives(self, x, y, unit=None):
-        return [ primitive.with_offset(x, y).rotated(self.rotation, cx=0, cy=0)
-                for primitive in self.macro.to_graphic_primitives(self.parameters, unit=unit) ]
+        return self.macro.to_graphic_primitives(
+                offset=(x, y), rotation=self.rotation,
+                parameters=self.parameters, unit=unit)
 
     def dilated(self, offset, unit='mm'):
         return replace(self, macro=self.macro.dilated(offset, unit))

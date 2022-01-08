@@ -56,7 +56,6 @@ class Primitive:
         attrs = ','.join(str(getattr(self, name)).strip('<>') for name in type(self).__annotations__)
         return f'<{type(self).__name__} {attrs}>'
 
-    @contextlib.contextmanager
     class Calculator:
         def __init__(self, instance, variable_binding={}, unit=None):
             self.instance = instance
@@ -91,10 +90,10 @@ class Circle(Primitive):
             self.rotation = ConstantExpression(0)
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
-        with self.Calculator(variable_binding, unit) as calc:
+        with self.Calculator(self, variable_binding, unit) as calc:
             x, y = gp.rotate_point(calc.x, calc.y, deg_to_rad(calc.rotation) + rotation, 0, 0)
             x, y = x+offset[0], y+offset[1]
-            return [ gp.Circle(x, y, calc.r, polarity_dark=bool(calc.exposure)) ]
+            return [ gp.Circle(x, y, calc.diameter/2, polarity_dark=bool(calc.exposure)) ]
 
     def dilate(self, offset, unit):
         self.diameter += UnitExpression(offset, unit)
@@ -110,7 +109,7 @@ class VectorLine(Primitive):
     rotation : Expression
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
-        with self.Calculator(variable_binding, unit) as calc:
+        with self.Calculator(self, variable_binding, unit) as calc:
             center_x = (calc.end_x + calc.start_x) / 2
             center_y = (calc.end_y + calc.start_y) / 2
             delta_x = calc.end_x - calc.start_x
@@ -137,8 +136,8 @@ class CenterLine(Primitive):
     y : UnitExpression
     rotation : Expression
 
-    def to_graphic_primitives(self, variable_binding={}, unit=None):
-        with self.Calculator(variable_binding, unit) as calc:
+    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
+        with self.Calculator(self, variable_binding, unit) as calc:
             rotation += deg_to_rad(calc.rotation)
             x, y = gp.rotate_point(calc.x, calc.y, rotation, 0, 0)
             x, y = x+offset[0], y+offset[1]
@@ -161,7 +160,7 @@ class Polygon(Primitive):
     rotation : Expression
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
-        with self.Calculator(variable_binding, unit) as calc:
+        with self.Calculator(self, variable_binding, unit) as calc:
             rotation += deg_to_rad(calc.rotation)
             x, y = gp.rotate_point(calc.x, calc.y, rotation, 0, 0)
             x, y = x+offset[0], y+offset[1]
@@ -184,7 +183,7 @@ class Thermal(Primitive):
     rotation : Expression
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
-        with self.Calculator(variable_binding, unit) as calc:
+        with self.Calculator(self, variable_binding, unit) as calc:
             rotation += deg_to_rad(calc.rotation)
             x, y = gp.rotate_point(calc.x, calc.y, rotation, 0, 0)
             x, y = x+offset[0], y+offset[1]
@@ -236,7 +235,7 @@ class Outline(Primitive):
         return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)//2-1},{coords},{self.rotation.to_gerber()}'
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
-        with self.Calculator(variable_binding, unit) as calc:
+        with self.Calculator(self, variable_binding, unit) as calc:
             bound_coords = [ (calc(x)+offset[0], calc(y)+offset[1]) for x, y in self.coords ]
             bound_radii = [None] * len(bound_coords)
 

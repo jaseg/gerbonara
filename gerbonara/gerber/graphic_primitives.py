@@ -7,6 +7,7 @@ from dataclasses import dataclass, KW_ONLY, replace
 from .gerber_statements import *
 
 
+@dataclass
 class GraphicPrimitive:
     _ : KW_ONLY
     polarity_dark : bool = True
@@ -48,8 +49,8 @@ class Circle(GraphicPrimitive):
     def bounding_box(self):
         return ((self.x-self.r, self.y-self.r), (self.x+self.r, self.y+self.r))
 
-    def to_svg(self):
-        return 'circle', (), dict(cx=x, cy=y, r=r)
+    def to_svg(self, tag, color='black'):
+        return tag('circle', cx=self.x, cy=self.y, r=self.r, style=f'fill: {color}')
 
 
 @dataclass
@@ -73,8 +74,8 @@ class Obround(GraphicPrimitive):
     def bounding_box(self):
         return self.to_line().bounding_box()
 
-    def to_svg(self):
-        return self.to_line().to_svg()
+    def to_svg(self, tag, color='black'):
+        return self.to_line().to_svg(tag, color)
 
 
 def arc_bounds(x1, y1, x2, y2, cx, cy, clockwise):
@@ -167,7 +168,10 @@ def point_line_distance(l1, l2, p):
     x1, y1 = l1
     x2, y2 = l2
     x0, y0 = p
-    return abs((x2-x1)*(y1-y0) - (x1-x0)*(y2-y1))/point_distance(l1, l2)
+    length = point_distance(l1, l2)
+    if math.isclose(length, 0):
+        return point_distance(l1, p)
+    return abs((x2-x1)*(y1-y0) - (x1-x0)*(y2-y1)) / length
 
 def svg_arc(old, new, center, clockwise):
     r = point_distance(old, new)
@@ -183,14 +187,14 @@ class ArcPoly(GraphicPrimitive):
     # list of (x : float, y : float) tuples. Describes closed outline, i.e. first and last point are considered
     # connected.
     outline : [(float,)]
-    # list of radii of segments, must be either None (all segments are straight lines) or same length as outline.
+    # must be either None (all segments are straight lines) or same length as outline.
     # Straight line segments have None entry.
     arc_centers : [(float,)] = None
 
     @property
     def segments(self):
         ol = self.outline
-        return itertools.zip_longest(ol, ol[1:] + [ol[0]], self.arc_centers)
+        return itertools.zip_longest(ol, ol[1:] + [ol[0]], self.arc_centers or [])
 
     def bounding_box(self):
         bbox = (None, None), (None, None)
@@ -213,7 +217,7 @@ class ArcPoly(GraphicPrimitive):
         if len(self.outline) == 0:
             return
 
-        yield f'M {outline[0][0]:.6}, {outline[0][1]:.6}'
+        yield f'M {self.outline[0][0]:.6}, {self.outline[0][1]:.6}'
         for old, new, arc in self.segments:
             if not arc:
                 yield f'L {new[0]:.6} {new[1]:.6}'
@@ -221,8 +225,8 @@ class ArcPoly(GraphicPrimitive):
                 clockwise, center = arc
                 yield svg_arc(old, new, center, clockwise)
 
-    def to_svg(self):
-        return 'path', [], {'d': ' '.join(self._path_d())}
+    def to_svg(self, tag, color='black'):
+        return tag('path', d=' '.join(self._path_d()), style=f'fill: {color}')
 
 
 @dataclass
@@ -237,10 +241,9 @@ class Line(GraphicPrimitive):
         r = self.width / 2
         return add_bounds(Circle(self.x1, self.y1, r).bounding_box(), Circle(self.x2, self.y2, r).bounding_box())
 
-    def to_svg(self):
-        return 'path', [], dict(
-                d=f'M {self.x1:.6} {self.y1:.6} L {self.x2:.6} {self.y2:.6}',
-                style=f'stroke-width: {self.width:.6}; stroke-linecap: round')
+    def to_svg(self, tag, color='black'):
+        return tag('path', d=f'M {self.x1:.6} {self.y1:.6} L {self.x2:.6} {self.y2:.6}',
+                style=f'stroke: {color}; stroke-width: {self.width:.6}; stroke-linecap: round')
 
 @dataclass
 class Arc(GraphicPrimitive):
@@ -272,11 +275,10 @@ class Arc(GraphicPrimitive):
         arc = arc_bounds(x1, y1, x2, y2, cx, cy, self.clockwise)
         return add_bounds(endpoints, arc) # FIXME add "include_center" switch
 
-    def to_svg(self):
+    def to_svg(self, tag, color='black'):
         arc = svg_arc((self.x1, self.y1), (self.x2, self.y2), (self.cx, self.cy), self.clockwise)
-        return 'path', [], dict(
-                d=f'M {self.x1:.6} {self.y1:.6} {arc}',
-                style=f'stroke-width: {self.width:.6}; stroke-linecap: round')
+        return tag('path', d=f'M {self.x1:.6} {self.y1:.6} {arc}',
+                style=f'stroke: {color}, stroke-width: {self.width:.6}; stroke-linecap: round')
 
 def svg_rotation(angle_rad):
     return f'rotation({angle_rad/math.pi*180:.4})'
@@ -309,11 +311,11 @@ class Rectangle(GraphicPrimitive):
     def center(self):
         return self.x + self.w/2, self.y + self.h/2
 
-    def to_svg(self):
+    def to_svg(self, tag, color='black'):
         x, y = self.x - self.w/2, self.y - self.h/2
-        return 'rect', [], dict(x=x, y=y, w=self.w, h=self.h, transform=svg_rotation(self.rotation))
+        return tag('rect', x=x, y=y, w=self.w, h=self.h, transform=svg_rotation(self.rotation), style=f'fill: {color}')
 
-
+@dataclass
 class RegularPolygon(GraphicPrimitive):
     x : float
     y : float
@@ -334,6 +336,6 @@ class RegularPolygon(GraphicPrimitive):
     def bounding_box(self):
         return self.to_arc_poly().bounding_box()
 
-    def to_svg(self):
-        return self.to_arc_poly().to_svg()
+    def to_svg(self, tag, color='black'):
+        return self.to_arc_poly().to_svg(tag, color)
 

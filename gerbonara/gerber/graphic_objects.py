@@ -1,6 +1,6 @@
 
 import math
-from dataclasses import dataclass, KW_ONLY, astuple, replace
+from dataclasses import dataclass, KW_ONLY, astuple, replace, fields
 
 from . import graphic_primitives as gp
 from .gerber_statements import *
@@ -28,7 +28,7 @@ class GerberObject:
         return replace(self, 
                 **{
                     f.name: convert(getattr(self, f.name), self.unit, unit)
-                    for f in fields(self)
+                    for f in fields(self) if type(f.type) is Length
                     })
 
     def _conv(self, value, unit):
@@ -113,8 +113,16 @@ class Region(GerberObject):
             self.poly.arc_centers.append(None)
 
     def to_primitives(self, unit=None):
-        self.poly.polarity_dark = polarity_dark
-        yield self.poly.converted(unit)
+        self.poly.polarity_dark = self.polarity_dark # FIXME: is this the right spot to do this?
+        if unit == self.unit:
+            yield self.poly
+        else:
+            conv_outline = [ (convert(x, self.unit, unit), convert(y, self.unit, unit))
+                    for x, y in self.poly.outline ]
+            convert_entry = lambda entry: (entry[0], (convert(entry[1][0], self.unit, unit), convert(entry[1][1], self.unit, unit)))
+            conv_arc = [ None if entry is None else convert_entry(entry) for entry in self.poly.arc_centers ]
+
+            yield gp.ArcPoly(conv_outline, conv_arc)
 
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
@@ -258,7 +266,12 @@ class Arc(GerberObject):
 
     def to_primitives(self, unit=None):
         conv = self.converted(unit)
-        yield gp.Arc(*astuple(conv)[:7], width=self.aperture.equivalent_width(unit), polarity_dark=self.polarity_dark)
+        yield gp.Arc(x1=conv.x1, y1=conv.y1,
+                x2=conv.x2, y2=conv.y2,
+                cx=conv.cx, cy=conv.cy,
+                clockwise=self.clockwise,
+                width=self.aperture.equivalent_width(unit),
+                polarity_dark=self.polarity_dark)
 
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
