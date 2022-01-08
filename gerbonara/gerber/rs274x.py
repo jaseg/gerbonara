@@ -59,7 +59,7 @@ def points_close(a, b):
     else:
         return math.isclose(a[0], b[0]) and math.isclose(a[1], b[1])
 
-def Tag:
+class Tag:
     def __init__(self, name, children=None, **attrs):
         self.name, self.children, self.attrs = name, children, attrs
 

@@ -40,7 +40,7 @@ class GerberObject:
 
     def rotate(self, rotation, cx=0, cy=0, unit='mm'):
         cx, cy = self._conv(cx, unit), self._conv(cy, unit)
-        return self._rotate(cx, cy)
+        self._rotate(rotation, cx, cy)
 
     def bounding_box(self, unit=None):
         bboxes = [ p.bounding_box for p in self.to_primitives(unit) ]
