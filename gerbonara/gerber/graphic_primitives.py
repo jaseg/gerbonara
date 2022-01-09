@@ -40,6 +40,9 @@ def add_bounds(b1, b2):
     max_x, max_y = max_none(max_x_1, max_x_2), max_none(max_y_1, max_y_2)
     return ((min_x, min_y), (max_x, max_y))
 
+def rad_to_deg(x):
+    return x/math.pi * 180
+
 @dataclass
 class Circle(GraphicPrimitive):
     x : float
@@ -174,11 +177,14 @@ def point_line_distance(l1, l2, p):
     return abs((x2-x1)*(y1-y0) - (x1-x0)*(y2-y1)) / length
 
 def svg_arc(old, new, center, clockwise):
+    print(f'{old=} {new=} {center=}')
     r = point_distance(old, new)
     d = point_line_distance(old, new, center)
-    sweep_flag = int(clockwise)
+    # invert sweep flag since the svg y axis is mirrored
+    sweep_flag = int(not clockwise)
     large_arc = int((d > 0) == clockwise) # FIXME check signs
-    return f'A {r:.6} {r:.6} {large_arc} {sweep_flag} {new[0]:.6} {new[1]:.6}'
+    print(f'{r=:.3} {d=:.3} {sweep_flag=} {large_arc=} {clockwise=}')
+    return f'A {r:.6} {r:.6} 0 {large_arc} {sweep_flag} {new[0]:.6} {new[1]:.6}'
 
 @dataclass
 class ArcPoly(GraphicPrimitive):
@@ -206,6 +212,7 @@ class ArcPoly(GraphicPrimitive):
             else:
                 line_bounds = (min(x1, x2), min(y1, y2)), (max(x1, x2), max(y1, y2))
                 bbox = add_bounds(bbox, line_bounds)
+        return bbox
 
     def __len__(self):
         return len(self.outline)
@@ -251,13 +258,14 @@ class Arc(GraphicPrimitive):
     y1 : float
     x2 : float
     y2 : float
+    # absolute coordinates
     cx : float
     cy : float
     clockwise : bool
     width : float
 
     def bounding_box(self):
-        r = self.w/2
+        r = self.width/2
         endpoints = add_bounds(Circle(self.x1, self.y1, r).bounding_box(), Circle(self.x2, self.y2, r).bounding_box())
 
         arc_r = point_distance((self.cx, self.cy), (self.x1, self.y1))
@@ -272,16 +280,16 @@ class Arc(GraphicPrimitive):
         x2 = self.x2 + dx/arc_r * r
         y2 = self.y2 + dy/arc_r * r
 
-        arc = arc_bounds(x1, y1, x2, y2, cx, cy, self.clockwise)
+        arc = arc_bounds(x1, y1, x2, y2, self.cx, self.cy, self.clockwise)
         return add_bounds(endpoints, arc) # FIXME add "include_center" switch
 
     def to_svg(self, tag, color='black'):
         arc = svg_arc((self.x1, self.y1), (self.x2, self.y2), (self.cx, self.cy), self.clockwise)
         return tag('path', d=f'M {self.x1:.6} {self.y1:.6} {arc}',
-                style=f'stroke: {color}, stroke-width: {self.width:.6}; stroke-linecap: round')
+                style=f'stroke: {color}, stroke-width: {self.width:.6}; stroke-linecap: round; fill: none')
 
-def svg_rotation(angle_rad):
-    return f'rotation({angle_rad/math.pi*180:.4})'
+def svg_rotation(angle_rad, cx=0, cy=0):
+    return f'rotate({float(rad_to_deg(angle_rad)):.4} {float(cx):.6} {float(cy):.6})'
 
 @dataclass
 class Rectangle(GraphicPrimitive):
@@ -313,7 +321,8 @@ class Rectangle(GraphicPrimitive):
 
     def to_svg(self, tag, color='black'):
         x, y = self.x - self.w/2, self.y - self.h/2
-        return tag('rect', x=x, y=y, w=self.w, h=self.h, transform=svg_rotation(self.rotation), style=f'fill: {color}')
+        return tag('rect', x=x, y=y, width=self.w, height=self.h,
+                transform=svg_rotation(self.rotation, self.x, self.y), style=f'fill: {color}')
 
 @dataclass
 class RegularPolygon(GraphicPrimitive):

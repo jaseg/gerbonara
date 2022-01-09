@@ -12,6 +12,7 @@ from argparse import Namespace
 from itertools import chain
 from pathlib import Path
 from contextlib import contextmanager
+from PIL import Image
 
 import pytest
 
@@ -54,7 +55,7 @@ def tmpfile(request):
     def register_tempfile(name, suffix):
         nonlocal registered
         f = tempfile.NamedTemporaryFile(suffix=suffix)
-        registered.append((name, f))
+        registered.append((name, suffix, f))
         return Path(f.name)
 
     yield register_tempfile
@@ -62,13 +63,13 @@ def tmpfile(request):
     if request.node.rep_call.failed:
         fail_dir.mkdir(exist_ok=True)
         test_name = path_test_name(request)
-        for name, tmp in registered:
+        for name, suffix, tmp in registered:
             slug = re.sub(r'[^\w\d]+', '_', name.lower())
             perm_path = fail_dir / f'failure_{test_name}_{slug}{suffix}'
             shutil.copy(tmp.name, perm_path)
             print(f'{name} saved to {perm_path}')
 
-    for _name, tmp in registered:
+    for _name, _suffix, tmp in registered:
         tmp.close()
 
 @pytest.fixture
@@ -141,6 +142,15 @@ MIN_REFERENCE_FILES = [
     'bottom_copper.GBL',
     'bottom_silk.GBO',
     'eagle_files/copper_bottom_l4.gbr'
+    ]
+
+HAS_ZERO_SIZE_APERTURES = [
+    'bottom_copper.GBL',
+    'bottom_silk.GBO',
+    'top_copper.GTL',
+    'top_silk.GTO',
+    'board_outline.GKO',
+    'eagle_files/silkscreen_top.gbr',
     ]
 
 
@@ -310,7 +320,7 @@ def test_svg_export(reference, tmpfile):
 
     out_svg = tmpfile('Output', '.svg')
     with open(out_svg, 'w') as f:
-        f.write(str(grb.to_svg(force_bounds=bounds, arg_unit='inch')))
+        f.write(str(grb.to_svg(force_bounds=bounds, arg_unit='inch', color='white')))
 
     ref_png = tmpfile('Reference render', '.png')
     gerbv_export(reference, ref_png, origin=bounds[0], size=bounds[1], format='png', fg='#000000')
@@ -323,3 +333,46 @@ def test_svg_export(reference, tmpfile):
     assert hist[3:].sum() < 1e-3*hist.size
 
 # FIXME test svg margin, bounding box computation
+
+@filter_syntax_warnings
+@pytest.mark.parametrize('reference', REFERENCE_FILES, indirect=True)
+def test_bounding_box(reference, tmpfile):
+    # skip this check on files that contain lines with a zero-size aperture at the board edge
+    if any(reference.match(f'*/{f}') for f in HAS_ZERO_SIZE_APERTURES):
+        pytest.skip()
+
+    # skip this file because it does not contain any graphical objects
+    if reference.match('*/multiline_read.ger'):
+        pytest.skip()
+
+    margin = 1.0 # inch
+    dpi = 200
+    margin_px = int(dpi*margin) # intentionally round down to avoid aliasing artifacts
+
+    grb = GerberFile.open(reference)
+    out_svg = tmpfile('Output', '.svg')
+    with open(out_svg, 'w') as f:
+        f.write(str(grb.to_svg(margin=margin, arg_unit='inch', color='white')))
+
+    out_png = tmpfile('Render', '.png')
+    svg_to_png(out_svg, out_png, dpi=dpi)
+
+    img = np.array(Image.open(out_png))
+    img = img[:, :, :3].mean(axis=2) # drop alpha and convert to grayscale
+    img = np.round(img).astype(int) # convert to int
+    assert (img > 0).any() # there must be some content, none of the test gerbers are completely empty.
+    cols = img.sum(axis=1)
+    rows = img.sum(axis=0)
+    print('shape:', img.shape)
+    col_prefix, col_suffix = np.argmax(cols > 0), np.argmax(cols[::-1] > 0)
+    row_prefix, row_suffix = np.argmax(rows > 0), np.argmax(rows[::-1] > 0)
+    print('cols', 'prefix:', row_prefix, 'suffix:', row_suffix)
+    print('rows', 'prefix:', row_prefix, 'suffix:', row_suffix)
+
+    # Check that all margins are completely black and that the content touches the margins. Allow for some tolerance to
+    # allow for antialiasing artifacts.
+    assert margin_px-1 <= col_prefix <= margin_px+1
+    assert margin_px-1 <= col_suffix <= margin_px+1
+    assert margin_px-1 <= row_prefix <= margin_px+1
+    assert margin_px-1 <= row_suffix <= margin_px+1
+

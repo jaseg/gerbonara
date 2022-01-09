@@ -43,7 +43,7 @@ class GerberObject:
         self._rotate(rotation, cx, cy)
 
     def bounding_box(self, unit=None):
-        bboxes = [ p.bounding_box for p in self.to_primitives(unit) ]
+        bboxes = [ p.bounding_box() for p in self.to_primitives(unit) ]
         min_x = min(min_x for (min_x, _min_y), _ in bboxes)
         min_y = min(min_y for (_min_x, min_y), _ in bboxes)
         max_x = max(max_x for _, (max_x, _max_y) in bboxes)
@@ -237,6 +237,7 @@ class Arc(GerberObject):
     y1 : Length(float)
     x2 : Length(float)
     y2 : Length(float)
+    # relative to (x1, x2)
     cx : Length(float)
     cy : Length(float)
     clockwise : bool
@@ -268,7 +269,7 @@ class Arc(GerberObject):
         conv = self.converted(unit)
         yield gp.Arc(x1=conv.x1, y1=conv.y1,
                 x2=conv.x2, y2=conv.y2,
-                cx=conv.cx, cy=conv.cy,
+                cx=conv.cx+conv.x1, cy=conv.cy+conv.y1,
                 clockwise=self.clockwise,
                 width=self.aperture.equivalent_width(unit),
                 polarity_dark=self.polarity_dark)

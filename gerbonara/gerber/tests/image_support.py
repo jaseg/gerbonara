@@ -60,8 +60,8 @@ def run_cargo_cmd(cmd, args, **kwargs):
     except FileNotFoundError:
         return subprocess.run([str(Path.home() / '.cargo' / 'bin' / cmd), *args], **kwargs)
 
-def svg_to_png(in_svg, out_png, dpi=100):
-    run_cargo_cmd('resvg', ['--dpi', str(dpi), in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
+def svg_to_png(in_svg, out_png, dpi=100, bg='black'):
+    run_cargo_cmd('resvg', ['--background', bg, '--dpi', str(dpi), in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
 
 def gerbv_export(in_gbr, out_svg, format='svg', origin=(0, 0), size=(6, 6), fg='#ffffff'):
     x, y = origin

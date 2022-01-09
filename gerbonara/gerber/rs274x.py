@@ -90,7 +90,8 @@ class GerberFile(CamFile):
     def to_svg(self, tag=Tag, margin=0, arg_unit='mm', svg_unit='mm', force_bounds=None, color='black'):
 
         if force_bounds is None:
-            (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit)
+            (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
+            print('bounding box:', (min_x, min_y), (max_x, max_y))
         else:
             (min_x, min_y), (max_x, max_y) = force_bounds
             min_x = convert(min_x, arg_unit, svg_unit)
@@ -106,17 +107,19 @@ class GerberFile(CamFile):
             max_y += margin
 
         w, h = max_x - min_x, max_y - min_y
+        w = 1.0 if math.isclose(w, 0.0) else w
+        h = 1.0 if math.isclose(h, 0.0) else h
 
         primitives = [ prim.to_svg(tag, color) for obj in self.objects for prim in obj.to_primitives(unit=svg_unit) ]
 
         # setup viewport transform flipping y axis
-        xform = f'scale(0 -1) translate(0 {h})'
+        xform = f'translate({min_x} {min_y+h}) scale(1 -1) translate({-min_x} {-min_y})'
 
         svg_unit = 'in' if svg_unit == 'inch' else 'mm'
         # TODO export apertures as <uses> where reasonable.
-        return tag('svg', [*primitives],
+        return tag('svg', [tag('g', primitives, transform=xform)],
                 width=f'{w}{svg_unit}', height=f'{h}{svg_unit}',
-                viewBox=f'{min_x} {min_y} {w} {h}', transform=xform,
+                viewBox=f'{min_x} {min_y} {w} {h}',
                 xmlns="http://www.w3.org/2000/svg", xmlns__xlink="http://www.w3.org/1999/xlink", root=True)
 
     def merge(self, other):
@@ -200,21 +203,24 @@ class GerberFile(CamFile):
         GerberParser(obj, include_dir=enable_include_dir).parse(data)
         return obj
 
-    @property
-    def size(self):
-        (x0, y0), (x1, y1) = self.bounding_box
+    def size(self, unit='mm'):
+        (x0, y0), (x1, y1) = self.bounding_box(unit, default=((0, 0), (0, 0)))
         return (x1 - x0, y1 - y0)
 
-    @property
-    def bounding_box(self, unit='mm'):
+    def bounding_box(self, unit='mm', default=None):
+        """ Calculate bounding box of file. Returns value given by 'default' argument when there are no graphical
+        objects (default: None)
+        """
         bounds = [ p.bounding_box(unit) for p in self.objects ]
+        if not bounds:
+            return default
 
         min_x = min(x0 for (x0, y0), (x1, y1) in bounds)
         min_y = min(y0 for (x0, y0), (x1, y1) in bounds)
         max_x = max(x1 for (x0, y0), (x1, y1) in bounds)
         max_y = max(y1 for (x0, y0), (x1, y1) in bounds)
 
-        return ((min_x, max_x), (min_y, max_y))
+        return ((min_x, min_y), (max_x, max_y))
 
     def generate_statements(self, drop_comments=True):
         yield UnitStmt()
@@ -421,6 +427,11 @@ class GraphicsState:
             self.point = (0, 0)
         old_point = self.map_coord(*self.update_point(x, y))
 
+        if aperture and math.isclose(self.aperture.equivalent_width(), 0):
+            warnings.warn('D01 interpolation with a zero-size aperture. This is invalid according to spec, however, we '
+                    'pass through the created objects here. Note that these will not show up in e.g. SVG output since '
+                    'their line width is zero.', SyntaxWarning)
+
         if self.interpolation_mode == LinearModeStmt:
             if i is not None or j is not None:
                 raise SyntaxError("i/j coordinates given for linear D01 operation (which doesn't take i/j)")
@@ -448,7 +459,11 @@ class GraphicsState:
 
     def _create_arc(self, old_point, new_point, control_point, aperture=True):
         clockwise = self.interpolation_mode == CircularCWModeStmt
-        return go.Arc(*old_point, *new_point,* self.map_coord(*control_point, relative=True),
+        print('creating arc')
+        print('  old point', old_point)
+        print('  new point', new_point)
+        print('  control point', self.map_coord(*control_point, relative=True))
+        return go.Arc(*old_point, *new_point, *self.map_coord(*control_point, relative=True),
                 clockwise=clockwise, aperture=(self.aperture if aperture else None),
                 polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
 
@@ -643,7 +658,7 @@ class GerberParser:
             if self.current_region is None:
                 self.target.objects.append(self.graphics_state.interpolate(x, y, i, j))
             else:
-                self.current_region.append(self.graphics_state.interpolate(x, y, i, j))
+                self.current_region.append(self.graphics_state.interpolate(x, y, i, j, aperture=False))
 
         else:
             if i is not None or j is not None:
@@ -687,6 +702,12 @@ class GerberParser:
             }
 
         if (kls := aperture_classes.get(match['shape'])):
+            if match['shape'] == 'P' and math.isclose(modifiers[0], 0):
+                warnings.warn('Definition of zero-size polygon aperture. This is invalid according to spec.' , SyntaxWarning)
+
+            if match['shape'] in 'RO' and (math.isclose(modifiers[0], 0) or math.isclose(modifiers[1], 0)):
+                warnings.warn('Definition of zero-width and/or zero-height rectangle or obround aperture. This is invalid according to spec.' , SyntaxWarning)
+
             new_aperture = kls(*modifiers, unit=self.file_settings.unit)
 
         elif (macro := self.aperture_macros.get(match['shape'])):
