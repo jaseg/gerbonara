@@ -91,7 +91,6 @@ class GerberFile(CamFile):
 
         if force_bounds is None:
             (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
-            print('bounding box:', (min_x, min_y), (max_x, max_y))
         else:
             (min_x, min_y), (max_x, max_y) = force_bounds
             min_x = convert(min_x, arg_unit, svg_unit)
@@ -129,8 +128,9 @@ class GerberFile(CamFile):
         # dedup apertures
         new_apertures = {}
         replace_apertures = {}
+        mock_settings = self.import_settings
         for ap in self.apertures + other.apertures:
-            gbr = ap.to_gerber()
+            gbr = ap.to_gerber(mock_settings)
             if gbr not in new_apertures:
                 new_apertures[gbr] = ap
             else:
@@ -281,13 +281,7 @@ class GerberFile(CamFile):
     def offset(self, dx=0,  dy=0, unit='mm'):
         # TODO round offset to file resolution
     
-        #print(f'offset {dx},{dy} file unit')
-        #for obj in self.objects:
-        #    print('   ', obj)
         self.objects = [ obj.with_offset(dx, dy, unit) for obj in self.objects ]
-        #print('after:')
-        #for obj in self.objects:
-        #    print('   ', obj)
 
     def rotate(self, angle:'radian', center=(0,0), unit='mm'):
         """ Rotate file contents around given point.
@@ -307,17 +301,9 @@ class GerberFile(CamFile):
         for ap in self.apertures:
             ap.rotation += angle
 
-        #print(f'rotate {angle} @ {center}')
-        #for obj in self.objects:
-        #    print('   ', obj)
-
         for obj in self.objects:
             obj.rotate(angle, *center, unit)
 
-        #print('after')
-        #for obj in self.objects:
-        #    print('   ', obj)
-    
     def invert_polarity(self):
         for obj in self.objects:
             obj.polarity_dark = not p.polarity_dark
@@ -459,10 +445,6 @@ class GraphicsState:
 
     def _create_arc(self, old_point, new_point, control_point, aperture=True):
         clockwise = self.interpolation_mode == CircularCWModeStmt
-        print('creating arc')
-        print('  old point', old_point)
-        print('  new point', new_point)
-        print('  control point', self.map_coord(*control_point, relative=True))
         return go.Arc(*old_point, *new_point, *self.map_coord(*control_point, relative=True),
                 clockwise=clockwise, aperture=(self.aperture if aperture else None),
                 polarity_dark=self.polarity_dark, unit=self.file_settings.unit)

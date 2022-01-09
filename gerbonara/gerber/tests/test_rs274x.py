@@ -46,7 +46,7 @@ def print_on_error(request):
 
     if request.node.rep_call.failed:
         for msg in messages:
-            print(msg)
+            print(msg, end='')
 
 @pytest.fixture
 def tmpfile(request):
@@ -322,8 +322,14 @@ def test_svg_export(reference, tmpfile):
     with open(out_svg, 'w') as f:
         f.write(str(grb.to_svg(force_bounds=bounds, arg_unit='inch', color='white')))
 
+    # NOTE: Instead of having gerbv directly export a PNG, we ask gerbv to output SVG which we then rasterize using
+    # resvg. We have to do this since gerbv's built-in cairo-based PNG export has severe aliasing issues. In contrast,
+    # using resvg for both allows an apples-to-apples comparison of both results.
+    ref_svg = tmpfile('Reference export', '.svg')
     ref_png = tmpfile('Reference render', '.png')
-    gerbv_export(reference, ref_png, origin=bounds[0], size=bounds[1], format='png', fg='#000000')
+    gerbv_export(reference, ref_svg, origin=bounds[0], size=bounds[1])
+    svg_to_png(ref_svg, ref_png, dpi=72) # make dpi match Cairo's default
+
     out_png = tmpfile('Output render', '.png')
     svg_to_png(out_svg, out_png, dpi=72) # make dpi match Cairo's default
 
@@ -363,11 +369,8 @@ def test_bounding_box(reference, tmpfile):
     assert (img > 0).any() # there must be some content, none of the test gerbers are completely empty.
     cols = img.sum(axis=1)
     rows = img.sum(axis=0)
-    print('shape:', img.shape)
     col_prefix, col_suffix = np.argmax(cols > 0), np.argmax(cols[::-1] > 0)
     row_prefix, row_suffix = np.argmax(rows > 0), np.argmax(rows[::-1] > 0)
-    print('cols', 'prefix:', row_prefix, 'suffix:', row_suffix)
-    print('rows', 'prefix:', row_prefix, 'suffix:', row_suffix)
 
     # Check that all margins are completely black and that the content touches the margins. Allow for some tolerance to
     # allow for antialiasing artifacts.

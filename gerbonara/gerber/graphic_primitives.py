@@ -177,14 +177,22 @@ def point_line_distance(l1, l2, p):
     return abs((x2-x1)*(y1-y0) - (x1-x0)*(y2-y1)) / length
 
 def svg_arc(old, new, center, clockwise):
-    print(f'{old=} {new=} {center=}')
-    r = point_distance(old, new)
+    r = point_distance(old, center)
     d = point_line_distance(old, new, center)
     # invert sweep flag since the svg y axis is mirrored
     sweep_flag = int(not clockwise)
-    large_arc = int((d > 0) == clockwise) # FIXME check signs
-    print(f'{r=:.3} {d=:.3} {sweep_flag=} {large_arc=} {clockwise=}')
-    return f'A {r:.6} {r:.6} 0 {large_arc} {sweep_flag} {new[0]:.6} {new[1]:.6}'
+    # In the degenerate case where old == new, we always take the long way around. To represent this "full-circle arc"
+    # in SVG, we have to split it into two.
+    if math.isclose(point_distance(old, new), 0):
+        intermediate = center[0] + (center[0] - old[0]), center[1] + (center[1] - old[1])
+        # Note that we have to preserve the sweep flag to avoid causing self-intersections by flipping the direction of
+        # a circular cutin
+        return f'A {r:.6} {r:.6} 0 1 {sweep_flag} {intermediate[0]:.6} {intermediate[1]:.6} ' +\
+               f'A {r:.6} {r:.6} 0 1 {sweep_flag} {new[0]:.6} {new[1]:.6}'
+
+    else: # normal case
+        large_arc = int((d > 0) == clockwise)
+        return f'A {r:.6} {r:.6} 0 {large_arc} {sweep_flag} {new[0]:.6} {new[1]:.6}'
 
 @dataclass
 class ArcPoly(GraphicPrimitive):

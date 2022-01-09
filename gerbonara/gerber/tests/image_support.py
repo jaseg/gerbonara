@@ -63,13 +63,14 @@ def run_cargo_cmd(cmd, args, **kwargs):
 def svg_to_png(in_svg, out_png, dpi=100, bg='black'):
     run_cargo_cmd('resvg', ['--background', bg, '--dpi', str(dpi), in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
 
-def gerbv_export(in_gbr, out_svg, format='svg', origin=(0, 0), size=(6, 6), fg='#ffffff'):
+def gerbv_export(in_gbr, out_svg, format='svg', origin=(0, 0), size=(6, 6), fg='#ffffff', bg='#000000'):
     x, y = origin
     w, h = size
     cmd = ['gerbv', '-x', format,
         '--border=0',
         f'--origin={x:.6f}x{y:.6f}', f'--window_inch={w:.6f}x{h:.6f}',
         f'--foreground={fg}',
+        f'--background={bg}',
         '-o', str(out_svg), str(in_gbr)]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
