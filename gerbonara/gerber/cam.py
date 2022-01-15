@@ -62,6 +62,14 @@ class FileSettings:
     def __str__(self):
         return f'<File settings: unit={self.unit}/{self.angle_unit} notation={self.notation} zeros={self.zeros} number_format={self.number_format}>'
 
+    @property
+    def incremental(self):
+        return self.notation == 'incremental'
+
+    @property
+    def absolute(self):
+        return not self.incremental # default to absolute
+
     def parse_gerber_value(self, value):
         if not value:
             return None

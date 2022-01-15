@@ -24,6 +24,7 @@ Excellon Statements
 import re
 import uuid
 import itertools
+from enum import Enum
 from .utils import (decimal_string,
                     inch, metric)
 
@@ -41,35 +42,14 @@ __all__ = ['ExcellonTool', 'ToolSelectionStmt', 'CoordinateStmt',
            'NextToolSelectionStmt', 'SlotStmt']
 
 
-class ExcellonStatement(object):
-    """ Excellon Statement abstract base class
-    """
+class Plating(Enum):
+    UNKNOWN = 0
+    NONPLATED = 1
+    PLATED = 2
+    OPTIONAL = 3
 
-    @classmethod
-    def from_excellon(cls, line):
-        raise NotImplementedError('from_excellon must be implemented in a '
-                                  'subclass')
-
-    def __init__(self, unit='inch', id=None):
-        self.units = unit
-        self.id = uuid.uuid4().int if id is None else id
-
-    def to_excellon(self, settings=None):
-        raise NotImplementedError('to_excellon must be implemented in a '
-                                  'subclass')
-
-    def to_inch(self):
-        self.units = 'inch'
-
-    def to_metric(self):
-        self.units = 'metric'
-
-    def offset(self, x_offset=0, y_offset=0):
-        pass
-
-    def __eq__(self, other):
-        return self.__dict__ == other.__dict__
-
+class ExcellonStatement:
+    pass
 
 class ExcellonTool(ExcellonStatement):
     """ Excellon Tool class
@@ -114,67 +94,6 @@ class ExcellonTool(ExcellonStatement):
     hit_count : integer
         Number of tool hits in excellon file.
     """
-
-    PLATED_UNKNOWN = None
-    PLATED_YES = 'plated'
-    PLATED_NO = 'nonplated'
-    PLATED_OPTIONAL = 'optional'
-
-    @classmethod
-    def from_tool(cls, tool):
-        args = {}
-
-        args['depth_offset'] = tool.depth_offset
-        args['diameter'] = tool.diameter
-        args['feed_rate'] = tool.feed_rate
-        args['max_hit_count'] = tool.max_hit_count
-        args['number'] = tool.number
-        args['plated'] = tool.plated
-        args['retract_rate'] = tool.retract_rate
-        args['rpm'] = tool.rpm
-
-        return cls(None, **args)
-
-    @classmethod
-    def from_excellon(cls, line, settings, id=None, plated=None):
-        """ Create a Tool from an excellon file tool definition line.
-
-        Parameters
-        ----------
-        line : string
-            Tool definition line from an excellon file.
-
-        settings : FileSettings (dict-like)
-            Excellon file-wide settings
-
-        Returns
-        -------
-        tool : Tool
-            An ExcellonTool representing the tool defined in `line`
-        """
-        commands = pairwise(re.split('([BCFHSTZ])', line)[1:])
-        args = {}
-        args['id'] = id
-        for cmd, val in commands:
-            if cmd == 'B':
-                args['retract_rate'] = settings.parse_gerber_value(val)
-            elif cmd == 'C':
-                args['diameter'] = settings.parse_gerber_value(val)
-            elif cmd == 'F':
-                args['feed_rate'] = settings.parse_gerber_value(val)
-            elif cmd == 'H':
-                args['max_hit_count'] = settings.parse_gerber_value(val)
-            elif cmd == 'S':
-                args['rpm'] = 1000 * settings.parse_gerber_value(val)
-            elif cmd == 'T':
-                args['number'] = int(val)
-            elif cmd == 'Z':
-                args['depth_offset'] = settings.parse_gerber_value(val)
-
-        if plated != ExcellonTool.PLATED_UNKNOWN:
-            # Sometimees we can can parse the plating status
-            args['plated'] = plated
-        return cls(settings, **args)
 
     @classmethod
     def from_dict(cls, settings, tool_dict):
@@ -491,16 +410,11 @@ class RepeatHoleStmt(ExcellonStatement):
 
 class CommentStmt(ExcellonStatement):
 
-    @classmethod
-    def from_excellon(cls, line, **kwargs):
-        return cls(line.lstrip(';'))
-
-    def __init__(self, comment, **kwargs):
-        super(CommentStmt, self).__init__(**kwargs)
+    def __init__(self, comment):
         self.comment = comment
 
     def to_excellon(self, settings=None):
-        return ';%s' % self.comment
+        return ';' + self.comment
 
 
 class HeaderBeginStmt(ExcellonStatement):

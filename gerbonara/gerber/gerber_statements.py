@@ -32,12 +32,6 @@ def convert(value, src, dst):
 class Statement:
     pass
 
-    def update_graphics_state(self, _state):
-        pass
-
-    def render_primitives(self, _state):
-        pass
-
 class ParamStmt(Statement):
     pass
 
@@ -78,9 +72,6 @@ class LoadPolarityStmt(ParamStmt):
     def __str__(self):
         lp = 'dark' if self.dark else 'clear'
         return f'<LP Level Polarity: {lp}>'
-
-    def update_graphics_state(self, state):
-        state.polarity_dark = self.dark
 
 
 class ApertureDefStmt(ParamStmt):
