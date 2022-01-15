@@ -1,0 +1,32 @@
+CAM output for current project IRNAS IoT bank 1.2.T3001
+Output on 27. mar 2017, 14:56h
+Current project created using TARGET 17.9.0.69 economy
+Output created using TARGET 3001! V17.9.0.69
+DELIVERY ADDRESS:
+  
+  
+  
+  GB- 
+  Tel: 
+  FAX: 
+  eMail: 
+Size of PCB: 65 mm x 72,08 mm
+
+Description of created files as follows:
+
+IRNAS IoT bank 1.2.Top = 16 = Copper top L1   ( *.Top )
+IRNAS IoT bank 1.2.Bot = 2 = Copper bottom L2   ( *.Bot )
+IRNAS IoT bank 1.2.Tool = drill tool list
+IRNAS IoT bank 1.2.Drill = Galvanised drills
+IRNAS IoT bank 1.2.Outline = 23 = PCB outline   ( *.Outline )
+IRNAS IoT bank 1.2.StopTop = 18 = Solder stop mask top   ( *.StopTop )
+IRNAS IoT bank 1.2.StopBot = 4 = Solder stop mask bottom   ( *.StopBot )
+IRNAS IoT bank 1.2.PosiTop = 21 = Placement print top   ( *.PosiTop )
+IRNAS IoT bank 1.2.PosiBot = 7 = Placement print bottom   ( *.PosiBot )
+IRNAS IoT bank 1.2.PasteTop = 19 = Solder paste top   ( *.PasteTop )
+IRNAS IoT bank 1.2.PasteBot = 5 = Solder paste bottom   ( *.PasteBot )
+IRNAS IoT bank 1.2.Apr = TARGET 3001! aperture list
+IRNAS IoT bank 1.2.Whl = Eagle compatible aperture list
+
+
+Caution: Smallest track is thiner than 0,150mm: (0,041 at -51,6 | -23,1) on layer 21

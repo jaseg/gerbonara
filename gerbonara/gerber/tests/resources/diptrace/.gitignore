@@ -1,0 +1,5 @@
+*\.o
+firmware/firmware.bin
+firmware/firmware.elf
+firmware/firmware.hex
+firmware/firmware.map
