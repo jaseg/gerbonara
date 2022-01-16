@@ -1,0 +1,7 @@
+DRC Rules Export File for PCB: E:\Saniok\Lime Micro\Lime PCBs\LimeSDR-QPCIe_1v2\AltiumDesigner Design files\PCB\LimeSDR-QPCIe_1v2.PcbDoc
+RuleKind=Width|RuleName=Width_ClumsyConnection|Scope=Board|Minimum=3.94
+RuleKind=ShortCircuit|RuleName=ShortCircuit_RTC_pin4|Scope=Board|Allowed=1
+RuleKind=Width|RuleName=Width|Scope=Board|Minimum=3.94
+RuleKind=ShortCircuit|RuleName=ShortCircuit|Scope=Board|Allowed=0
+RuleKind=Clearance|RuleName=Clearance|Scope=Board|Minimum=3.94
+RuleKind=SolderMaskExpansion|RuleName=SolderMaskExpansion|Scope=Board|Minimum=1.97

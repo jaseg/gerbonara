@@ -1,0 +1,28 @@
+----------------------------------------------------------------------------------------------------------------------------------
+NCDrill File Report For: LimeSDR-QPCIe_1v2.PcbDoc   2017-09-22  16:05:30
+----------------------------------------------------------------------------------------------------------------------------------
+
+Layer Pair : Top to Bottom
+ASCII RoundHoles File : LimeSDR-QPCIe_1v2-RoundHoles.TXT
+ASCII SlotHoles File : LimeSDR-QPCIe_1v2-SlotHoles.TXT
+
+Tool       Hole Size               Hole Tolerance               Hole Type       Hole Count   Plated         Tool Travel
+----------------------------------------------------------------------------------------------------------------------------------
+T1      0.2mm (8mil)                                              Round             4171      PTH        7006.69mm (275.85inch)
+T2      0.381mm (15mil)                                           Round             10        PTH        71.29mm (2.81inch)
+T3      0.8mm (31mil)                                             Slot              2         PTH        14.15mm (0.56inch)
+T4      1mm (39mil)                                               Round             32        PTH        245.75mm (9.68inch)
+T5      1mm (39mil)                                               Slot              1         PTH        2.56mm (0.10inch)
+T6      1.25mm (49mil)                                            Round             5         PTH        20.56mm (0.81inch)
+T7      1.9mm (75mil)                                             Round             6         PTH        26.19mm (1.03inch)
+T8      2.4mm (94mil)                                             Round             3         PTH        9.40mm (0.37inch)
+T9      3mm (118mil)                                              Round             7         PTH        554.59mm (21.83inch)
+T10     3.1mm (122mil)                                            Round             2         PTH        8.40mm (0.33inch)
+T11     0.9mm (35mil)                                             Round             15        NPTH       467.24mm (18.40inch)
+T12     1mm (39mil)                                               Round             1         NPTH       0.00mm (0.00inch)
+T13     1.3mm (51mil)                                             Round             1         NPTH       0.00mm (0.00inch)
+T14     3.18mm (125mil)                                           Round             2         NPTH       85.40mm (3.36inch)
+----------------------------------------------------------------------------------------------------------------------------------
+Totals                                                                              4258
+
+Total Processing Time (hh:mm:ss) : 00:00:05
