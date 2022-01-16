@@ -26,7 +26,42 @@ files.
 import os
 from math import radians, sin, cos, sqrt, atan2, pi
 
+
+class Unit:
+    def __init__(self, name, shorthand, this_in_mm):
+        self.name = name
+        self.shorthand = shorthand
+        self.factor = this_in_mm
+
+    def from(self, unit, value):
+        if isinstance(unit, str):
+            unit = units[unit]
+
+        if unit == self or unit is None or value is None:
+            return value
+
+        return value * unit.factor / self.factor
+
+    def to(self, unit, value):
+        if isinstance(unit, str):
+            unit = units[unit]
+
+        if unit is None:
+            return value
+
+        return unit.from(self, value)
+
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return other.lower() in (self.name, self.shorthand)
+        else:
+            return self == other
+
+
 MILLIMETERS_PER_INCH = 25.4
+Inch = Unit('inch', 'in', MILLIMETERS_PER_INCH)
+MM = Unit('millimeter', 'mm', 1)
+units = {'inch': Inch, 'mm': MM}
 
 
 def decimal_string(value, precision=6, padding=False):
@@ -148,4 +183,11 @@ def sq_distance(point1, point2):
     diff2 = point1[1] - point2[1]
     return diff1 * diff1 + diff2 * diff2
 
+def convert_units(value, src, dst):
+        if src == dst or src is None or dst is None or value is None:
+            return value
+        elif dst == 'mm':
+            return value * 25.4
+        else:
+            return value / 25.4
 

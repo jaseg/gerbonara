@@ -2,6 +2,7 @@
 import math
 from dataclasses import dataclass, KW_ONLY, astuple, replace, fields
 
+from .utils import MM
 from . import graphic_primitives as gp
 from .gerber_statements import *
 
@@ -59,6 +60,14 @@ class Flash(GerberObject):
     y : Length(float)
     aperture : object
 
+    @property
+    def tool(self):
+        return self.aperture
+
+    @tool.setter
+    def tool(self, value):
+        self.aperture = value
+
     def _with_offset(self, dx, dy):
         return replace(self, x=self.x+dx, y=self.y+dy)
 
@@ -74,6 +83,18 @@ class Flash(GerberObject):
         yield from gs.set_aperture(self.aperture)
         yield FlashStmt(self.x, self.y, unit=self.unit)
         gs.update_point(self.x, self.y, unit=self.unit)
+
+    def to_xnc(self, ctx):
+        yield from ctx.select_tool(self.tool)
+        yield from ctx.drill_mode()
+        x = ctx.settings.write_gerber_value(self.x, self.unit)
+        y = ctx.settings.write_gerber_value(self.y, self.unit)
+        yield f'X{x}Y{y}'
+        ctx.set_current_point(self.unit, self.x, self.y)
+
+    def curve_length(self, unit=MM):
+        return 0
+
 
 class Region(GerberObject):
     def __init__(self, outline=None, arc_centers=None, *, unit, polarity_dark):
@@ -149,6 +170,7 @@ class Region(GerberObject):
 @dataclass
 class Line(GerberObject):
     # Line with *round* end caps.
+
     x1 : Length(float)
     y1 : Length(float)
     x2 : Length(float)
@@ -170,6 +192,18 @@ class Line(GerberObject):
     def p2(self):
         return self.x2, self.y2
 
+    @property
+    def end_point(self):
+        return self.p2
+
+    @property
+    def tool(self):
+        return self.aperture
+
+    @tool.setter
+    def tool(self, value):
+        self.aperture = value
+
     def to_primitives(self, unit=None):
         conv = self.converted(unit)
         yield gp.Line(*conv.p1, *conv.p2, self.aperture.equivalent_width(unit), polarity_dark=self.polarity_dark)
@@ -182,53 +216,14 @@ class Line(GerberObject):
         yield InterpolateStmt(*self.p2, unit=self.unit)
         gs.update_point(*self.p2, unit=self.unit)
 
+    def to_xnc(self, ctx):
+        yield from ctx.select_tool(self.tool)
+        yield from ctx.route_mode(self.unit, *self.p1)
+        yield 'G01' + 'X' + ctx.settings.write_gerber_value(self.p2[0], self.unit) + 'Y' + ctx.settings.write_gerber_value(self.p2[1], self.unit)
+        ctx.set_current_point(self.unit, *self.p2)
 
-@dataclass
-class Drill(GerberObject):
-    x : Length(float)
-    y : Length(float)
-    diameter : Length(float)
-
-    def _with_offset(self, dx, dy):
-        return replace(self, x=self.x+dx, y=self.y+dy)
-
-    def _rotate(self, angle, cx=0, cy=0):
-        self.x, self.y = gp.rotate_point(self.x, self.y, angle, cx, cy)
-
-    def to_primitives(self, unit=None):
-        conv = self.converted(unit)
-        yield gp.Circle(conv.x, conv.y, conv.diameter/2)
-
-
-@dataclass
-class Slot(GerberObject):
-    x1 : Length(float)
-    y1 : Length(float)
-    x2 : Length(float)
-    y2 : Length(float)
-    width : Length(float)
-
-    def _with_offset(self, dx, dy):
-        return replace(self, x1=self.x1+dx, y1=self.y1+dy, x2=self.x2+dx, y2=self.y2+dy)
-
-    def _rotate(self, rotation, cx=0, cy=0):
-        if cx is None:
-            cx = (self.x1 + self.x2) / 2
-            cy = (self.y1 + self.y2) / 2
-        self.x1, self.y1 = gp.rotate_point(self.x1, self.y1, rotation, cx, cy)
-        self.x2, self.y2 = gp.rotate_point(self.x2, self.y2, rotation, cx, cy)
-
-    @property
-    def p1(self):
-        return self.x1, self.y1
-
-    @property
-    def p2(self):
-        return self.x2, self.y2
-
-    def to_primitives(self, unit=None):
-        conv = self.converted(unit)
-        yield gp.Line(*conv.p1, *conv.p2, conv.width, polarity_dark=self.polarity_dark)
+    def curve_length(self, unit=MM):
+        return self.unit.to(unit, math.dist(self.p1, self.p2))
 
 
 @dataclass
@@ -258,6 +253,18 @@ class Arc(GerberObject):
     def center(self):
         return self.cx + self.x1, self.cy + self.y1
 
+    @property
+    def end_point(self):
+        return self.p2
+
+    @property
+    def tool(self):
+        return self.aperture
+
+    @tool.setter
+    def tool(self, value):
+        self.aperture = value
+
     def _rotate(self, rotation, cx=0, cy=0):
         # rotate center first since we need old x1, y1 here
         new_cx, new_cy = gp.rotate_point(*self.center, rotation, cx, cy)
@@ -281,5 +288,29 @@ class Arc(GerberObject):
         yield from gs.set_current_point(self.p1, unit=self.unit)
         yield InterpolateStmt(self.x2, self.y2, self.cx, self.cy, unit=self.unit)
         gs.update_point(*self.p2, unit=self.unit)
+
+    def to_xnc(self, ctx):
+        yield from ctx.select_tool(self.tool)
+        yield from ctx.route_mode(self.unit, self.x1, self.y1)
+        code = 'G02' if self.clockwise else 'G03'
+        x = ctx.settings.write_gerber_value(self.x2, self.unit)
+        y = ctx.settings.write_gerber_value(self.y2, self.unit)
+        i = ctx.settings.write_gerber_value(self.cx - self.x1, self.unit)
+        j = ctx.settings.write_gerber_value(self.cy - self.y1, self.unit)
+        yield f'{code}X{x}Y{y}I{i}J{j}'
+        ctx.set_current_point(self.unit, self.x2, self.y2)
+
+    def curve_length(self, unit=MM):
+        r = math.hypot(self.cx, self.cy)
+        f = math.atan2(self.x2, self.y2) - math.atan2(self.x1, self.y1)
+        f = (f + math.pi) % (2*math.pi) - math.pi
+
+        if self.clockwise:
+            f = -f
+
+        if f > math.pi:
+            f = 2*math.pi - f
+
+        return self.unit.to(unit, 2*math.pi*r * (f/math.pi))
 
 

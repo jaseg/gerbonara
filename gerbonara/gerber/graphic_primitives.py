@@ -164,6 +164,7 @@ def arc_bounds(x1, y1, x2, y2, cx, cy, clockwise):
     return (min_x+cx, min_y+cy), (max_x+cx, max_y+cy)
 
 
+# FIXME use math.dist instead
 def point_distance(a, b):
     return math.sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2)
 

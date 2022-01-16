@@ -15,307 +15,156 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Excellon File module
-====================
-**Excellon file classes**
-
-This module provides Excellon file classes and parsing utilities
-"""
-
 import math
 import operator
 import warnings
 from enum import Enum
+from dataclasses import dataclass
+from collections import Counter
 
 from .cam import CamFile, FileSettings
 from .excellon_statements import *
-from .excellon_tool import ExcellonToolDefinitionParser
 from .graphic_objects import Drill, Slot
-from .utils import inch, metric
+from .apertures import ExcellonTool
+from .utils import Inch, MM
 
 
-try:
-    from cStringIO import StringIO
-except(ImportError):
-    from io import StringIO
+class ExcellonContext:
+    def __init__(self, settings, tools):
+        self.settings = settings
+        self.tools = tools
+        self.mode = None
+        self.current_tool = None
+        self.x, self.y = None, None
 
+    def select_tool(self, tool):
+        if self.current_tool != tool:
+            self.current_tool = tool
+            yield f'T{tools[tool]:02d}'
 
+    def drill_mode(self):
+        if self.mode != ProgramState.DRILLING:
+            self.mode = ProgramState.DRILLING
+            yield 'G05'
 
-def read(filename):
-    """ Read data from filename and return an ExcellonFile
-    Parameters
-        ----------
-    filename : string
-        Filename of file to parse
+    def route_mode(self, unit, x, y):
+        x, y = self.unit.from(unit, x), self.unit.from(unit, y)
 
-    Returns
-    -------
-    file : :class:`gerber.excellon.ExcellonFile`
-        An ExcellonFile created from the specified file.
+        if self.mode == ProgramState.ROUTING and (self.x, self.y) == (x, y):
+            return # nothing to do
 
-    """
-    # File object should use settings from source file by default.
-    with open(filename, 'r') as f:
-        data = f.read()
-    settings = FileSettings(**detect_excellon_format(data))
-    return ExcellonParser(settings).parse(filename)
+        yield 'G00' + 'X' + self.settings.write_gerber_value(x) + 'Y' + self.settings.write_gerber_value(y)
 
-def loads(data, filename=None, settings=None, tools=None):
-    """ Read data from string and return an ExcellonFile
-    Parameters
-    ----------
-    data : string
-        string containing Excellon file contents
-
-    filename : string, optional
-        string containing the filename of the data source
-
-    tools: dict (optional)
-        externally defined tools
-
-    Returns
-    -------
-    file : :class:`gerber.excellon.ExcellonFile`
-        An ExcellonFile created from the specified file.
-
-    """
-    # File object should use settings from source file by default.
-    if not settings:
-        settings = FileSettings(**detect_excellon_format(data))
-    return ExcellonParser(settings, tools).parse_raw(data, filename)
-
-
-class DrillHit(object):
-    """Drill feature that is a single drill hole.
-
-    Attributes
-    ----------
-    tool : ExcellonTool
-        Tool to drill the hole. Defines the size of the hole that is generated.
-    position : tuple(float, float)
-        Center position of the drill.
-
-    """
-    def __init__(self, tool, position):
-        self.tool = tool
-        self.position = position
-
-    @property
-    def bounding_box(self):
-        position = self.position
-        radius = self.tool.diameter / 2.
-
-        min_x = position[0] - radius
-        max_x = position[0] + radius
-        min_y = position[1] - radius
-        max_y = position[1] + radius
-        return ((min_x, max_x), (min_y, max_y))
-
-    def offset(self, x_offset=0, y_offset=0):
-        self.position = tuple(map(operator.add, self.position, (x_offset, y_offset)))
-
-    def __str__(self):
-        return 'Hit (%f, %f) {%s}' % (self.position[0], self.position[1], self.tool)
-
-class DrillSlot(object):
-    """
-    A slot is created between two points. The way the slot is created depends on the statement used to create it
-    """
-
-    TYPE_ROUT = 1
-    TYPE_G85 = 2
-
-    def __init__(self, tool, start, end, slot_type):
-        self.tool = tool
-        self.start = start
-        self.end = end
-        self.slot_type = slot_type
-
-    @property
-    def bounding_box(self):
-        start = self.start
-        end = self.end
-        radius = self.tool.diameter / 2.
-        min_x = min(start[0], end[0]) - radius
-        max_x = max(start[0], end[0]) + radius
-        min_y = min(start[1], end[1]) - radius
-        max_y = max(start[1], end[1]) + radius
-        return ((min_x, max_x), (min_y, max_y))
-
-    def offset(self, x_offset=0, y_offset=0):
-        self.start = tuple(map(operator.add, self.start, (x_offset, y_offset)))
-        self.end = tuple(map(operator.add, self.end, (x_offset, y_offset)))
+    def set_current_point(self, unit, x, y):
+        self.current_point = self.unit.from(unit, x), self.unit.from(unit, y)
 
 
 class ExcellonFile(CamFile):
-    """ A class representing a single excellon file
+    def __init__(self, filename=None)
+        super().__init__(filename=filename)
+        self.objects = []
+        self.comments = []
+        self.import_settings = None
 
-    The ExcellonFile class represents a single excellon file.
+    def _generate_statements(self, settings):
 
-    http://www.excellon.com/manuals/program.htm
-    (archived version at https://web.archive.org/web/20150920001043/http://www.excellon.com/manuals/program.htm)
+        yield '; XNC file generated by gerbonara'
+        if self.comments:
+            yield '; Comments found in original file:'
+        for comment in self.comments:
+            yield ';' + comment
 
-    Parameters
-    ----------
-    tools : list
-        list of gerber file statements
+        yield 'M48'
+        yield 'METRIC' if settings.unit == 'mm' else 'INCH'
 
-    hits : list of tuples
-        list of drill hits as (<Tool>, (x, y))
+        # Build tool index
+        tools = set(obj.tool for obj in self.objects)
+        tools = sorted(tools, key=lambda tool: (tool.plated, tool.diameter, tool.depth_offset))
+        tools = { tool: index for index, tool in enumerate(tools, start=1) }
 
-    settings : dict
-        Dictionary of gerber file settings
+        if max(tools) >= 100:
+            warnings.warn('More than 99 tools defined. Some programs may not like three-digit tool indices.', SyntaxWarning)
 
-    filename : string
-        Filename of the source gerber file
+        for tool, index in tools.items():
+            yield f'T{index:02d}' + tool.to_xnc(settings)
 
-    Attributes
-    ----------
-    units : string
-        either 'inch' or 'metric'.
+        yield '%'
 
-    """
+        # Export objects
+        for obj in self.objects:
+            obj.to_xnc(ctx)
 
-    def __init__(self, statements, tools, hits, settings, filename=None):
-        super(ExcellonFile, self).__init__(statements=statements,
-                                           settings=settings,
-                                           filename=filename)
-        self.tools = tools
-        self.hits = hits
+        yield 'M30'
+
+    def to_excellon(self, settings=None):
+        ''' Export to Excellon format. This function always generates XNC, which is a well-defined subset of Excellon.
+        '''
+        if settings is None:
+            settings = self.import_settings.copy() or FileSettings()
+            settings.zeros = None
+            settings.number_format = (3,5)
+        return '\n'.join(self._generate_statements(settings))
+
+    def offset(self, x=0, y=0, unit=MM):
+        self.objects = [ obj.with_offset(x, y, unit) for obj in self.objects ]
+
+    def rotate(self, angle, cx=0, cy=0, unit=MM):
+        for obj in self.objects:
+            obj.rotate(angle, cx, cy, unit=unit)
 
     @property
-    def primitives(self):
-        """
-        Gets the primitives. Note that unlike Gerber, this generates new objects
-        """
-        primitives = []
-        for hit in self.hits:
-            if isinstance(hit, DrillHit):
-                primitives.append(Drill(hit.position, hit.tool.diameter,
-                                        units=self.settings.units))
-            elif isinstance(hit, DrillSlot):
-                primitives.append(Slot(hit.start, hit.end, hit.tool.diameter,
-                                       units=self.settings.units))
-            else:
-                raise ValueError('Unknown hit type')
-        return primitives
+    def has_mixed_plating(self):
+        return len(set(obj.plated for obj in self.objects)) > 1
+    
+    @property
+    def is_plated(self):
+        return all(obj.plated for obj in self.objects)
 
     @property
-    def bounding_box(self):
-        xmin = ymin = 100000000000
-        xmax = ymax = -100000000000
-        for hit in self.hits:
-            bbox = hit.bounding_box
-            xmin = min(bbox[0][0], xmin)
-            xmax = max(bbox[0][1], xmax)
-            ymin = min(bbox[1][0], ymin)
-            ymax = max(bbox[1][1], ymax)
-        return ((xmin, xmax), (ymin, ymax))
+    def is_nonplated(self):
+        return not any(obj.plated for obj in self.objects)
 
-    def report(self, filename=None):
-        """ Print or save drill report
-        """
-        if self.settings.units == 'inch':
-            toolfmt = '  T{:0>2d}      {:%d.%df}     {: >3d}     {:f}in.\n' % self.settings.format
-        else:
-            toolfmt = '  T{:0>2d}      {:%d.%df}     {: >3d}     {:f}mm\n' % self.settings.format
-        rprt = '=====================\nExcellon Drill Report\n=====================\n'
-        if self.filename is not None:
-            rprt += 'NC Drill File: %s\n\n' % self.filename
-        rprt += 'Drill File Info:\n----------------\n'
-        rprt += ('  Data Mode         %s\n' % 'Absolute'
-                 if self.settings.notation == 'absolute' else 'Incremental')
-        rprt += ('  Units             %s\n' % 'Inches'
-                 if self.settings.units == 'inch' else 'Millimeters')
-        rprt += '\nTool List:\n----------\n\n'
-        rprt += '  Code      Size     Hits    Path Length\n'
-        rprt += '  --------------------------------------\n'
-        for tool in iter(self.tools.values()):
-            rprt += toolfmt.format(tool.number, tool.diameter,
-                                   tool.hit_count, self.path_length(tool.number))
-        if filename is not None:
-            with open(filename, 'w') as f:
-                f.write(rprt)
-        return rprt
+    def empty(self):
+        return self.objects.empty()
 
-    def write(self, filename=None):
-        filename = filename if filename is not None else self.filename
-        with open(filename, 'w') as f:
+    def __len__(self):
+        return len(self.objects)
 
-            # Copy the header verbatim
-            for statement in self.statements:
-                if not isinstance(statement, ToolSelectionStmt):
-                    f.write(statement.to_excellon(self.settings) + '\n')
-                else:
-                    break
+    def split_by_plating(self):
+        plated, nonplated = ExcellonFile(self.filename), ExcellonFile(self.filename)
 
-            # Write out coordinates for drill hits by tool
-            for tool in iter(self.tools.values()):
-                f.write(ToolSelectionStmt(tool.number).to_excellon(self.settings) + '\n')
-                for hit in self.hits:
-                    if hit.tool.number == tool.number:
-                        f.write(CoordinateStmt(
-                            *hit.position).to_excellon(self.settings) + '\n')
-            f.write(EndOfProgramStmt().to_excellon() + '\n')
+        plated.comments = self.comments.copy()
+        plated.import_settings = self.import_settings.copy()
+        plated.objects = [ obj for obj in self.objects if obj.plated ]
 
-    def offset(self, x_offset=0, y_offset=0):
-        for statement in self.statements:
-            statement.offset(x_offset, y_offset)
-        for primitive in self.primitives:
-            primitive.offset(x_offset, y_offset)
-        for hit in self. hits:
-            hit.offset(x_offset, y_offset)
+        nonplated.comments = self.comments.copy()
+        nonplated.import_settings = self.import_settings.copy()
+        nonplated.objects = [ obj for obj in self.objects if not obj.plated ]
 
-    def path_length(self, tool_number=None):
-        """ Return the path length for a given tool
+        return nonplated, plated
+
+    def path_lengths(self, unit):
+        """ Calculate path lengths per tool.
+
+        Returns: dict { tool: float(path length) }
+
+        This function only sums actual cut lengths, and ignores travel lengths that the tool is doing without cutting to
+        get from one object to another. Travel lengths depend on the CAM program's path planning, which highly depends
+        on panelization and other factors. Additionally, an EDA tool will not even attempt to minimize travel distance
+        as that's not its job.
         """
         lengths = {}
-        positions = {}
-        for hit in self.hits:
-            tool = hit.tool
-            num = tool.number
-            positions[num] = ((0, 0) if positions.get(num) is None
-                              else positions[num])
-            lengths[num] = 0.0 if lengths.get(num) is None else lengths[num]
-            lengths[num] = lengths[
-                num] + math.hypot(*tuple(map(operator.sub, positions[num], hit.position)))
-            positions[num] = hit.position
+        tool = None
+        for obj in sorted(self.objects, key=lambda obj: obj.tool):
+            if tool != obj.tool:
+                tool = obj.tool
+                lengths[tool] = 0
 
-        if tool_number is None:
-            return lengths
-        else:
-            return lengths.get(tool_number)
+            lengths[tool] += obj.curve_length(unit)
+        return lengths
 
-    def hit_count(self, tool_number=None):
-        counts = {}
-        for tool in iter(self.tools.values()):
-            counts[tool.number] = tool.hit_count
-        if tool_number is None:
-            return counts
-        else:
-            return counts.get(tool_number)
-
-    def update_tool(self, tool_number, **kwargs):
-        """ Change parameters of a tool
-        """
-        if kwargs.get('feed_rate') is not None:
-            self.tools[tool_number].feed_rate = kwargs.get('feed_rate')
-        if kwargs.get('retract_rate') is not None:
-            self.tools[tool_number].retract_rate = kwargs.get('retract_rate')
-        if kwargs.get('rpm') is not None:
-            self.tools[tool_number].rpm = kwargs.get('rpm')
-        if kwargs.get('diameter') is not None:
-            self.tools[tool_number].diameter = kwargs.get('diameter')
-        if kwargs.get('max_hit_count') is not None:
-            self.tools[tool_number].max_hit_count = kwargs.get('max_hit_count')
-        if kwargs.get('depth_offset') is not None:
-            self.tools[tool_number].depth_offset = kwargs.get('depth_offset')
-        # Update drill hits
-        newtool = self.tools[tool_number]
-        for hit in self.hits:
-            if hit.tool.number == newtool.number:
-                hit.tool = newtool
+    def hit_count(self):
+        return Counter(obj.tool for obj in self.objects)
 
 class RegexMatcher:
     def __init__(self):
@@ -358,7 +207,6 @@ class ExcellonParser(object):
         self.pos = 0, 0
         self.drill_down = False
         self.is_plated = None
-        self.feed_rate = None
 
     @property
     def coordinates(self):
@@ -391,7 +239,7 @@ class ExcellonParser(object):
         return self.parse_raw(data, filename)
 
     def parse_raw(self, data, filename=None):
-        for line in StringIO(data):
+        for line in data.splitlines():
             self._parse_line(line.strip())
         for stmt in self.statements:
             stmt.units = self.units
@@ -424,32 +272,81 @@ class ExcellonParser(object):
 
     exprs = RegexMatcher()
 
-    @exprs.match(';(?P<comment>FILE_FORMAT=(?P<format>[0-9]:[0-9])|TYPE=(?P<plating>PLATED|NON_PLATED)|(?P<header>HEADER:)|.*(?P<tooldef> Holesize)|.*)')
-    def parse_comment(self, match):
+    # NOTE: These must be kept before the generic comment handler at the end of this class so they match first.
+    @exprs.match(';T(?P<index1>[0-9]+) Holesize (?P<index2>[0-9]+)\. = (?P<diameter>[0-9/.]+) Tolerance = \+[0-9/.]+/-[0-9/.]+ (?P<plated>PLATED|NON_PLATED|OPTIONAL) (?P<unit>MILS|MM) Quantity = [0-9]+')
+    def parse_allegro_tooldef(self, match)
+        # NOTE: We ignore the given tolerances here since they are non-standard.
+        self.program_state = ProgramState.HEADER # TODO is this needed? we need a test file.
 
-        # get format from altium comment
-        if (fmt := match['format']):
-            x, _, y = fmt.partition(':')
-            self.settings.number_format = int(x), int(y)
+        if (index := int(match['index1'])) != int(match['index2']): # index1 has leading zeros, index2 not.
+            raise SyntaxError('BUG: Allegro excellon tool def has mismatching tool indices. Please file a bug report on our issue tracker and provide this file!')
 
-        elif (plating := match('plating']):
-            self.is_plated = (plating == 'PLATED')
+        if index in self.tools:
+            warnings.warn('Re-definition of tool index {index}, overwriting old definition.', SyntaxWarning) 
 
-        elif match['header']:
-            self.program_state = ProgramState.HEADER
+        # NOTE: We map "optionally" plated holes to plated holes for API simplicity. If you hit a case where that's a
+        # problem, please raise an issue on our issue tracker, explain why you need this and provide an example file.
+        is_plated = None if match['plated'] is None else (match['plated'] in ('PLATED', 'OPTIONAL'))
 
-        elif match['tooldef']:
-            self.program_state = ProgramState.HEADER
+        diameter = float(match['diameter'])
 
-            # FIXME fix this code.
-            # Parse this as a hole definition
-            tools = ExcellonToolDefinitionParser(self.settings).parse_raw(comment_stmt.comment)
-            if len(tools) == 1:
-                tool = tools[tools.keys()[0]]
-                self._add_comment_tool(tool)
-
+        if match['unit'] == 'MILS':
+            diameter /= 1000
+            unit = Inch
         else:
-            target.comments.append(match['comment'].strip())
+            unit = MM
+
+        self.tools[index] = ExcellonTool(diameter=diameter, plated=is_plated, unit=unit)
+
+    # Searching Github I found that EasyEDA has two different variants of the unit specification here.
+    easyeda_comment = re.compile(';Holesize (?P<index>[0-9]+) = (?P<diameter>[.0-9]+) (?P<unit>INCH|inch|METRIC|mm)')
+    def parse_easyeda_tooldef(self, match):
+        unit = Inch if match['unit'].lower() == 'inch' else MM
+        tool = ExcellonTool(diameter=float(match['diameter']), unit=unit, plated=self.is_plated)
+
+        if (index := int(match['index'])) in self.tools:
+            warnings.warn('Re-definition of tool index {index}, overwriting old definition.', SyntaxWarning) 
+
+        tools[index] = tool
+
+    @exprs.match('T([0-9]+)(([A-Z][.0-9]+)+)') # Tool definition: T** with at least one parameter
+    def parse_tool_definition(self, match):
+        # We ignore parameters like feed rate or spindle speed that are not used for EDA -> CAM file transfer. This is
+        # not a parser for the type of Excellon files a CAM program sends to the machine.
+
+        if (index := int(match[1])) in self.tools:
+            warnings.warn('Re-definition of tool index {index}, overwriting old definition.', SyntaxWarning) 
+
+        params = { m[0]: settings.parse_gerber_value(m[1:]) for m in re.findall('[BCFHSTZ][.0-9]+', match[2]) }
+        self.tools[index] = ExcellonTool(diameter=params.get('C'), depth_offset=params.get('Z'), plated=self.is_plated)
+
+    @exprs.match('T([0-9]+)')
+    def parse_tool_selection(self, match):
+        index = int(match[1])
+
+        if index == 0: # T0 is used as END marker, just ignore
+            return
+        elif index not in self.tools:
+            raise SyntaxError(f'Undefined tool index {index} selected.')
+
+        self.active_tool = self.tools[index]
+
+    @exprs.match(r'R(?P<count>[0-9]+)' + xy_coord).match(line)
+    def handle_repeat_hole(self, match):
+        if self.program_state == ProgramState.HEADER:
+            return
+
+        dx = int(match['x'] or '0')
+        dy = int(match['y'] or '0')
+
+        for i in range(int(match['count'])):
+            self.pos[0] += dx
+            self.pos[1] += dy
+            # FIXME fix API below
+            if not self.ensure_active_tool():
+                return
+
+            self.objects.append(Flash(*self.pos, self.active_tool, unit=self.settings.unit))
 
     def header_command(fun):
         @functools.wraps(fun)
@@ -524,7 +421,6 @@ class ExcellonParser(object):
     def handle_start_routing(self, match):
         if self.program_state is None:
             warnings.warn('Routing mode command found before header.', SyntaxWarning)
-        self.cutter_compensation = None
         self.program_state = ProgramState.ROUTING
         self.do_move(match)
 
@@ -545,50 +441,79 @@ class ExcellonParser(object):
         if self.active_tool:
             return self.active_tool
         
-        if (self.active_tool := self.tools.get(1)):
+        if (self.active_tool := self.tools.get(1)): # FIXME is this necessary? It seems pretty dumb.
             return self.active_tool
 
         warnings.warn('Routing command found before first tool definition.', SyntaxWarning)
         return None
 
-    @exprs.match('(?P<mode>G01|G02|G03)' + xy_coord + aij_coord):
-    def handle_linear_mode(self, match)
+    @exprs.match('(?P<mode>G01|G02|G03)' + xy_coord + aij_coord)
+    def handle_linear_mode(self, match):
+        if match['mode'] == 'G01':
+            self.interpolation_mode = InterpMode.LINEAR
+        else:
+            clockwise = (match['mode'] == 'G02')
+            self.interpolation_mode = InterpMode.CIRCULAR_CW if clockwise else InterpMode.CIRCULAR_CCW
+
+        self.do_interpolation(match)
+    
+    def do_interpolation(self, match):
         x, y, a, i, j = match['x'], match['y'], match['a'], match['i'], match['j']
 
         start, end = self.do_move(match)
 
-        if match['mode'] == 'G01':
-            self.interpolation_mode = InterpMode.LINEAR
+        # Yes, drills in the header doesn't follow the specification, but it there are many files like this
+        if self.program_state not in (ProgramState.DRILLING, ProgramState.HEADER):
+            return
+
+        if not self.drill_down or not (match['x'] or match['y']) or not self.ensure_active_tool():
+            return
+
+        if self.interpolation_mode == InterpMode.LINEAR:
             if a or i or j:
                 warnings.warn('A/I/J arc coordinates found in linear mode.', SyntaxWarning)
 
+            self.objects.append(Line(*start, *end, self.active_tool, unit=self.settings.unit))
+
         else:
-            self.interpolation_mode = InterpMode.CIRCULAR_CW if match['mode'] == 'G02' else InterpMode.CIRCULAR_CCW
-            
             if (x or y) and not (a or i or j):
                 warnings.warn('Arc without radius found.', SyntaxWarning)
 
-            if a and (i or j):
-                warnings.warn('Arc without both radius and center specified.', SyntaxWarning)
+            clockwise = (self.interpolation_mode == InterpMode.CIRCULAR_CW)
+            
+            if a:
+                if i or j:
+                    warnings.warn('Arc without both radius and center specified.', SyntaxWarning)
 
-        if self.drill_down:
-            if not self.ensure_active_tool():
-                return
+                r = settings.parse_gerber_value(a)
+                # from https://math.stackexchange.com/a/1781546
+                x1, y1 = start
+                x2, y2 = end
+                dx, dy = (x2-x1)/2, (y2-y1)/2
+                x0, y0 = x1+dx, y1+dy
+                f = math.hypot(dx, dy) / math.sqrt(r**2 - a**2)
+                if clockwise:
+                    cx = x0 + f*dy
+                    cy = y0 - f*dx
+                else:
+                    cx = x0 - f*dy
+                    cy = y0 + f*dx
+                i, j = cx-start[0], cy-start[1]
+            else:
+                i = settings.parse_gerber_value(i)
+                j = settings.parse_gerber_value(j)
 
-            # FIXME handle arcs
-            # FIXME fix the API below
-            self.hits.append(DrillSlot(self.active_tool, start, end, DrillSlot.TYPE_ROUT))
-            self.active_tool._hit()
+            self.objects.append(Arc(*start, *end, i, j, True, self.active_tool, unit=self.settings.unit))
 
-    @exprs.match('M71')
+    @exprs.match('M71|METRIC') # XNC uses "METRIC"
     @header_command
     def handle_metric_mode(self, match):
-        self.settings.unit = 'mm'
+        self.settings.unit = MM
 
-    @exprs.match('M72')
+    @exprs.match('M72|INCH') # XNC uses "INCH"
     @header_command
     def handle_inch_mode(self, match):
-        self.settings.unit = 'inch'
+        self.settings.unit = Inch
     
     @exprs.match('G90')
     @header_command
@@ -607,111 +532,42 @@ class ExcellonParser(object):
         if match[2] not in ('', '2'):
             raise SyntaxError(f'Unsupported FMAT format version {match["version"]}')
 
-    @exprs.match('G40')
-    def handle_cutter_comp_off(self, match):
-        self.cutter_compensation = None
-
-    @exprs.match('G41')
-    def handle_cutter_comp_off(self, match):
-        self.cutter_compensation = 'left'
-
-    @exprs.match('G42')
-    def handle_cutter_comp_off(self, match):
-        self.cutter_compensation = 'right'
-
-    @exprs.match(coord('F'))
-    def handle_feed_rate(self):
-        self.feed_rate = self.settings.parse_gerber_value(match['F'])
-
-    @exprs.match('T([0-9]+)(([A-Z][.0-9]+)+)') # Tool definition: T** with at least one parameter
-    def parse_tool_definition(self, match):
-        params = { m[0]: settings.parse_gerber_value(m[1:]) for m in re.findall('[BCFHSTZ][.0-9]+', match[2]) }
-        tool = ExcellonTool(
-                retract_rate    = params.get('B'),
-                diameter        = params.get('C'),
-                feed_rate       = params.get('F'),
-                max_hit_count   = params.get('H'),
-                rpm             = 1000 * params.get('S'),
-                depth_offset    = params.get('Z'),
-                plated          = self.plated)
-
-        self.tools[int(match[1])] = tool
-
-    @exprs.match('T([0-9]+)')
-    def parse_tool_selection(self, match):
-        index = int(match[1])
-
-        if index == 0: # T0 is used as END marker, just ignore
-            return
-
-        if (tool := self.tools.get(index)):
-            self.active_tool = tool
-            return
-
-        # This is a nasty hack for weird files with no tools defined.
-        # Calculate tool radius from tool index.
-        dia = (16 + 8 * index) / 1000.0
-        if self.settings.unit == 'mm':
-            dia *= 25.4
-
-        # FIXME fix 'ExcellonTool' API below
-        self.tools[index] = ExcellonTool( self._settings(), number=stmt.tool, diameter=diameter)
-
-    @exprs.match(r'R(?P<count>[0-9]+)' + xy_coord).match(line)
-    def handle_repeat_hole(self, match):
-        if self.program_state == ProgramState.HEADER:
-            return
-
-        dx = int(match['x'] or '0')
-        dy = int(match['y'] or '0')
-
-        for i in range(int(match['count'])):
-            self.pos[0] += dx
-            self.pos[1] += dy
-            # FIXME fix API below
-            if not self.ensure_active_tool():
-                return
-
-            self.hits.append(DrillHit(self.active_tool, tuple(self.pos)))
-            self.active_tool._hit()
+    @exprs.match('G40|G41|G42|{coord("F")}')
+    def handle_unhandled(self, match):
+        warnings.warn(f'{match[0]} excellon command intended for CAM tools found in EDA file.', SyntaxWarning)
 
     @exprs.match(coord('X', 'x1') + coord('Y', 'y1') + 'G85' + coord('X', 'x2') + coord('Y', 'y2'))
     def handle_slot_dotted(self, match):
+        warnings.warn('Weird G85 excellon slot command used. Please raise an issue on our issue tracker and provide this file for testing.', SyntaxWarning)
         self.do_move(match, 'X1', 'Y1')
         start, end = self.do_move(match, 'X2', 'Y2')
         
         if self.program_state in (ProgramState.DRILLING, ProgramState.HEADER): # FIXME should we realy handle this in header?
-            # FIXME fix API below
-            if not self.ensure_active_tool():
-                return
-
-            self.hits.append(DrillSlot(self.active_tool, start, end, DrillSlot.TYPE_G85))
-            self.active_tool._hit()
-
+            if self.ensure_active_tool():
+                # We ignore whether a slot is a "routed" G00/G01 slot or a "drilled" G85 slot and export both as routed
+                # slots.
+                self.objects.append(Line(*start, *end, self.active_tool, unit=self.settings.unit))
 
     @exprs.match(xy_coord)
     def handle_naked_coordinate(self, match):
-        start, end = self.do_move(match)
+        self.do_interpolation(match)
 
-        # FIXME handle arcs
+    @exprs.match(';FILE_FORMAT=([0-9]:[0-9])')
+    def parse_altium_number_format_comment(self, match):
+        x, _, y = fmt.partition(':')
+        self.settings.number_format = int(x), int(y)
 
-        # FIXME is this logic correct? Shouldn't we check program_state first, then interpolation_mode?
-        if self.interpolation_mode == InterpMode.LINEAR and self.drill_down:
-            # FIXME fix API below
-            if not self.ensure_active_tool():
-                return
+    @exprs.match(';TYPE=(PLATED|NON_PLATED)')
+    def parse_altium_composite_plating_comment(self, match):
+        # These can happen both before a tool definition and before a tool selection statement.
+        # FIXME make sure we do the right thing in both cases.
+        self.is_plated = (match[1] == 'PLATED')
+    
+    @exprs.match(';HEADER:')
+    def parse_allegro_start_of_header(self, match):
+        self.program_state = ProgramState.HEADER
 
-            self.hits.append(DrillSlot(self.active_tool, start, end, DrillSlot.TYPE_ROUT))
-
-        # Yes, drills in the header doesn't follow the specification, but it there are many files like this
-        elif self.program_state in (ProgramState.DRILLING, ProgramState.HEADER):
-            # FIXME fix API below
-            if not self.ensure_active_tool():
-                return
-
-            self.hits.append(DrillHit(self.active_tool, end))
-            self.active_tool._hit()
-
-        else:
-            warnings.warn('Found unexpected coordinate', SyntaxWarning)
+    @exprs.match(';(.*)')
+    def parse_comment(self, match)
+        target.comments.append(match[1].strip())
 

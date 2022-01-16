@@ -21,6 +21,8 @@ Gerber (RS-274X) Statements
 
 """
 
+# FIXME make this entire file obsolete and just return strings from graphical objects directly instead
+
 def convert(value, src, dst):
         if src == dst or src is None or dst is None or value is None:
             return value

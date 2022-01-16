@@ -82,10 +82,11 @@ class GerberFile(CamFile):
     """
 
     def __init__(self, filename=None):
-        super(GerberFile, self).__init__(filename)
+        super().__init__(filename)
         self.apertures = []
         self.comments = []
         self.objects = []
+        self.import_settings = None
 
     def to_svg(self, tag=Tag, margin=0, arg_unit='mm', svg_unit='mm', force_bounds=None, color='black'):
 

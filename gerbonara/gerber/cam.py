@@ -92,8 +92,11 @@ class FileSettings:
         else: # no or trailing zero suppression
             return float(sign + value[:integer_digits] + '.' + value[integer_digits:])
 
-    def write_gerber_value(self, value):
+    def write_gerber_value(self, value, unit=None):
         """ Convert a floating point number to a Gerber/Excellon-formatted string.  """
+
+        if unit is not None:
+            value = self.unit.from(unit, value)
         
         integer_digits, decimal_digits = self.number_format
 
