@@ -35,20 +35,12 @@ import textwrap
 
 from .gerber_statements import *
 from .cam import CamFile, FileSettings
-from .utils import sq_distance, rotate_point
+from .utils import sq_distance, rotate_point, MM, Inch, units
 from .aperture_macros.parse import ApertureMacro, GenericMacros
 from . import graphic_primitives as gp
 from . import graphic_objects as go
 from . import apertures
 
-
-def convert(value, src, dst):
-        if src == dst or src is None or dst is None or value is None:
-            return value
-        elif dst == 'mm':
-            return value * 25.4
-        else:
-            return value / 25.4
 
 def points_close(a, b):
     if a == b:
@@ -88,19 +80,19 @@ class GerberFile(CamFile):
         self.objects = []
         self.import_settings = None
 
-    def to_svg(self, tag=Tag, margin=0, arg_unit='mm', svg_unit='mm', force_bounds=None, color='black'):
+    def to_svg(self, tag=Tag, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, color='black'):
 
         if force_bounds is None:
             (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
         else:
             (min_x, min_y), (max_x, max_y) = force_bounds
-            min_x = convert(min_x, arg_unit, svg_unit)
-            min_y = convert(min_y, arg_unit, svg_unit)
-            max_x = convert(max_x, arg_unit, svg_unit)
-            max_y = convert(max_y, arg_unit, svg_unit)
+            min_x = arg_unit.to(svg_unit, min_x)
+            min_y = arg_unit.to(svg_unit, min_y)
+            max_x = arg_unit.to(svg_unit, max_x)
+            max_y = arg_unit.to(svg_unit, max_y)
 
         if margin:
-            margin = convert(margin, arg_unit, svg_unit)
+            margin = arg_unit.to(svg_unit, margin)
             min_x -= margin
             min_y -= margin
             max_x += margin
@@ -164,7 +156,7 @@ class GerberFile(CamFile):
             macro.name = new_name
             seen_macro_names.add(new_name)
 
-    def dilate(self, offset, unit='mm', polarity_dark=True):
+    def dilate(self, offset, unit=MM, polarity_dark=True):
 
         self.apertures = [ aperture.dilated(offset, unit) for aperture in self.apertures ]
 
@@ -204,11 +196,11 @@ class GerberFile(CamFile):
         GerberParser(obj, include_dir=enable_include_dir).parse(data)
         return obj
 
-    def size(self, unit='mm'):
+    def size(self, unit=MM):
         (x0, y0), (x1, y1) = self.bounding_box(unit, default=((0, 0), (0, 0)))
         return (x1 - x0, y1 - y0)
 
-    def bounding_box(self, unit='mm', default=None):
+    def bounding_box(self, unit=MM, default=None):
         """ Calculate bounding box of file. Returns value given by 'default' argument when there are no graphical
         objects (default: None)
         """
@@ -279,12 +271,12 @@ class GerberFile(CamFile):
             settings.number_format = (5,6)
         return '\n'.join(stmt.to_gerber(settings) for stmt in self.generate_statements())
 
-    def offset(self, dx=0,  dy=0, unit='mm'):
+    def offset(self, dx=0,  dy=0, unit=MM):
         # TODO round offset to file resolution
     
         self.objects = [ obj.with_offset(dx, dy, unit) for obj in self.objects ]
 
-    def rotate(self, angle:'radian', center=(0,0), unit='mm'):
+    def rotate(self, angle:'radian', center=(0,0), unit=MM):
         """ Rotate file contents around given point.
 
             Arguments:
@@ -452,12 +444,13 @@ class GraphicsState:
 
     def update_point(self, x, y, unit=None):
         old_point = self.point
+        x, y = MM.from(unit, x), MM.from(unit, y)
+
         if x is None:
             x = self.point[0]
         if y is None:
             y = self.point[1]
-        if unit == 'inch':
-            x, y = x*25.4, y*25.4
+
         self.point = (x, y)
         return old_point
 
@@ -473,11 +466,8 @@ class GraphicsState:
             yield ApertureStmt(self.aperture_map[id(aperture)])
 
     def set_current_point(self, point, unit=None):
+        point_mm = MM.from(unit, point[0]), MM.from(unit, point[1])
         # TODO calculate appropriate precision for math.isclose given file_settings.notation
-        if unit == 'inch':
-            point_mm = point[0]*25.4, point[1]*25.4
-        else:
-            point_mm = point
 
         if not points_close(self.point, point_mm):
             self.point = point_mm
@@ -716,9 +706,9 @@ class GerberParser:
 
     def _parse_unit_mode(self, match):
         if match['unit'] == 'MM':
-            self.file_settings.unit = 'mm'
+            self.file_settings.unit = MM
         else:
-            self.file_settings.unit = 'inch'
+            self.file_settings.unit = Inch
 
     def _parse_load_polarity(self, match):
         self.graphics_state.polarity_dark = match['polarity'] == 'D'
@@ -754,17 +744,14 @@ class GerberParser:
         self.include_stack.pop()
 
     def _parse_image_name(self, match):
-        warnings.warn('Deprecated IN (image name) statement found. This deprecated since rev. I4 (Oct 2013).',
-                DeprecationWarning)
+        warnings.warn('Deprecated IN (image name) statement found. This deprecated since rev. I4 (Oct 2013).', DeprecationWarning)
         self.target.comments.append(f'Image name: {match["name"]}')
 
     def _parse_load_name(self, match):
-        warnings.warn('Deprecated LN (load name) statement found. This deprecated since rev. I4 (Oct 2013).',
-                DeprecationWarning)
+        warnings.warn('Deprecated LN (load name) statement found. This deprecated since rev. I4 (Oct 2013).', DeprecationWarning)
 
     def _parse_axis_selection(self, match):
-        warnings.warn('Deprecated AS (axis selection) statement found. This deprecated since rev. I1 (Dec 2012).',
-                DeprecationWarning)
+        warnings.warn('Deprecated AS (axis selection) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
         self.graphics_state.output_axes = match['axes']
 
     def _parse_image_polarity(self, match):
@@ -774,18 +761,15 @@ class GerberParser:
         self.graphics_state.image_polarity = dict(POS='positive', NEG='negative')[match['polarity']]
     
     def _parse_image_rotation(self, match):
-        warnings.warn('Deprecated IR (image rotation) statement found. This deprecated since rev. I1 (Dec 2012).',
-                DeprecationWarning)
+        warnings.warn('Deprecated IR (image rotation) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
         self.graphics_state.image_rotation = int(match['rotation'])
 
     def _parse_mirror_image(self, match):
-        warnings.warn('Deprecated MI (mirror image) statement found. This deprecated since rev. I1 (Dec 2012).',
-                DeprecationWarning)
+        warnings.warn('Deprecated MI (mirror image) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
         self.graphics_state.mirror = bool(int(match['a'] or '0')), bool(int(match['b'] or '1'))
 
     def _parse_scale_factor(self, match):
-        warnings.warn('Deprecated SF (scale factor) statement found. This deprecated since rev. I1 (Dec 2012).',
-                DeprecationWarning)
+        warnings.warn('Deprecated SF (scale factor) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
         a = float(match['a']) if match['a'] else 1.0
         b = float(match['b']) if match['b'] else 1.0
         self.graphics_state.scale_factor = a, b
@@ -807,16 +791,14 @@ class GerberParser:
         self.current_region = None
 
     def _parse_old_unit(self, match):
-        self.file_settings.unit = 'inch' if match['mode'] == 'G70' else 'mm'
-        warnings.warn(f'Deprecated {match["mode"]} unit mode statement found. This deprecated since 2012.',
-                    DeprecationWarning)
+        self.file_settings.unit = Inch if match['mode'] == 'G70' else MM
+        warnings.warn(f'Deprecated {match["mode"]} unit mode statement found. This deprecated since 2012.', DeprecationWarning)
         self.target.comments.append('Replaced deprecated {match["mode"]} unit mode statement with MO statement')
 
     def _parse_old_notation(self, match):
         # FIXME make sure we always have FS at end of processing.
         self.file_settings.notation = 'absolute' if match['mode'] == 'G90' else 'incremental'
-        warnings.warn(f'Deprecated {match["mode"]} notation mode statement found. This deprecated since 2012.',
-                    DeprecationWarning)
+        warnings.warn(f'Deprecated {match["mode"]} notation mode statement found. This deprecated since 2012.', DeprecationWarning)
         self.target.comments.append('Replaced deprecated {match["mode"]} notation mode statement with FS statement')
     
     def _parse_eof(self, _match):

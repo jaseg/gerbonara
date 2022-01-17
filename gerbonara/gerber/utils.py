@@ -110,39 +110,6 @@ def validate_coordinates(position):
                 if not (isinstance(coord, int) or isinstance(coord, float)):
                     raise TypeError('Coordinates must be integers or floats')
 
-
-def metric(value):
-    """ Convert inch value to millimeters
-
-    Parameters
-    ----------
-    value : float
-        A value in inches.
-
-    Returns
-    -------
-    value : float
-        The equivalent value expressed in millimeters.
-    """
-    return value * MILLIMETERS_PER_INCH
-
-
-def inch(value):
-    """ Convert millimeter value to inches
-
-    Parameters
-    ----------
-    value : float
-        A value in millimeters.
-
-    Returns
-    -------
-    value : float
-        The equivalent value expressed in inches.
-    """
-    return value / MILLIMETERS_PER_INCH
-
-
 def rotate_point(point, angle, center=(0.0, 0.0)):
     """ Rotate a point about another point.
 
@@ -182,12 +149,4 @@ def sq_distance(point1, point2):
     diff1 = point1[0] - point2[0]
     diff2 = point1[1] - point2[1]
     return diff1 * diff1 + diff2 * diff2
-
-def convert_units(value, src, dst):
-        if src == dst or src is None or dst is None or value is None:
-            return value
-        elif dst == 'mm':
-            return value * 25.4
-        else:
-            return value / 25.4
 

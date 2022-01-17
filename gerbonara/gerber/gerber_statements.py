@@ -23,14 +23,6 @@ Gerber (RS-274X) Statements
 
 # FIXME make this entire file obsolete and just return strings from graphical objects directly instead
 
-def convert(value, src, dst):
-        if src == dst or src is None or dst is None or value is None:
-            return value
-        elif dst == 'mm':
-            return value * 25.4
-        else:
-            return value / 25.4
-
 class Statement:
     pass
 
@@ -128,7 +120,7 @@ class CoordStmt(Statement):
     def to_gerber(self, settings=None):
         ret = ''
         for var in 'xyij':
-            val = convert(getattr(self, var), self.unit, settings.unit)
+            val = self.unit.to(settings.unit, getattr(self, var))
             if val is not None:
                 ret += var.upper() + settings.write_gerber_value(val)
         return ret + self.code + '*'

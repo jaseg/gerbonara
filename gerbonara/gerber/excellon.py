@@ -75,7 +75,7 @@ class ExcellonFile(CamFile):
             yield ';' + comment
 
         yield 'M48'
-        yield 'METRIC' if settings.unit == 'mm' else 'INCH'
+        yield 'METRIC' if settings.unit == MM else 'INCH'
 
         # Build tool index
         tools = set(obj.tool for obj in self.objects)
@@ -166,6 +166,22 @@ class ExcellonFile(CamFile):
     def hit_count(self):
         return Counter(obj.tool for obj in self.objects)
 
+    def drill_sizes(self):
+        return sorted({ obj.tool.diameter for obj in self.objects })
+
+    @property
+    def bounds(self):
+        if not self.objects:
+            return None
+
+        (x_min, y_min), (x_max, y_max) = self.objects[0].bounding_box()
+        for obj in self.objects:
+            (obj_x_min, obj_y_min), (obj_x_max, obj_y_max) = self.objects[0].bounding_box()
+            x_min, y_min = min(x_min, obj_x_min), min(y_min, obj_y_min)
+            x_max, y_max = max(x_max, obj_x_max), max(y_max, obj_y_max)
+
+        return ((x_min, y_min), (x_max, y_max))
+
 class RegexMatcher:
     def __init__(self):
         self.mapping = {}
@@ -195,14 +211,18 @@ class InterpMode(Enum):
 
 
 class ExcellonParser(object):
-    def __init__(self):
-        self.settings = FileSettings(number_format=(2,4))
+    def __init__(self, settings=None):
+        # NOTE XNC files do not contain an explicit number format specification, but all values have decimal points.
+        # Thus, we set the default number format to (None, None). If the file does not contain an explicit specification
+        # and FileSettings.parse_gerber_value encounters a number without an explicit decimal point, it will throw a
+        # SyntaxError. In case of e.g. Allegro files where the number format and other options are specified separately
+        # from the excellon file, the caller must pass in an already filled-out FileSettings object.
+        if settings is None:
+            self.settings = FileSettings(number_format=(None, None))
         self.program_state = None
         self.interpolation_mode = InterpMode.LINEAR
-        self.statements = []
         self.tools = {}
-        self.comment_tools = {}
-        self.hits = []
+        self.objects = []
         self.active_tool = None
         self.pos = 0, 0
         self.drill_down = False
@@ -212,38 +232,10 @@ class ExcellonParser(object):
     def coordinates(self):
         return [(stmt.x, stmt.y) for stmt in self.statements if isinstance(stmt, CoordinateStmt)]
 
-    @property
-    def bounds(self):
-        xmin = ymin = 100000000000
-        xmax = ymax = -100000000000
-        for x, y in self.coordinates:
-            if x is not None:
-                xmin = x if x < xmin else xmin
-                xmax = x if x > xmax else xmax
-            if y is not None:
-                ymin = y if y < ymin else ymin
-                ymax = y if y > ymax else ymax
-        return ((xmin, xmax), (ymin, ymax))
-
-    @property
-    def hole_sizes(self):
-        return [stmt.diameter for stmt in self.statements if isinstance(stmt, ExcellonTool)]
-
-    @property
-    def hole_count(self):
-        return len(self.hits)
-
     def parse(self, filename):
         with open(filename, 'r') as f:
             data = f.read()
         return self.parse_raw(data, filename)
-
-    def parse_raw(self, data, filename=None):
-        for line in data.splitlines():
-            self._parse_line(line.strip())
-        for stmt in self.statements:
-            stmt.units = self.units
-        return ExcellonFile(self.statements, self.tools, self.hits, self.settings, filename)
 
     def parse(self, filelike):
         leftover = None
@@ -481,12 +473,14 @@ class ExcellonParser(object):
 
             clockwise = (self.interpolation_mode == InterpMode.CIRCULAR_CW)
             
-            if a:
+            if a: # radius given
                 if i or j:
                     warnings.warn('Arc without both radius and center specified.', SyntaxWarning)
 
-                r = settings.parse_gerber_value(a)
+                # Convert endpoint-radius-endpoint notation to endpoint-center-endpoint notation. We always use the
+                # smaller arc here.
                 # from https://math.stackexchange.com/a/1781546
+                r = settings.parse_gerber_value(a)
                 x1, y1 = start
                 x2, y2 = end
                 dx, dy = (x2-x1)/2, (y2-y1)/2
@@ -499,7 +493,8 @@ class ExcellonParser(object):
                     cx = x0 - f*dy
                     cy = y0 + f*dx
                 i, j = cx-start[0], cy-start[1]
-            else:
+
+            else: # explicit center given
                 i = settings.parse_gerber_value(i)
                 j = settings.parse_gerber_value(j)
 
@@ -514,6 +509,15 @@ class ExcellonParser(object):
     @header_command
     def handle_inch_mode(self, match):
         self.settings.unit = Inch
+
+    @exprs.match('(METRIC|INCH),(LZ|TZ)(0*\.0*)?')
+    def parse_easyeda_format(self, match):
+        self.settings.unit = MM if match[1] == 'METRIC' else Inch
+        self.settings.zeros = 'leading' if match[2] == 'LZ' else 'trailing'
+        # Newer EasyEDA exports have this in an altium-like FILE_FORMAT comment instead. Some files even have both.
+        if match[3]:
+            integer, _, fractional = match[3].partition('.')
+            self.settings.number_format = len(integer), len(fractional)
     
     @exprs.match('G90')
     @header_command
@@ -553,9 +557,16 @@ class ExcellonParser(object):
         self.do_interpolation(match)
 
     @exprs.match(';FILE_FORMAT=([0-9]:[0-9])')
-    def parse_altium_number_format_comment(self, match):
+    def parse_altium_easyeda_number_format_comment(self, match):
+        # Altium or newer EasyEDA exports
         x, _, y = fmt.partition(':')
         self.settings.number_format = int(x), int(y)
+
+    @exprs.match(';Layer: (.*)')
+    def parse_easyeda_layer_name(self, match):
+        # EasyEDA embeds the layer name in a comment. EasyEDA uses separate files for plated/non-plated. The (default?)
+        # layer names are: "Drill PTH", "Drill NPTH"
+        self.is_plated = 'NPTH' not in match[1]
 
     @exprs.match(';TYPE=(PLATED|NON_PLATED)')
     def parse_altium_composite_plating_comment(self, match):

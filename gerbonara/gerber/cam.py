@@ -80,6 +80,8 @@ class FileSettings:
 
         # Format precision
         integer_digits, decimal_digits = self.number_format
+        if integer_digits is None or decimal_digits is None:
+            raise SyntaxError('No number format set and value does not contain a decimal point')
 
         # Remove extraneous information
         sign = '-' if value[0] == '-' else ''
@@ -99,6 +101,10 @@ class FileSettings:
             value = self.unit.from(unit, value)
         
         integer_digits, decimal_digits = self.number_format
+        if integer_digits is None:
+            integer_digits = 3
+        if decimal_digits is None:
+            decimal_digits = 3
 
         # negative sign affects padding, so deal with it at the end...
         sign = '-' if value < 0 else ''

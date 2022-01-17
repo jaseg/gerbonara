@@ -7,8 +7,7 @@ import operator
 import re
 import ast
 
-
-MILLIMETERS_PER_INCH = 25.4
+from ..utils import MM, Inch, MILLIMETERS_PER_INCH
 
 
 def expr(obj):
@@ -81,10 +80,10 @@ class UnitExpression(Expression):
         if self.unit is None or unit is None or self.unit == unit:
             return self._expr
 
-        elif unit == 'mm':
+        elif unit == MM:
             return self._expr * MILLIMETERS_PER_INCH
 
-        elif unit == 'inch':
+        elif unit == Inch:
             return self._expr / MILLIMETERS_PER_INCH
 
         else:

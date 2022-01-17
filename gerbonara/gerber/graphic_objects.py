@@ -10,7 +10,7 @@ from .gerber_statements import *
 def convert(value, src, dst):
         if src == dst or src is None or dst is None or value is None:
             return value
-        elif dst == 'mm':
+        elif dst == MM:
             return value * 25.4
         else:
             return value / 25.4
@@ -27,20 +27,15 @@ class GerberObject:
 
     def converted(self, unit):
         return replace(self, 
-                **{
-                    f.name: convert(getattr(self, f.name), self.unit, unit)
-                    for f in fields(self) if type(f.type) is Length
-                    })
+                **{ f.name: self.unit.to(unit, getattr(self, f.name))
+                    for f in fields(self) if type(f.type) is Length })
 
-    def _conv(self, value, unit):
-        return convert(value, src=unit, dst=self.unit)
-
-    def with_offset(self, dx, dy, unit='mm'):
-        dx, dy = self._conv(dx, unit), self._conv(dy, unit)
+    def with_offset(self, dx, dy, unit=MM):
+        dx, dy = self.unit.from(unit, dx), self.unit.from(unit, dy)
         return self._with_offset(dx, dy)
 
-    def rotate(self, rotation, cx=0, cy=0, unit='mm'):
-        cx, cy = self._conv(cx, unit), self._conv(cy, unit)
+    def rotate(self, rotation, cx=0, cy=0, unit=MM):
+        cx, cy = self.unit.from(unit, cx), self.unit.from(unit, cy)
         self._rotate(rotation, cx, cy)
 
     def bounding_box(self, unit=None):
@@ -138,9 +133,10 @@ class Region(GerberObject):
         if unit == self.unit:
             yield self.poly
         else:
-            conv_outline = [ (convert(x, self.unit, unit), convert(y, self.unit, unit))
+            to = lambda value: self.unit.to(unit, value)
+            conv_outline = [ (to(x), to(y))
                     for x, y in self.poly.outline ]
-            convert_entry = lambda entry: (entry[0], (convert(entry[1][0], self.unit, unit), convert(entry[1][1], self.unit, unit)))
+            convert_entry = lambda entry: (entry[0], (to(entry[1][0]), to(entry[1][1])))
             conv_arc = [ None if entry is None else convert_entry(entry) for entry in self.poly.arc_centers ]
 
             yield gp.ArcPoly(conv_outline, conv_arc)

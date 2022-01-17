@@ -11,6 +11,7 @@ import math
 
 from . import primitive as ap
 from .expression import *
+from ..utils import MM
 
 def rad_to_deg(x):
     return (x / math.pi) * 180
@@ -98,7 +99,7 @@ class ApertureMacro:
     def __hash__(self):
         return hash(self.to_gerber())
 
-    def dilated(self, offset, unit='mm'):
+    def dilated(self, offset, unit=MM):
         dup = copy.deepcopy(self)
         new_primitives = []
         for primitive in dup.primitives:

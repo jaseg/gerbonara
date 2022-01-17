@@ -21,14 +21,6 @@ def point_distance(a, b):
 def deg_to_rad(a):
     return (a / 180) * math.pi
 
-def convert(value, src, dst):
-        if src == dst or src is None or dst is None or value is None:
-            return value
-        elif dst == 'mm':
-            return value * 25.4
-        else:
-            return value / 25.4
-
 class Primitive:
     def __init__(self, unit, args):
         self.unit = unit
