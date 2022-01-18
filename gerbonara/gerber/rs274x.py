@@ -86,13 +86,13 @@ class GerberFile(CamFile):
             (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
         else:
             (min_x, min_y), (max_x, max_y) = force_bounds
-            min_x = arg_unit.to(svg_unit, min_x)
-            min_y = arg_unit.to(svg_unit, min_y)
-            max_x = arg_unit.to(svg_unit, max_x)
-            max_y = arg_unit.to(svg_unit, max_y)
+            min_x = svg_unit(min_x, arg_unit)
+            min_y = svg_unit(min_y, arg_unit)
+            max_x = svg_unit(max_x, arg_unit)
+            max_y = svg_unit(max_y, arg_unit)
 
         if margin:
-            margin = arg_unit.to(svg_unit, margin)
+            margin = svg_unit(margin, arg_unit)
             min_x -= margin
             min_y -= margin
             max_x += margin
@@ -444,7 +444,7 @@ class GraphicsState:
 
     def update_point(self, x, y, unit=None):
         old_point = self.point
-        x, y = MM.from(unit, x), MM.from(unit, y)
+        x, y = MM(x, unit), MM(y, unit)
 
         if x is None:
             x = self.point[0]
@@ -466,7 +466,7 @@ class GraphicsState:
             yield ApertureStmt(self.aperture_map[id(aperture)])
 
     def set_current_point(self, point, unit=None):
-        point_mm = MM.from(unit, point[0]), MM.from(unit, point[1])
+        point_mm = MM(point[0], unit), MM(point[1], unit)
         # TODO calculate appropriate precision for math.isclose given file_settings.notation
 
         if not points_close(self.point, point_mm):

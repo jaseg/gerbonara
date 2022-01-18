@@ -98,7 +98,7 @@ class FileSettings:
         """ Convert a floating point number to a Gerber/Excellon-formatted string.  """
 
         if unit is not None:
-            value = self.unit.from(unit, value)
+            value = self.unit(value, unit)
         
         integer_digits, decimal_digits = self.number_format
         if integer_digits is None:

@@ -18,16 +18,18 @@
 import math
 import operator
 import warnings
+import functools
 from enum import Enum
 from dataclasses import dataclass
 from collections import Counter
 
 from .cam import CamFile, FileSettings
-from .excellon_statements import *
-from .graphic_objects import Drill, Slot
+from .graphic_objects import Flash, Line, Arc
 from .apertures import ExcellonTool
 from .utils import Inch, MM
 
+def parse(data, settings=None):
+    return ExcellonFile.parse(data, settings=settings)
 
 class ExcellonContext:
     def __init__(self, settings, tools):
@@ -48,7 +50,7 @@ class ExcellonContext:
             yield 'G05'
 
     def route_mode(self, unit, x, y):
-        x, y = self.unit.from(unit, x), self.unit.from(unit, y)
+        x, y = self.unit(x, unit), self.unit(y, unit)
 
         if self.mode == ProgramState.ROUTING and (self.x, self.y) == (x, y):
             return # nothing to do
@@ -56,15 +58,15 @@ class ExcellonContext:
         yield 'G00' + 'X' + self.settings.write_gerber_value(x) + 'Y' + self.settings.write_gerber_value(y)
 
     def set_current_point(self, unit, x, y):
-        self.current_point = self.unit.from(unit, x), self.unit.from(unit, y)
+        self.current_point = self.unit(x, unit), self.unit(y, unit)
 
 
 class ExcellonFile(CamFile):
-    def __init__(self, filename=None)
+    def __init__(self, objects=None, comments=None, import_settings=None, filename=None):
         super().__init__(filename=filename)
-        self.objects = []
-        self.comments = []
-        self.import_settings = None
+        self.objects = objects or []
+        self.comments = comments or []
+        self.import_settings = import_settings
 
     def _generate_statements(self, settings):
 
@@ -131,15 +133,17 @@ class ExcellonFile(CamFile):
         return len(self.objects)
 
     def split_by_plating(self):
-        plated, nonplated = ExcellonFile(self.filename), ExcellonFile(self.filename)
+        plated = ExcellonFile(
+            comments = self.comments.copy(),
+            import_settings = self.import_settings.copy(),
+            objects = [ obj for obj in self.objects if obj.plated ],
+            filename = self.filename)
 
-        plated.comments = self.comments.copy()
-        plated.import_settings = self.import_settings.copy()
-        plated.objects = [ obj for obj in self.objects if obj.plated ]
-
-        nonplated.comments = self.comments.copy()
-        nonplated.import_settings = self.import_settings.copy()
-        nonplated.objects = [ obj for obj in self.objects if not obj.plated ]
+        nonplated = ExcellonFile(
+            comments = self.comments.copy(),
+            import_settings = self.import_settings.copy(),
+            objects = [ obj for obj in self.objects if not obj.plated ],
+            filename = self.filename)
 
         return nonplated, plated
 
@@ -228,18 +232,16 @@ class ExcellonParser(object):
         self.drill_down = False
         self.is_plated = None
 
-    @property
-    def coordinates(self):
-        return [(stmt.x, stmt.y) for stmt in self.statements if isinstance(stmt, CoordinateStmt)]
+    @classmethod
+    def parse(kls, data, settings=None):
+        parser = kls(settings)
+        parser._do_parse(data)
 
-    def parse(self, filename):
-        with open(filename, 'r') as f:
-            data = f.read()
-        return self.parse_raw(data, filename)
+        return ExcellonFile(objects=parser.objects, comments=parser.comments, import_settings=settings)
 
-    def parse(self, filelike):
+    def _do_parse(self, data):
         leftover = None
-        for line in filelike:
+        for line in data.splitlines():
             line = line.strip()
 
             if not line:
@@ -266,7 +268,7 @@ class ExcellonParser(object):
 
     # NOTE: These must be kept before the generic comment handler at the end of this class so they match first.
     @exprs.match(';T(?P<index1>[0-9]+) Holesize (?P<index2>[0-9]+)\. = (?P<diameter>[0-9/.]+) Tolerance = \+[0-9/.]+/-[0-9/.]+ (?P<plated>PLATED|NON_PLATED|OPTIONAL) (?P<unit>MILS|MM) Quantity = [0-9]+')
-    def parse_allegro_tooldef(self, match)
+    def parse_allegro_tooldef(self, match):
         # NOTE: We ignore the given tolerances here since they are non-standard.
         self.program_state = ProgramState.HEADER # TODO is this needed? we need a test file.
 
@@ -291,7 +293,7 @@ class ExcellonParser(object):
         self.tools[index] = ExcellonTool(diameter=diameter, plated=is_plated, unit=unit)
 
     # Searching Github I found that EasyEDA has two different variants of the unit specification here.
-    easyeda_comment = re.compile(';Holesize (?P<index>[0-9]+) = (?P<diameter>[.0-9]+) (?P<unit>INCH|inch|METRIC|mm)')
+    @exprs.match(';Holesize (?P<index>[0-9]+) = (?P<diameter>[.0-9]+) (?P<unit>INCH|inch|METRIC|mm)')
     def parse_easyeda_tooldef(self, match):
         unit = Inch if match['unit'].lower() == 'inch' else MM
         tool = ExcellonTool(diameter=float(match['diameter']), unit=unit, plated=self.is_plated)
@@ -323,7 +325,10 @@ class ExcellonParser(object):
 
         self.active_tool = self.tools[index]
 
-    @exprs.match(r'R(?P<count>[0-9]+)' + xy_coord).match(line)
+    coord = lambda name, key=None: f'(?P<{key or name}>{name}[+-]?[0-9]*\.?[0-9]*)?'
+    xy_coord = coord('X') + coord('Y')
+
+    @exprs.match(r'R(?P<count>[0-9]+)' + xy_coord)
     def handle_repeat_hole(self, match):
         if self.program_state == ProgramState.HEADER:
             return
@@ -358,7 +363,7 @@ class ExcellonParser(object):
 
     @exprs.match('M95')
     @header_command
-    def handle_end_header(self, match)
+    def handle_end_header(self, match):
         self.program_state = ProgramState.DRILLING
 
     @exprs.match('M00')
@@ -386,9 +391,6 @@ class ExcellonParser(object):
         self.program_state = FINISHED
         # ignore.
         # TODO: maybe add warning if this is followed by other commands.
-
-    coord = lambda name, key=None: f'(?P<{key or name}>{name}[+-]?[0-9]*\.?[0-9]*)?'
-    xy_coord = coord('X') + coord('Y')
 
     def do_move(self, match=None, x='X', y='Y'):
         x = settings.parse_gerber_value(match['X'])
@@ -433,13 +435,10 @@ class ExcellonParser(object):
         if self.active_tool:
             return self.active_tool
         
-        if (self.active_tool := self.tools.get(1)): # FIXME is this necessary? It seems pretty dumb.
-            return self.active_tool
-
         warnings.warn('Routing command found before first tool definition.', SyntaxWarning)
         return None
 
-    @exprs.match('(?P<mode>G01|G02|G03)' + xy_coord + aij_coord)
+    @exprs.match('(?P<mode>G01|G02|G03)' + xy_coord + coord('A') + coord('I') + coord('J'))
     def handle_linear_mode(self, match):
         if match['mode'] == 'G01':
             self.interpolation_mode = InterpMode.LINEAR
@@ -450,7 +449,7 @@ class ExcellonParser(object):
         self.do_interpolation(match)
     
     def do_interpolation(self, match):
-        x, y, a, i, j = match['x'], match['y'], match['a'], match['i'], match['j']
+        x, y, a, i, j = match['X'], match['Y'], match['A'], match['I'], match['J']
 
         start, end = self.do_move(match)
 
@@ -579,6 +578,6 @@ class ExcellonParser(object):
         self.program_state = ProgramState.HEADER
 
     @exprs.match(';(.*)')
-    def parse_comment(self, match)
-        target.comments.append(match[1].strip())
+    def parse_comment(self, match):
+        self.comments.append(match[1].strip())
 

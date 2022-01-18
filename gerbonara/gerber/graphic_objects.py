@@ -27,15 +27,15 @@ class GerberObject:
 
     def converted(self, unit):
         return replace(self, 
-                **{ f.name: self.unit.to(unit, getattr(self, f.name))
+                **{ f.name: self.unit.convert_to(unit, getattr(self, f.name))
                     for f in fields(self) if type(f.type) is Length })
 
     def with_offset(self, dx, dy, unit=MM):
-        dx, dy = self.unit.from(unit, dx), self.unit.from(unit, dy)
+        dx, dy = self.unit(dx, unit), self.unit(dy, unit)
         return self._with_offset(dx, dy)
 
     def rotate(self, rotation, cx=0, cy=0, unit=MM):
-        cx, cy = self.unit.from(unit, cx), self.unit.from(unit, cy)
+        cx, cy = self.unit(cx, unit), self.unit(cy, unit)
         self._rotate(rotation, cx, cy)
 
     def bounding_box(self, unit=None):
@@ -133,7 +133,7 @@ class Region(GerberObject):
         if unit == self.unit:
             yield self.poly
         else:
-            to = lambda value: self.unit.to(unit, value)
+            to = lambda value: self.unit.convert_to(unit, value)
             conv_outline = [ (to(x), to(y))
                     for x, y in self.poly.outline ]
             convert_entry = lambda entry: (entry[0], (to(entry[1][0]), to(entry[1][1])))
@@ -219,7 +219,7 @@ class Line(GerberObject):
         ctx.set_current_point(self.unit, *self.p2)
 
     def curve_length(self, unit=MM):
-        return self.unit.to(unit, math.dist(self.p1, self.p2))
+        return self.unit.convert_to(unit, math.dist(self.p1, self.p2))
 
 
 @dataclass
@@ -307,6 +307,6 @@ class Arc(GerberObject):
         if f > math.pi:
             f = 2*math.pi - f
 
-        return self.unit.to(unit, 2*math.pi*r * (f/math.pi))
+        return self.unit.convert_to(unit, 2*math.pi*r * (f/math.pi))
 
 

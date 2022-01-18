@@ -12,11 +12,11 @@ def _flash_hole(self, x, y, unit=None):
     if getattr(self, 'hole_rect_h', None) is not None:
         return [*self.primitives(x, y, unit),
                 gp.Rectangle((x, y),
-                    (self.unit.to(unit, self.hole_dia), self.unit.to(unit, self.hole_rect_h)),
+                    (self.unit.convert_to(unit, self.hole_dia), self.unit.convert_to(unit, self.hole_rect_h)),
                     rotation=self.rotation, polarity_dark=False)]
     elif self.hole_dia is not None:
         return [*self.primitives(x, y, unit),
-                gp.Circle(x, y, self.unit.to(unit, self.hole_dia/2), polarity_dark=False)]
+                gp.Circle(x, y, self.unit.convert_to(unit, self.hole_dia/2), polarity_dark=False)]
     else:
         return self.primitives(x, y, unit)
 
@@ -51,7 +51,7 @@ class Aperture:
 
             val = getattr(self, f.name)
             if isinstance(f.type, Length):
-                val = self.unit.to(unit, val)
+                val = self.unit.convert_to(unit, val)
             out.append(val)
 
         return out
@@ -82,7 +82,7 @@ class Aperture:
         else:
             return {'hole_dia': self.hole_rect_h, 'hole_rect_h': self.hole_dia}
 
-@dataclass(frozen=True)
+@dataclass(unsafe_hash=True)
 class ExcellonTool(Aperture):
     human_readable_shape = 'drill'
     diameter : Length(float)
@@ -90,7 +90,7 @@ class ExcellonTool(Aperture):
     depth_offset : Length(float) = 0
 
     def primitives(self, x, y, unit=None):
-        return [ gp.Circle(x, y, self.unit.to(unit, self.diameter/2)) ]
+        return [ gp.Circle(x, y, self.unit.convert_to(unit, self.diameter/2)) ]
 
     def to_xnc(self, settings):
         z_off += 'Z' + settings.write_gerber_value(self.depth_offset) if self.depth_offset is not None else ''
@@ -103,10 +103,10 @@ class ExcellonTool(Aperture):
         if not self.plated == other.plated:
             return False
 
-        if not math.isclose(self.depth_offset, self.unit.from(other.unit, other.depth_offset)):
+        if not math.isclose(self.depth_offset, self.unit(other.depth_offset, other.unit)):
             return False
 
-        return math.isclose(self.diameter, self.unit.from(other.unit, other.diameter))
+        return math.isclose(self.diameter, self.unit(other.diameter, other.unit))
 
     def __str__(self):
         plated = '' if self.plated is None else (' plated' if self.plated else ' non-plated')
@@ -114,22 +114,20 @@ class ExcellonTool(Aperture):
         return f'<Excellon Tool d={self.diameter:.3f}{plated}{z_off}>'
 
     def equivalent_width(self, unit=MM):
-        return self.unit.to(unit, self.diameter)
+        return unit(self.diameter, self.unit)
 
     def dilated(self, offset, unit=MM):
-        offset = self.unit.to(unit, offset)
+        offset = unit(offset, self.unit)
         return replace(self, diameter=self.diameter+2*offset)
 
     def _rotated(self):
         return self
-        else:
-            return self.to_macro(self.rotation)
 
     def to_macro(self):
         return ApertureMacroInstance(GenericMacros.circle, self.params(unit=MM))
 
     def params(self, unit=None):
-        return [self.unit.to(unit, self.diameter)]
+        return [self.unit.convert_to(unit, self.diameter)]
 
 
 @dataclass
@@ -142,7 +140,7 @@ class CircleAperture(Aperture):
     rotation : float = 0 # radians; for rectangular hole; see hack in Aperture.to_gerber
 
     def primitives(self, x, y, unit=None):
-        return [ gp.Circle(x, y, self.unit.to(unit, self.diameter/2)) ]
+        return [ gp.Circle(x, y, self.unit.convert_to(unit, self.diameter/2)) ]
 
     def __str__(self):
         return f'<circle aperture d={self.diameter:.3}>'
@@ -150,10 +148,10 @@ class CircleAperture(Aperture):
     flash = _flash_hole
 
     def equivalent_width(self, unit=None):
-        return self.unit.to(unit, self.diameter)
+        return self.unit.convert_to(unit, self.diameter)
 
     def dilated(self, offset, unit=MM):
-        offset = self.unit.from(unit, offset)
+        offset = self.unit(offset, unit)
         return replace(self, diameter=self.diameter+2*offset, hole_dia=None, hole_rect_h=None)
 
     def _rotated(self):
@@ -167,9 +165,9 @@ class CircleAperture(Aperture):
 
     def params(self, unit=None):
         return strip_right(
-                self.unit.to(unit, self.diameter),
-                self.unit.to(unit, self.hole_dia),
-                self.unit.to(unit, self.hole_rect_h))
+                self.unit.convert_to(unit, self.diameter),
+                self.unit.convert_to(unit, self.hole_dia),
+                self.unit.convert_to(unit, self.hole_rect_h))
 
 
 @dataclass
@@ -183,7 +181,7 @@ class RectangleAperture(Aperture):
     rotation : float = 0 # radians
 
     def primitives(self, x, y, unit=None):
-        return [ gp.Rectangle(x, y, self.unit.to(unit, self.w), self.unit.to(unit, self.h), rotation=self.rotation) ]
+        return [ gp.Rectangle(x, y, self.unit.convert_to(unit, self.w), self.unit.convert_to(unit, self.h), rotation=self.rotation) ]
 
     def __str__(self):
         return f'<rect aperture {self.w:.3}x{self.h:.3}>'
@@ -191,10 +189,10 @@ class RectangleAperture(Aperture):
     flash = _flash_hole
 
     def equivalent_width(self, unit=None):
-        return self.unit.to(unit, math.sqrt(self.w**2 + self.h**2))
+        return self.unit.convert_to(unit, math.sqrt(self.w**2 + self.h**2))
 
     def dilated(self, offset, unit=MM):
-        offset = self.unit.from(unit, offset)
+        offset = self.unit(offset, unit)
         return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None, hole_rect_h=None)
 
     def _rotated(self):
@@ -207,18 +205,18 @@ class RectangleAperture(Aperture):
 
     def to_macro(self):
         return ApertureMacroInstance(GenericMacros.rect,
-                [self.unit.to(MM, self.w),
-                    self.unit.to(MM, self.h),
-                    self.unit.to(MM, self.hole_dia) or 0,
-                    self.unit.to(MM, self.hole_rect_h) or 0,
+                [MM(self.w, self.unit),
+                    MM(self.h, self.unit),
+                    MM(self.hole_dia, self.unit) or 0,
+                    MM(self.hole_rect_h, self.unit) or 0,
                     self.rotation])
 
     def params(self, unit=None):
         return strip_right(
-                self.unit.to(unit, self.w),
-                self.unit.to(unit, self.h),
-                self.unit.to(unit, self.hole_dia),
-                self.unit.to(unit, self.hole_rect_h))
+                self.unit.convert_to(unit, self.w),
+                self.unit.convert_to(unit, self.h),
+                self.unit.convert_to(unit, self.hole_dia),
+                self.unit.convert_to(unit, self.hole_rect_h))
 
 
 @dataclass
@@ -232,7 +230,7 @@ class ObroundAperture(Aperture):
     rotation : float = 0
 
     def primitives(self, x, y, unit=None):
-        return [ gp.Obround(x, y, self.unit.to(unit, self.w), self.unit.to(unit, self.h), rotation=self.rotation) ]
+        return [ gp.Obround(x, y, self.unit.convert_to(unit, self.w), self.unit.convert_to(unit, self.h), rotation=self.rotation) ]
 
     def __str__(self):
         return f'<obround aperture {self.w:.3}x{self.h:.3}>'
@@ -240,7 +238,7 @@ class ObroundAperture(Aperture):
     flash = _flash_hole
 
     def dilated(self, offset, unit=MM):
-        offset = self.unit.from(unit, offset)
+        offset = self.unit(offset, unit)
         return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None, hole_rect_h=None)
 
     def _rotated(self):
@@ -255,18 +253,18 @@ class ObroundAperture(Aperture):
         # generic macro only supports w > h so flip x/y if h > w
         inst = self if self.w > self.h else replace(self, w=self.h, h=self.w, **_rotate_hole_90(self), rotation=self.rotation-90)
         return ApertureMacroInstance(GenericMacros.obround,
-                [self.unit.to(MM, inst.w),
-                    self.unit.to(MM, ints.h),
-                    self.unit.to(MM, inst.hole_dia),
-                    self.unit.to(MM, inst.hole_rect_h),
-                    inst.rotation])
+                [MM(inst.w, self.unit),
+                 MM(ints.h, self.unit),
+                 MM(inst.hole_dia, self.unit),
+                 MM(inst.hole_rect_h, self.unit),
+                 inst.rotation])
 
     def params(self, unit=None):
         return strip_right(
-                self.unit.to(unit, self.w),
-                self.unit.to(unit, self.h),
-                self.unit.to(unit, self.hole_dia),
-                self.unit.to(unit, self.hole_rect_h))
+                self.unit.convert_to(unit, self.w),
+                self.unit.convert_to(unit, self.h),
+                self.unit.convert_to(unit, self.hole_dia),
+                self.unit.convert_to(unit, self.hole_rect_h))
 
 
 @dataclass
@@ -281,13 +279,13 @@ class PolygonAperture(Aperture):
         self.n_vertices = int(self.n_vertices)
 
     def primitives(self, x, y, unit=None):
-        return [ gp.RegularPolygon(x, y, self.unit.to(unit, self.diameter)/2, self.n_vertices, rotation=self.rotation) ]
+        return [ gp.RegularPolygon(x, y, self.unit.convert_to(unit, self.diameter)/2, self.n_vertices, rotation=self.rotation) ]
 
     def __str__(self):
         return f'<{self.n_vertices}-gon aperture d={self.diameter:.3}'
 
     def dilated(self, offset, unit=MM):
-        offset = self.unit.from(unit, offset)
+        offset = self.unit(offset, unit)
         return replace(self, diameter=self.diameter+2*offset, hole_dia=None)
 
     flash = _flash_hole
@@ -301,11 +299,11 @@ class PolygonAperture(Aperture):
     def params(self, unit=None):
         rotation = self.rotation % (2*math.pi / self.n_vertices) if self.rotation is not None else None
         if self.hole_dia is not None:
-            return self.unit.to(unit, self.diameter), self.n_vertices, rotation, self.unit.to(unit, self.hole_dia)
+            return self.unit.convert_to(unit, self.diameter), self.n_vertices, rotation, self.unit.convert_to(unit, self.hole_dia)
         elif rotation is not None and not math.isclose(rotation, 0):
-            return self.unit.to(unit, self.diameter), self.n_vertices, rotation
+            return self.unit.convert_to(unit, self.diameter), self.n_vertices, rotation
         else:
-            return self.unit.to(unit, self.diameter), self.n_vertices
+            return self.unit.convert_to(unit, self.diameter), self.n_vertices
 
 @dataclass
 class ApertureMacroInstance(Aperture):

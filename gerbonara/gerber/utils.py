@@ -27,13 +27,13 @@ import os
 from math import radians, sin, cos, sqrt, atan2, pi
 
 
-class Unit:
+class LengthUnit:
     def __init__(self, name, shorthand, this_in_mm):
         self.name = name
         self.shorthand = shorthand
         self.factor = this_in_mm
 
-    def from(self, unit, value):
+    def convert_from(self, unit, value):
         if isinstance(unit, str):
             unit = units[unit]
 
@@ -42,26 +42,30 @@ class Unit:
 
         return value * unit.factor / self.factor
 
-    def to(self, unit, value):
+    def convert_to(self, unit, value):
         if isinstance(unit, str):
-            unit = units[unit]
+            unit = to_unit(unit)
 
         if unit is None:
             return value
 
-        return unit.from(self, value)
+        return unit.convert_from(self, value)
+
+    def __call__(self, value, unit):
+        return self.convert_from(unit, value)
 
     def __eq__(self, other):
         if isinstance(other, str):
             return other.lower() in (self.name, self.shorthand)
         else:
-            return self == other
+            return id(self) == id(other)
 
 
 MILLIMETERS_PER_INCH = 25.4
-Inch = Unit('inch', 'in', MILLIMETERS_PER_INCH)
-MM = Unit('millimeter', 'mm', 1)
-units = {'inch': Inch, 'mm': MM}
+Inch = LengthUnit('inch', 'in', MILLIMETERS_PER_INCH)
+MM = LengthUnit('millimeter', 'mm', 1)
+units = {'inch': Inch, 'mm': MM, None: None}
+to_unit = lambda name: units[name]
 
 
 def decimal_string(value, precision=6, padding=False):

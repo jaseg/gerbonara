@@ -59,7 +59,7 @@ class LoadPolarityStmt(ParamStmt):
     def __init__(self, dark):
         self.dark = dark
 
-    def to_gerber(self, settings=None):
+    def to_gerber(self, settings):
         lp = 'D' if self.dark else 'C'
         return f'%LP{lp}*%'
 
@@ -75,7 +75,7 @@ class ApertureDefStmt(ParamStmt):
         self.number = number
         self.aperture = aperture
 
-    def to_gerber(self, settings=None):
+    def to_gerber(self, settings):
         return f'%ADD{self.number}{self.aperture.to_gerber(settings)}*%'
 
     def __str__(self):
@@ -91,7 +91,7 @@ class ApertureMacroStmt(ParamStmt):
     def __init__(self, macro):
         self.macro = macro
 
-    def to_gerber(self, settings=None):
+    def to_gerber(self, settings):
         unit = settings.unit if settings else None
         return f'%AM{self.macro.name}*\n{self.macro.to_gerber(unit=unit)}*\n%'
 
@@ -117,10 +117,10 @@ class CoordStmt(Statement):
         self.x, self.y, self.i, self.j = x, y, i, j
         self.unit = unit
 
-    def to_gerber(self, settings=None):
+    def to_gerber(self, settings):
         ret = ''
         for var in 'xyij':
-            val = self.unit.to(settings.unit, getattr(self, var))
+            val = self.unit.convert_to(settings.unit, getattr(self, var))
             if val is not None:
                 ret += var.upper() + settings.write_gerber_value(val)
         return ret + self.code + '*'
@@ -145,7 +145,7 @@ class FlashStmt(CoordStmt):
 
 class InterpolationModeStmt(Statement):
     """ G01 / G02 / G03 interpolation mode statement """
-    def to_gerber(self, settings=None):
+    def to_gerber(self, settings):
         return self.code + '*'
 
     def __str__(self):
@@ -179,7 +179,7 @@ class ApertureStmt(Statement):
     def __init__(self, d):
         self.d = int(d)
 
-    def to_gerber(self, settings=None):
+    def to_gerber(self, settings):
         return 'D{0}*'.format(self.d)
 
     def __str__(self):
@@ -192,7 +192,7 @@ class CommentStmt(Statement):
     def __init__(self, comment):
         self.comment = comment if comment is not None else ""
 
-    def to_gerber(self, settings=None):
+    def to_gerber(self, settings):
         return f'G04{self.comment}*'
 
     def __str__(self):
@@ -202,7 +202,7 @@ class CommentStmt(Statement):
 class EofStmt(Statement):
     """ M02 EOF Statement """
 
-    def to_gerber(self, settings=None):
+    def to_gerber(self, settings):
         return 'M02*'
 
     def __str__(self):
@@ -212,7 +212,7 @@ class UnknownStmt(Statement):
     def __init__(self, line):
         self.line = line
 
-    def to_gerber(self, settings=None):
+    def to_gerber(self, settings):
         return self.line
 
     def __str__(self):
