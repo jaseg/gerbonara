@@ -295,7 +295,6 @@ class InternalLayer(PCBLayer):
         return (self.order <= other.order)
 
 class PCB:
-
     @classmethod
     def from_directory(cls, directory, board_name=None, verbose=False):
         layers = []

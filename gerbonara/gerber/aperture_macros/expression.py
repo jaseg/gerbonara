@@ -80,10 +80,10 @@ class UnitExpression(Expression):
         if self.unit is None or unit is None or self.unit == unit:
             return self._expr
 
-        elif unit == MM:
+        elif MM == unit:
             return self._expr * MILLIMETERS_PER_INCH
 
-        elif unit == Inch:
+        elif Inch == unit:
             return self._expr / MILLIMETERS_PER_INCH
 
         else:

@@ -60,6 +60,13 @@ class LengthUnit:
         else:
             return id(self) == id(other)
 
+    # This class is a singleton, we don't want copies around
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
+
 
 MILLIMETERS_PER_INCH = 25.4
 Inch = LengthUnit('inch', 'in', MILLIMETERS_PER_INCH)

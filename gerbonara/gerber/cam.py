@@ -18,6 +18,8 @@
 from dataclasses import dataclass
 from copy import deepcopy
 
+from .utils import LengthUnit, MM, Inch
+
 @dataclass
 class FileSettings:
     '''
@@ -31,15 +33,15 @@ class FileSettings:
         `zeros='trailing'`
     '''
     notation : str = 'absolute'
-    unit : str = 'inch'
+    unit : LengthUnit = Inch
     angle_unit : str = 'degree'
     zeros : bool = None
     number_format : tuple = (2, 5)
 
     # input validation
     def __setattr__(self, name, value):
-        if name == 'unit' and value not in ['inch', 'mm']:
-            raise ValueError(f'Unit must be either "inch" or "mm", not {value}')
+        if name == 'unit' and value not in [MM, Inch]:
+            raise ValueError(f'Unit must be either Inch or MM, not {value}')
         elif name == 'notation' and value not in ['absolute', 'incremental']:
             raise ValueError(f'Notation must be either "absolute" or "incremental", not {value}')
         elif name == 'angle_unit' and value not in ('degree', 'radian'):

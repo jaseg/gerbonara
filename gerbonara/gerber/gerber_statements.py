@@ -92,8 +92,7 @@ class ApertureMacroStmt(ParamStmt):
         self.macro = macro
 
     def to_gerber(self, settings):
-        unit = settings.unit if settings else None
-        return f'%AM{self.macro.name}*\n{self.macro.to_gerber(unit=unit)}*\n%'
+        return f'%AM{self.macro.name}*\n{self.macro.to_gerber(unit=settings.unit)}*\n%'
 
     def __str__(self):
         return f'<AM Aperture Macro {self.macro.name}: {self.macro}>'
