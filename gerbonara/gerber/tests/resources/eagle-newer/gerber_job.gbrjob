@@ -1,0 +1,11 @@
+G04 Gerber job file.*
+%TF.FileFunction,JobInfo*%
+%TF.GenerationSoftware,Autodesk,EAGLE,9.0.0*%
+%TF.CreationDate,2019-08-08T19:20:39Z*%
+%TF.Part,Single*%
+%MOMM*%
+%TJ.B_Owner,ganzakademia kimmelgabor <kimmelgabor@gmail.com>*%
+%TJ.B_ID,dallamcseng?*%
+%TJ.B_LayerNum,2*%
+%TJ.B_Thickness,1.570000*%
+M02*

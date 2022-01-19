@@ -1,7 +1,6 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
-
-# Author: Hamilton Kibbe <ham@hamiltonkib.be>
+# Author: Jan Götte <code@jaseg.de>
 import os
 import re
 import math

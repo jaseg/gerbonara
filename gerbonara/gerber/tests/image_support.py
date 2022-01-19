@@ -63,6 +63,8 @@ def run_cargo_cmd(cmd, args, **kwargs):
 def svg_to_png(in_svg, out_png, dpi=100, bg='black'):
     run_cargo_cmd('resvg', ['--background', bg, '--dpi', str(dpi), in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
 
+to_gerbv_svg_units = lambda val, unit='mm': val*72 if unit == 'inch' else val/25.4*72
+
 def gerbv_export(in_gbr, out_svg, format='svg', origin=(0, 0), size=(6, 6), fg='#ffffff', bg='#000000'):
     x, y = origin
     w, h = size

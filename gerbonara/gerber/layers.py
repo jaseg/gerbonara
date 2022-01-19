@@ -22,6 +22,72 @@ from collections import namedtuple
 from .excellon import ExcellonFile
 from .ipc356 import IPCNetlist
 
+def match_fn_eagle(name, suffix):
+    if suffix in ('cmp', 'top') or \ # Older Eagle versions (v7)
+            name.endswith('toplayer.ger') or \ # OSHPark Eagle CAM rules
+            'copper_top' in name or 'top_copper' in name: # Newer Autodesk Eagle versions (v9)
+        return 'top copper gerber'
+
+    if suffix in ('stc', 'tsm') or \
+            name.endswith('topsoldermask.ger') or \
+            'soldermask_top' in name or 'top_mask' in name:
+        return 'top mask gerber'
+
+    if suffix in ('plc', 'tsk') or \
+            name.endswith('topsilkscreen.ger') or \
+            'silkscreen_top' in name or 'top_silk' in name:
+        return 'top silk gerber'
+
+    if suffix in ('crc', 'tsp') or \ 
+            name.endswith('tcream.ger') or \
+            'solderpaste_top' in name or 'top_paste' in name:
+        return 'top paste gerber'
+
+    if suffix in ('sol', 'bot') or \
+            name.endswith('bottomlayer.ger') or \
+            'copper_bottom' in name or 'bottom_copper' in name:
+        return 'bottom copper gerber'
+
+    if suffix in ('sts', 'bsm') or \
+            name.endswith('bottomsoldermask.ger') or \
+            'soldermask_bottom' in name or 'bottom_mask' in name:
+        return 'bottom mask gerber'
+
+    if suffix in ('pls', 'bsk') or \
+            name.endswith('bottomsilkscreen.ger') or \
+            'silkscreen_bottom' in name or \
+            'bottom_silk' in name:
+        return 'bottom silk gerber'
+
+    if suffix in ('crs', 'bsp') or \
+            name.endswith('bcream.ger') or \
+            'solderpaste_bottom' in name or 'bottom_paste' in name:
+        return 'bottom silk gerber'
+
+    if (m := re.fullmatch(r'ly(\d+)', suffix)):
+        return f'inner{m[1]} copper gerber'
+
+    if (m := re.fullmatch(r'.*internalplane(\d+).ger', suffix)):
+        return f'inner{m[1]} copper gerber'
+
+    if suffix in ('dim', 'mil', 'gml'):
+        return 'outline mechanical gerber'
+
+    if name.endswith('boardoutline.ger'):
+        return 'outline mechanical gerber'
+
+    if name == 'profile.gbr': # older eagle versions
+        return 'outline mechanical gerber'
+
+def match_fn_altium(name, suffix):
+    if suffix == 'gtl':
+        return 'top copper gerber'
+
+    if suffix == 'gts':
+        return 'top silk gerber'
+
+    if suffix == 
+
 
 Hint = namedtuple('Hint', 'layer ext name regex content')
 
@@ -239,62 +305,8 @@ class PCBLayer(object):
         return '<PCBLayer: {}>'.format(self.layer_class)
 
 
-class DrillLayer(PCBLayer):
-    @classmethod
-    def from_cam(cls, camfile):
-        return cls(camfile.filename, camfile)
 
-    def __init__(self, filename=None, cam_source=None, layers=None, **kwargs):
-        super(DrillLayer, self).__init__(filename, 'drill', cam_source, **kwargs)
-        self.layers = layers if layers is not None else ['top', 'bottom']
-
-
-class InternalLayer(PCBLayer):
-
-    @classmethod
-    def from_cam(cls, camfile):
-        filename = camfile.filename
-        try:
-            order = int(re.search(r'\d+', filename).group())
-        except AttributeError:
-            order = 0
-        return cls(filename, camfile, order)
-
-    def __init__(self, filename=None, cam_source=None, order=0, **kwargs):
-        super(InternalLayer, self).__init__(filename, 'internal', cam_source, **kwargs)
-        self.order = order
-
-    def __eq__(self, other):
-        if not hasattr(other, 'order'):
-            raise TypeError()
-        return (self.order == other.order)
-
-    def __ne__(self, other):
-        if not hasattr(other, 'order'):
-            raise TypeError()
-        return (self.order != other.order)
-
-    def __gt__(self, other):
-        if not hasattr(other, 'order'):
-            raise TypeError()
-        return (self.order > other.order)
-
-    def __lt__(self, other):
-        if not hasattr(other, 'order'):
-            raise TypeError()
-        return (self.order < other.order)
-
-    def __ge__(self, other):
-        if not hasattr(other, 'order'):
-            raise TypeError()
-        return (self.order >= other.order)
-
-    def __le__(self, other):
-        if not hasattr(other, 'order'):
-            raise TypeError()
-        return (self.order <= other.order)
-
-class PCB:
+class LayerStack:
     @classmethod
     def from_directory(cls, directory, board_name=None, verbose=False):
         layers = []

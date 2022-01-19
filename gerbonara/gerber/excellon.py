@@ -22,14 +22,12 @@ import functools
 from enum import Enum
 from dataclasses import dataclass
 from collections import Counter
+from pathlib import Path
 
 from .cam import CamFile, FileSettings
 from .graphic_objects import Flash, Line, Arc
 from .apertures import ExcellonTool
-from .utils import Inch, MM, InterpMode
-
-def parse(data, settings=None):
-    return ExcellonFile.parse(data, settings=settings)
+from .utils import Inch, MM, to_unit, InterpMode, RegexMatcher
 
 class ExcellonContext:
     def __init__(self, settings, tools):
@@ -60,13 +58,74 @@ class ExcellonContext:
     def set_current_point(self, unit, x, y):
         self.current_point = self.unit(x, unit), self.unit(y, unit)
 
+def parse_allegro_ncparam(data, settings=None):
+    # This function parses data from allegro's nc_param.txt and ncdrill.log files. We have to parse these files because
+    # allegro Excellon files omit crucial information such as the *number format*. nc_param.txt really is the file we
+    # want to parse, but sometimes due to user error it doesn't end up in the gerber package. In this case, we want to
+    # still be able to extract the same information from the human-readable ncdrill.log.
+
+    if settings is None
+        self.settings = FileSettings(number_format=(None, None))
+
+    lz_supp, tz_supp = False, False
+    for line in data.splitlines():
+        line = re.sub('\s+', ' ', line.strip())
+
+        if (match := re.fullmatch(r'FORMAT ([0-9]+\.[0-9]+)', line)):
+            x, _, y = match[1].partition('.')
+            settings.number_format = int(x), int(y)
+
+        elif (match := re.fullmatch(r'COORDINATES (ABSOLUTE|.*)', line)):
+            # I have not been able to find a single incremental-notation allegro file. Probably that is for the better.
+            settings.notation = match[1].lower()
+
+        elif (match := re.fullmatch(r'OUTPUT-UNITS (METRIC|ENGLISH|INCHES)', line)):
+            # I have no idea wth is the difference between "ENGLISH" and "INCHES". I think one might just be the one
+            # Allegro uses in footprint files, with the other one being used in gerber exports.
+            settings.unit = MM if match[1] == 'METRIC' else Inch
+
+        elif (match := re.fullmatch(r'SUPPRESS-LEAD-ZEROES (YES|NO)', line)):
+            lz_supp = (match[1] == 'YES')
+
+        elif (match := re.fullmatch(r'SUPPRESS-TRAIL-ZEROES (YES|NO)', line)):
+            tz_supp = (match[1] == 'YES')
+
+    if lz_supp and tz_supp:
+        raise SyntaxError('Allegro Excellon parameters specify both leading and trailing zero suppression. We do not '
+                'know how to parse this. Please raise an issue on our issue tracker and provide an example file.')
+
+    settings.zeros = 'leading' if lz_supp else 'trailing'
+
 
 class ExcellonFile(CamFile):
-    def __init__(self, objects=None, comments=None, import_settings=None, filename=None):
+    def __init__(self, objects=None, comments=None, import_settings=None, filename=None, generator=None):
         super().__init__(filename=filename)
         self.objects = objects or []
         self.comments = comments or []
         self.import_settings = import_settings
+        self.generator = generator # This is a purely informational goodie from the parser. Use it as you wish.
+
+    @classmethod
+    def open(kls, filename, plated=None):
+        filename = Path(filename)
+    
+        # Parse allegro parameter files.
+        # Prefer nc_param.txt over ncparam.log since the txt is the machine-readable one.
+        for fn in 'nc_param.txt', 'ncdrill.log':
+            if (param_file := filename.parent / fn).isfile():
+                settings =  parse_allegro_ncparam(param_file.read_text())
+                break
+        else:
+            settings = None
+
+        return kls.from_string(filename.read_text(), settings=settings, filename=filename, plated=plated)
+
+    @classmethod
+    def from_string(kls, data, settings=None, filename=filename, plated=None):
+        parser = ExcellonParser(settings)
+        parser._do_parse(data)
+        return kls(objects=parser.objects, comments=parser.comments, import_settings=settings,
+                generator=parser.generator, filename=filename, plated=plated)
 
     def _generate_statements(self, settings):
 
@@ -186,22 +245,6 @@ class ExcellonFile(CamFile):
 
         return ((x_min, y_min), (x_max, y_max))
 
-class RegexMatcher:
-    def __init__(self):
-        self.mapping = {}
-
-    def match(self, regex):
-        def wrapper(fun):
-            nonlocal self
-            self.mapping[regex] = fun
-            return fun
-        return wrapper
-
-    def handle(self, inst, line):
-        for regex, handler in self.mapping.items():
-            if (match := re.fullmatch(regex, line)):
-                handler(match)
-
 class ProgramState(Enum):
     HEADER = 0
     DRILLING = 1
@@ -226,13 +269,7 @@ class ExcellonParser(object):
         self.pos = 0, 0
         self.drill_down = False
         self.is_plated = None
-
-    @classmethod
-    def parse(kls, data, settings=None):
-        parser = kls(settings)
-        parser._do_parse(data)
-
-        return ExcellonFile(objects=parser.objects, comments=parser.comments, import_settings=settings)
+        self.generator = None
 
     def _do_parse(self, data):
         leftover = None
@@ -266,6 +303,7 @@ class ExcellonParser(object):
     def parse_allegro_tooldef(self, match):
         # NOTE: We ignore the given tolerances here since they are non-standard.
         self.program_state = ProgramState.HEADER # TODO is this needed? we need a test file.
+        self.generator = 'allegro'
 
         if (index := int(match['index1'])) != int(match['index2']): # index1 has leading zeros, index2 not.
             raise SyntaxError('BUG: Allegro excellon tool def has mismatching tool indices. Please file a bug report on our issue tracker and provide this file!')
@@ -285,6 +323,11 @@ class ExcellonParser(object):
         else:
             unit = MM
 
+        if unit != self.settings.unit:
+            warnings.warn('Allegro Excellon drill file tool definitions in {unit.name}, but file parameters say the '
+                    'file should be in {settings.unit.name}. Please double-check that this is correct, and if it is, '
+                    'please raise an issue on our issue tracker.', SyntaxWarning)
+
         self.tools[index] = ExcellonTool(diameter=diameter, plated=is_plated, unit=unit)
 
     # Searching Github I found that EasyEDA has two different variants of the unit specification here.
@@ -299,7 +342,7 @@ class ExcellonParser(object):
         tools[index] = tool
 
     @exprs.match('T([0-9]+)(([A-Z][.0-9]+)+)') # Tool definition: T** with at least one parameter
-    def parse_tool_definition(self, match):
+    def parse_normal_tooldef(self, match):
         # We ignore parameters like feed rate or spindle speed that are not used for EDA -> CAM file transfer. This is
         # not a parser for the type of Excellon files a CAM program sends to the machine.
 
@@ -307,6 +350,9 @@ class ExcellonParser(object):
             warnings.warn('Re-definition of tool index {index}, overwriting old definition.', SyntaxWarning) 
 
         params = { m[0]: settings.parse_gerber_value(m[1:]) for m in re.findall('[BCFHSTZ][.0-9]+', match[2]) }
+
+        if set(params.keys()) == set('TFSC') and self.generator is None:
+            self.generator = 'target3001' # target files look like altium files without the comments
         self.tools[index] = ExcellonTool(diameter=params.get('C'), depth_offset=params.get('Z'), plated=self.is_plated)
 
     @exprs.match('T([0-9]+)')
@@ -352,7 +398,11 @@ class ExcellonParser(object):
 
     @exprs.match('M48')
     def handle_begin_header(self, match):
-        if self.program_state is not None:
+        if self.program_state == ProgramState.HEADER:
+            # It seems that only fritzing puts both a '%' start of header thingy and an M48 statement at the beginning
+            # of the file.
+            self.generator = 'fritzing'
+        elif self.program_state is not None:
             warnings.warn(f'M48 "header start" statement found in the middle of the file, currently in {self.program_state}', SyntaxWarning)
         self.program_state = ProgramState.HEADER
 
@@ -509,7 +559,12 @@ class ExcellonParser(object):
         self.settings.unit = MM if match[1] == 'METRIC' else Inch
         self.settings.zeros = 'leading' if match[2] == 'LZ' else 'trailing'
         # Newer EasyEDA exports have this in an altium-like FILE_FORMAT comment instead. Some files even have both.
+        # This is used by newer autodesk eagles, fritzing and diptrace
         if match[3]:
+            if self.generator is None:
+                # newer eagles identify themselvees through a comment, and fritzing uses this wonky double-header-start
+                # with a "%" line followed  by an "M48" line. Thus, thus must be diptrace.
+                self.generator = 'diptrace'
             integer, _, fractional = match[3].partition('.')
             self.settings.number_format = len(integer), len(fractional)
     
@@ -550,6 +605,23 @@ class ExcellonParser(object):
     def handle_naked_coordinate(self, match):
         self.do_interpolation(match)
 
+    @exprs.match(r'; Format\s*: ([0-9]+\.[0-9]+) / (Absolute|Incremental) / (Inch|MM) / (Leading|Trailing)')
+    def parse_siemens_format(self, match):
+        x, _, y = match[1].split('.')
+        self.settings.number_format = int(x), int(y)
+        # NOTE: Siemens files seem to always contain both this comment and an explicit METRIC/INC statement. However,
+        # the meaning of "leading" and "trailing" is swapped in both: When this comment says leading, we get something
+        # like "INCH,TZ".
+        self.settings.notation = {'Leading': 'trailing', 'Trailing': 'leading'}[match[2]]
+        self.settings.unit = to_unit(match[3])
+        self.settings.zeros = match[4].lower()
+        self.generator = 'siemens'
+
+    @exprs.match('; Contents: (Thru|.*) / (Drill|Mill) / (Plated|Non-Plated)')
+    def parse_siemens_meta(self, match):
+        self.is_plated = (match[3] == 'Plated')
+        self.generator = 'siemens'
+
     @exprs.match(';FILE_FORMAT=([0-9]:[0-9])')
     def parse_altium_easyeda_number_format_comment(self, match):
         # Altium or newer EasyEDA exports
@@ -567,10 +639,26 @@ class ExcellonParser(object):
         # These can happen both before a tool definition and before a tool selection statement.
         # FIXME make sure we do the right thing in both cases.
         self.is_plated = (match[1] == 'PLATED')
+
+    @exprs.match(';(Layer_Color=[-+0-9a-fA-F]*)')
+    def parse_altium_layer_color(self, match):
+        self.generator = 'altium'
+        self.comments.append(match[1])
     
     @exprs.match(';HEADER:')
     def parse_allegro_start_of_header(self, match):
         self.program_state = ProgramState.HEADER
+        self.generator = 'allegro'
+
+    @exprs.match(';GenerationSoftware,Autodesk,EAGLE,.*\*%')
+    def parse_eagle_version_header(self, match):
+        # NOTE: Only newer eagles export drills as XNC files. Older eagles produce an aperture-only gerber file called
+        # "profile.gbr" instead.
+        self.generator = 'eagle'
+
+    @exprs.match(';EasyEDA .*')
+    def parse_easyeda_version_header(self, match):
+        self.generator = 'easyeda'
 
     @exprs.match(';(.*)')
     def parse_comment(self, match):

@@ -83,7 +83,11 @@ class FileSettings:
         # Format precision
         integer_digits, decimal_digits = self.number_format
         if integer_digits is None or decimal_digits is None:
-            raise SyntaxError('No number format set and value does not contain a decimal point')
+            raise SyntaxError('No number format set and value does not contain a decimal point. If this is an Allegro '
+                    'Excellon drill file make sure either nc_param.txt or ncdrill.log ends up in the same folder as '
+                    'it, because Allegro does not include this critical information in their Excellon output. If you '
+                    'call this through ExcellonFile.from_string, you must manually supply from_string with a '
+                    'FileSettings object from excellon.parse_allegro_ncparam.')
 
         # Remove extraneous information
         sign = '-' if value[0] == '-' else ''

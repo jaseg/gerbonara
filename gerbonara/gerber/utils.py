@@ -27,6 +27,21 @@ import os
 from enum import Enum
 from math import radians, sin, cos, sqrt, atan2, pi
 
+class RegexMatcher:
+    def __init__(self):
+        self.mapping = {}
+
+    def match(self, regex):
+        def wrapper(fun):
+            nonlocal self
+            self.mapping[regex] = fun
+            return fun
+        return wrapper
+
+    def handle(self, inst, line):
+        for regex, handler in self.mapping.items():
+            if (match := re.fullmatch(regex, line)):
+                handler(match)
 
 class LengthUnit:
     def __init__(self, name, shorthand, this_in_mm):
@@ -73,7 +88,7 @@ MILLIMETERS_PER_INCH = 25.4
 Inch = LengthUnit('inch', 'in', MILLIMETERS_PER_INCH)
 MM = LengthUnit('millimeter', 'mm', 1)
 units = {'inch': Inch, 'mm': MM, None: None}
-to_unit = lambda name: units[name]
+to_unit = lambda name: units[name.lower() if name else None]
 
 
 class InterpMode(Enum):
