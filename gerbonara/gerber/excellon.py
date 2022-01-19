@@ -26,7 +26,7 @@ from collections import Counter
 from .cam import CamFile, FileSettings
 from .graphic_objects import Flash, Line, Arc
 from .apertures import ExcellonTool
-from .utils import Inch, MM
+from .utils import Inch, MM, InterpMode
 
 def parse(data, settings=None):
     return ExcellonFile.parse(data, settings=settings)
@@ -207,11 +207,6 @@ class ProgramState(Enum):
     DRILLING = 1
     ROUTING = 2
     FINISHED = 2
-
-class InterpMode(Enum):
-    LINEAR = 0
-    CIRCULAR_CW = 1
-    CIRCULAR_CCW = 2
 
 
 class ExcellonParser(object):

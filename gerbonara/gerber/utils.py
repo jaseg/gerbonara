@@ -24,6 +24,7 @@ files.
 """
 
 import os
+from enum import Enum
 from math import radians, sin, cos, sqrt, atan2, pi
 
 
@@ -73,6 +74,12 @@ Inch = LengthUnit('inch', 'in', MILLIMETERS_PER_INCH)
 MM = LengthUnit('millimeter', 'mm', 1)
 units = {'inch': Inch, 'mm': MM, None: None}
 to_unit = lambda name: units[name]
+
+
+class InterpMode(Enum):
+    LINEAR = 0
+    CIRCULAR_CW = 1
+    CIRCULAR_CCW = 2
 
 
 def decimal_string(value, precision=6, padding=False):
@@ -160,4 +167,5 @@ def sq_distance(point1, point2):
     diff1 = point1[0] - point2[0]
     diff2 = point1[1] - point2[1]
     return diff1 * diff1 + diff2 * diff2
+
 

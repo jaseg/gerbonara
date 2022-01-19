@@ -4,8 +4,6 @@ import itertools
 
 from dataclasses import dataclass, KW_ONLY, replace
 
-from .gerber_statements import *
-
 
 @dataclass
 class GraphicPrimitive:

@@ -33,9 +33,8 @@ from itertools import count, chain
 from io import StringIO
 import textwrap
 
-from .gerber_statements import *
 from .cam import CamFile, FileSettings
-from .utils import sq_distance, rotate_point, MM, Inch, units
+from .utils import sq_distance, rotate_point, MM, Inch, units, InterpMode
 from .aperture_macros.parse import ApertureMacro, GenericMacros
 from . import graphic_primitives as gp
 from . import graphic_objects as go
@@ -215,25 +214,28 @@ class GerberFile(CamFile):
 
         return ((min_x, min_y), (max_x, max_y))
 
-    def generate_statements(self, drop_comments=True):
-        yield UnitStmt()
-        yield FormatSpecStmt()
-        yield ImagePolarityStmt()
-        yield SingleQuadrantModeStmt()
-        yield LoadPolarityStmt(True)
+    def generate_statements(self, settings, drop_comments=True):
+        yield '%MOMM*%' if (settings.unit == 'mm') else '%MOIN*%'
+
+        zeros = 'T' if settings.zeros == 'trailing' else 'L' # default to leading if "None" is specified
+        notation = 'I' if settings.notation == 'incremental' else 'A' # default to absolute
+        number_format = str(settings.number_format[0]) + str(settings.number_format[1])
+        yield f'%FS{zeros}{notation}X{number_format}Y{number_format}*%'
+        yield '%IPPOS*%'
+        yield 'G75'
+        yield '%LPD*%'
 
         if not drop_comments:
-            yield CommentStmt('File processed by Gerbonara. Original comments:')
+            yield 'G04 File processed by Gerbonara. Original comments:'
             for cmt in self.comments:
-                yield CommentStmt(cmt)
+                yield f'G04{cmt}'
 
         # Always emit gerbonara's generic, rotation-capable aperture macro replacements for the standard C/R/O/P shapes.
         # Unconditionally emitting these here is easier than first trying to figure out if we need them later,
         # and they are only a few bytes anyway.
-        yield ApertureMacroStmt(GenericMacros.circle)
-        yield ApertureMacroStmt(GenericMacros.rect)
-        yield ApertureMacroStmt(GenericMacros.obround)
-        yield ApertureMacroStmt(GenericMacros.polygon)
+        am_stmt = lambda macro: f'%AM{macro.name}*\n{macro.to_gerber(unit=settings.unit)}*\n%'
+        for macro in [ GenericMacros.circle, GenericMacros.rect, GenericMacros.obround, GenericMacros.polygon ]:
+            yield am_stmt(macro)
 
         processed_macros = set()
         aperture_map = {}
@@ -243,17 +245,17 @@ class GerberFile(CamFile):
                 macro_grb = aperture._rotated().macro.to_gerber() # use native unit to compare macros
                 if macro_grb not in processed_macros:
                     processed_macros.add(macro_grb)
-                    yield ApertureMacroStmt(aperture._rotated().macro)
+                    yield am_stmt(aperture._rotated().macro)
 
-            yield ApertureDefStmt(number, aperture)
+            yield f'%ADD{number}{aperture.to_gerber(settings)}*%'
 
             aperture_map[id(aperture)] = number
 
-        gs = GraphicsState(aperture_map=aperture_map)
+        gs = GraphicsState(aperture_map=aperture_map, file_settings=settings)
         for primitive in self.objects:
             yield from primitive.to_statements(gs)
 
-        yield EofStmt()
+        yield 'M02*'
 
     def __str__(self):
         return f'<GerberFile with {len(self.apertures)} apertures, {len(self.objects)} objects>'
@@ -269,7 +271,7 @@ class GerberFile(CamFile):
             settings = self.import_settings.copy() or FileSettings()
             settings.zeros = None
             settings.number_format = (5,6)
-        return '\n'.join(stmt.to_gerber(settings) for stmt in self.generate_statements())
+        return '\n'.join(self.generate_statements(settings))
 
     def offset(self, dx=0,  dy=0, unit=MM):
         # TODO round offset to file resolution
@@ -308,7 +310,7 @@ class GraphicsState:
     point : tuple = None
     aperture : apertures.Aperture = None
     file_settings : FileSettings = None
-    interpolation_mode : InterpolationModeStmt = LinearModeStmt
+    interpolation_mode : InterpMode = InterpMode.LINEAR
     multi_quadrant_mode : bool = None # used only for syntax checking
     aperture_mirroring = (False, False) # LM mirroring (x, y)
     aperture_rotation = 0 # LR rotation in degree, ccw
@@ -411,7 +413,7 @@ class GraphicsState:
                     'pass through the created objects here. Note that these will not show up in e.g. SVG output since '
                     'their line width is zero.', SyntaxWarning)
 
-        if self.interpolation_mode == LinearModeStmt:
+        if self.interpolation_mode == InterpMode.LINEAR:
             if i is not None or j is not None:
                 raise SyntaxError("i/j coordinates given for linear D01 operation (which doesn't take i/j)")
 
@@ -437,7 +439,7 @@ class GraphicsState:
                 polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
 
     def _create_arc(self, old_point, new_point, control_point, aperture=True):
-        clockwise = self.interpolation_mode == CircularCWModeStmt
+        clockwise = self.interpolation_mode == InterpMode.CIRCULAR_CW
         return go.Arc(*old_point, *new_point, *self.map_coord(*control_point, relative=True),
                 clockwise=clockwise, aperture=(self.aperture if aperture else None),
                 polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
@@ -458,12 +460,12 @@ class GraphicsState:
     def set_polarity(self, polarity_dark):
         if self.polarity_dark != polarity_dark:
             self.polarity_dark = polarity_dark
-            yield LoadPolarityStmt(polarity_dark)
+            yield '%LPD*%' if polarity_dark else '%LPC*%'
 
     def set_aperture(self, aperture):
         if self.aperture != aperture:
             self.aperture = aperture
-            yield ApertureStmt(self.aperture_map[id(aperture)])
+            yield f'D{self.aperture_map[id(aperture)]}*'
 
     def set_current_point(self, point, unit=None):
         point_mm = MM(point[0], unit), MM(point[1], unit)
@@ -471,12 +473,14 @@ class GraphicsState:
 
         if not points_close(self.point, point_mm):
             self.point = point_mm
-            yield MoveStmt(*point, unit=unit)
+            x = self.file_settings.write_gerber_value(point[0], unit=unit)
+            y = self.file_settings.write_gerber_value(point[1], unit=unit)
+            yield f'D02X{x}Y{y}*'
 
     def set_interpolation_mode(self, mode):
         if self.interpolation_mode != mode:
             self.interpolation_mode = mode
-            yield mode()
+            yield {InterpMode.LINEAR: 'G01', InterpMode.CIRCULAR_CW: 'G02', InterpMode.CIRCULAR_CCW: 'G03'}[mode]
 
 
 class GerberParser:
@@ -591,11 +595,11 @@ class GerberParser:
 
     def _parse_interpolation_mode(self, match):
         if match['code'] == 'G01':
-            self.graphics_state.interpolation_mode = LinearModeStmt
+            self.graphics_state.interpolation_mode = InterpMode.LINEAR
         elif match['code'] == 'G02':
-            self.graphics_state.interpolation_mode = CircularCWModeStmt
+            self.graphics_state.interpolation_mode = InterpMode.CIRCULAR_CW
         elif match['code'] == 'G03':
-            self.graphics_state.interpolation_mode = CircularCCWModeStmt
+            self.graphics_state.interpolation_mode = InterpMode.CIRCULAR_CCW
         elif match['code'] == 'G74':
             self.multi_quadrant_mode = True # used only for syntax checking
         elif match['code'] == 'G75':
@@ -620,7 +624,7 @@ class GerberParser:
         self.last_operation = op
 
         if op in ('D1', 'D01'):
-            if self.graphics_state.interpolation_mode != LinearModeStmt:
+            if self.graphics_state.interpolation_mode != InterpMode.LINEAR:
                 if self.multi_quadrant_mode is None:
                     warnings.warn('Circular arc interpolation without explicit G75 Single-Quadrant mode statement. '\
                             'This can cause problems with older gerber interpreters.', SyntaxWarning)

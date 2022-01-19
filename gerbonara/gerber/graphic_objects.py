@@ -2,9 +2,8 @@
 import math
 from dataclasses import dataclass, KW_ONLY, astuple, replace, fields
 
-from .utils import MM
+from .utils import MM, InterpMode
 from . import graphic_primitives as gp
-from .gerber_statements import *
 
 
 def convert(value, src, dst):
@@ -76,15 +75,21 @@ class Flash(GerberObject):
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
-        yield FlashStmt(self.x, self.y, unit=self.unit)
+
+        x = gs.file_settings.write_gerber_value(self.x, self.unit)
+        y = gs.file_settings.write_gerber_value(self.y, self.unit)
+        yield f'D03X{x}Y{y}*'
+
         gs.update_point(self.x, self.y, unit=self.unit)
 
     def to_xnc(self, ctx):
         yield from ctx.select_tool(self.tool)
         yield from ctx.drill_mode()
+
         x = ctx.settings.write_gerber_value(self.x, self.unit)
         y = ctx.settings.write_gerber_value(self.y, self.unit)
         yield f'X{x}Y{y}'
+
         ctx.set_current_point(self.unit, self.x, self.y)
 
     def curve_length(self, unit=MM):
@@ -143,24 +148,35 @@ class Region(GerberObject):
 
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
-        yield RegionStartStmt()
+        yield 'G36*'
 
         yield from gs.set_current_point(self.poly.outline[0], unit=self.unit)
 
         for point, arc_center in zip(self.poly.outline[1:], self.poly.arc_centers):
             if arc_center is None:
-                yield from gs.set_interpolation_mode(LinearModeStmt)
-                yield InterpolateStmt(*point, unit=self.unit)
+                yield from gs.set_interpolation_mode(InterpMode.LINEAR)
+
+                x = gs.file_settings.write_gerber_value(point[0], self.unit)
+                y = gs.file_settings.write_gerber_value(point[1], self.unit)
+                yield f'D01X{x}Y{y}*'
+
                 gs.update_point(*point, unit=self.unit)
 
             else:
                 clockwise, (cx, cy) = arc_center
                 x2, y2 = point
-                yield from gs.set_interpolation_mode(CircularCWModeStmt if clockwise else CircularCCWModeStmt)
-                yield InterpolateStmt(x2, y2, cx-x2, cy-y2, unit=self.unit)
+                yield from gs.set_interpolation_mode(InterpMode.CIRCULAR_CW if clockwise else InterpMode.CIRCULAR_CCW)
+
+                x = gs.file_settings.write_gerber_value(x2, self.unit)
+                y = gs.file_settings.write_gerber_value(y2, self.unit)
+                # TODO are these coordinates absolute or relative now?!
+                i = gs.file_settings.write_gerber_value(cx-x2, self.unit)
+                j = gs.file_settings.write_gerber_value(cy-y2, self.unit)
+                yield f'D01X{x}Y{y}I{i}J{j}*'
+
                 gs.update_point(x2, y2, unit=self.unit)
 
-        yield RegionEndStmt()
+        yield 'G37*'
 
 
 @dataclass
@@ -207,15 +223,23 @@ class Line(GerberObject):
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
-        yield from gs.set_interpolation_mode(LinearModeStmt)
+        yield from gs.set_interpolation_mode(InterpMode.LINEAR)
         yield from gs.set_current_point(self.p1, unit=self.unit)
-        yield InterpolateStmt(*self.p2, unit=self.unit)
+
+        x = gs.file_settings.write_gerber_value(self.x2, self.unit)
+        y = gs.file_settings.write_gerber_value(self.y2, self.unit)
+        yield f'D01X{x}Y{y}*'
+
         gs.update_point(*self.p2, unit=self.unit)
 
     def to_xnc(self, ctx):
         yield from ctx.select_tool(self.tool)
         yield from ctx.route_mode(self.unit, *self.p1)
-        yield 'G01' + 'X' + ctx.settings.write_gerber_value(self.p2[0], self.unit) + 'Y' + ctx.settings.write_gerber_value(self.p2[1], self.unit)
+
+        x = ctx.settings.write_gerber_value(self.x2, self.unit)
+        y = ctx.settings.write_gerber_value(self.y2, self.unit)
+        yield f'G01X{x}Y{y}'
+
         ctx.set_current_point(self.unit, *self.p2)
 
     def curve_length(self, unit=MM):
@@ -280,20 +304,29 @@ class Arc(GerberObject):
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
-        yield from gs.set_interpolation_mode(CircularCCWModeStmt)
+        # TODO is the following line correct?
+        yield from gs.set_interpolation_mode(InterpMode.CIRCULAR_CW if self.clockwise else InterpMode.CIRCULAR_CCW)
         yield from gs.set_current_point(self.p1, unit=self.unit)
-        yield InterpolateStmt(self.x2, self.y2, self.cx, self.cy, unit=self.unit)
+
+        x = gs.file_settings.write_gerber_value(self.x2, self.unit)
+        y = gs.file_settings.write_gerber_value(self.y2, self.unit)
+        i = gs.file_settings.write_gerber_value(self.cx, self.unit)
+        j = gs.file_settings.write_gerber_value(self.cy, self.unit)
+        yield f'D01X{x}Y{y}I{i}J{j}*'
+
         gs.update_point(*self.p2, unit=self.unit)
 
     def to_xnc(self, ctx):
         yield from ctx.select_tool(self.tool)
         yield from ctx.route_mode(self.unit, self.x1, self.y1)
         code = 'G02' if self.clockwise else 'G03'
+
         x = ctx.settings.write_gerber_value(self.x2, self.unit)
         y = ctx.settings.write_gerber_value(self.y2, self.unit)
-        i = ctx.settings.write_gerber_value(self.cx - self.x1, self.unit)
-        j = ctx.settings.write_gerber_value(self.cy - self.y1, self.unit)
+        i = ctx.settings.write_gerber_value(self.cx, self.unit)
+        j = ctx.settings.write_gerber_value(self.cy, self.unit)
         yield f'{code}X{x}Y{y}I{i}J{j}'
+
         ctx.set_current_point(self.unit, self.x2, self.y2)
 
     def curve_length(self, unit=MM):
