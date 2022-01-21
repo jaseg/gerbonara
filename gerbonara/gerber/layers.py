@@ -17,392 +17,193 @@
 
 import os
 import re
+import warnings
 from collections import namedtuple
 
 from .excellon import ExcellonFile
 from .ipc356 import IPCNetlist
 
-def match_fn_eagle(name, suffix):
-    if suffix in ('cmp', 'top') or \ # Older Eagle versions (v7)
-            name.endswith('toplayer.ger') or \ # OSHPark Eagle CAM rules
-            'copper_top' in name or 'top_copper' in name: # Newer Autodesk Eagle versions (v9)
-        return 'top copper gerber'
+def match_files(filenames):
+    matches = {}
+    for generator, rules in MATCH_RULES.items():
+        gen = {}
+        matches[generator] = gen
+        for layer, regex in rules.items():
+            for fn in filenames:
+                if (m := re.fullmatch(regex, fn.name.lower())):
+                    if layer == 'inner copper':
+                        layer = 'inner_' + ''.join(m.groups()) + ' copper'
+                    gen[layer] = gen.get(layer, []) + [fn]
+    return matches
 
-    if suffix in ('stc', 'tsm') or \
-            name.endswith('topsoldermask.ger') or \
-            'soldermask_top' in name or 'top_mask' in name:
-        return 'top mask gerber'
+def best_match(filenames):
+    matches = match_files(filenames)
+    matches = sorted(matches.items(), key=lambda pair: len(pair[1]))
+    generator, files = matches[-1]
+    return generator, files
 
-    if suffix in ('plc', 'tsk') or \
-            name.endswith('topsilkscreen.ger') or \
-            'silkscreen_top' in name or 'top_silk' in name:
-        return 'top silk gerber'
+def identify_file(data):
+    if 'M48' in data or 'G90' in data:
+        return 'excellon'
+    if 'FSLAX' in data or 'FSTAX' in data:
+        return 'gerber'
+    return None
 
-    if suffix in ('crc', 'tsp') or \ 
-            name.endswith('tcream.ger') or \
-            'solderpaste_top' in name or 'top_paste' in name:
-        return 'top paste gerber'
+def common_prefix(l):
+    out = []
+    for cand in l:
+        score = lambda n: sum(elem.startswith(cand[:n]) for elem in l)
+        baseline = score(1)
+        if len(l) - baseline > 5:
+            continue
+        for n in range(2, len(cand)):
+            if len(l) - score(n) > 5:
+                break
+        out.append(cand[:n-1])
+ 
+    if not out:
+        return ''
+ 
+    return sorted(out, key=len)[-1]
 
-    if suffix in ('sol', 'bot') or \
-            name.endswith('bottomlayer.ger') or \
-            'copper_bottom' in name or 'bottom_copper' in name:
-        return 'bottom copper gerber'
+def autoguess(filenames):
+    prefix = common_prefix([f.name for f in filenames])
 
-    if suffix in ('sts', 'bsm') or \
-            name.endswith('bottomsoldermask.ger') or \
-            'soldermask_bottom' in name or 'bottom_mask' in name:
-        return 'bottom mask gerber'
+    matches = { layername_autoguesser(f.name[len(prefix):] if f.name.startswith(prefix) else f.name): f
+            for f in filenames }
 
-    if suffix in ('pls', 'bsk') or \
-            name.endswith('bottomsilkscreen.ger') or \
-            'silkscreen_bottom' in name or \
-            'bottom_silk' in name:
-        return 'bottom silk gerber'
+    inner_layers = [ m for m in matches if 'inner' in m ]
+    if len(inner_layers) >= 4 and not 'copper top' in matches and not 'copper bottom' in matches:
+        matches['copper top'] = matches.pop('copper inner1')
+        last_inner = sorted(inner_layers, key=lambda name: int(name.partition(' ')[0].partition('_')[2]))[-1]
+        matches['copper bottom'] = matches.pop(last_inner)
 
-    if suffix in ('crs', 'bsp') or \
-            name.endswith('bcream.ger') or \
-            'solderpaste_bottom' in name or 'bottom_paste' in name:
-        return 'bottom silk gerber'
+    return matches
 
-    if (m := re.fullmatch(r'ly(\d+)', suffix)):
-        return f'inner{m[1]} copper gerber'
+def layername_autoguesser(fn):
+    fn, _, _ext = fn.lower().rpartition('.')
 
-    if (m := re.fullmatch(r'.*internalplane(\d+).ger', suffix)):
-        return f'inner{m[1]} copper gerber'
+    side, use = 'unknown', 'unknown'
+    hint = ''
+    if re.match('top|front|pri?m?(ary)?', fn):
+        side = 'top'
+        use = 'copper'
+    if re.match('bot|bottom|back|sec(ondary)?', fn):
+        side = 'bottom'
+        use = 'copper'
 
-    if suffix in ('dim', 'mil', 'gml'):
-        return 'outline mechanical gerber'
+    if re.match('silks?(creen)?', fn):
+        use = 'silk'
+    elif re.match('(solder)?paste', fn):
+        use = 'paste'
+    elif re.match('(solder)?mask', fn):
+        use = 'mask'
+    elif (m := re.match('([tbcps])sm([tbcps])', fn)):
+        use = 'mask'
+        hint = m[1] + m[2]
+    elif (m := re.match('([tbcps])sp([tbcps])', fn)):
+        use = 'paste'
+        hint = m[1] + m[2]
+    elif (m := re.match('([tbcps])sl?k([tbcps])', fn)):
+        use = 'silk'
+        hint = m[1] + m[2]
+    elif (m := re.match('(la?y?e?r?|inn?e?r?)\W*([0-9]+)', fn)):
+        use = 'copper'
+        side = f'inner_{m[1]}'
+    elif re.match('film', fn):
+        use = 'copper'
+    elif re.match('drill|rout?e?|outline'):
+        use = 'drill'
+        side = 'unknown'
 
-    if name.endswith('boardoutline.ger'):
-        return 'outline mechanical gerber'
+        if re.match('np(th)?|(non|un)\W*plated|(non|un)\Wgalv', fn):
+            side = 'nonplated'
+        elif re.match('pth|plated|galv', fn):
+            side = 'plated'
 
-    if name == 'profile.gbr': # older eagle versions
-        return 'outline mechanical gerber'
+    if side is None and hint:
+        hint = set(hint)
+        if len(hint) == 1:
+            and hint[0] in 'tpc':
+                side = 'top'
+            else
+                side = 'bottom'
 
-def match_fn_altium(name, suffix):
-    if suffix == 'gtl':
-        return 'top copper gerber'
-
-    if suffix == 'gts':
-        return 'top silk gerber'
-
-    if suffix == 
-
-
-Hint = namedtuple('Hint', 'layer ext name regex content')
-
-hints = [
-    Hint(layer='top',
-         ext=['gtl', 'cmp', 'top', ],
-         name=['art01', 'top', 'GTL', 'layer1', 'soldcom', 'comp', 'F.Cu', ],
-         regex='',
-         content=[]
-         ),
-    Hint(layer='bottom',
-         ext=['gbl', 'sld', 'bot', 'sol', 'bottom', ],
-         name=['art02', 'bottom', 'bot', 'GBL', 'layer2', 'soldsold', 'B.Cu', ],
-         regex='',
-         content=[]
-         ),
-    Hint(layer='internal',
-         ext=['in', 'gt1', 'gt2', 'gt3', 'gt4', 'gt5', 'gt6',
-              'g1', 'g2', 'g3', 'g4', 'g5', 'g6', ],
-         name=['art', 'internal', 'pgp', 'pwr', 'gnd', 'ground',
-               'gp1', 'gp2', 'gp3', 'gp4', 'gt5', 'gp6',
-               'In1.Cu', 'In2.Cu', 'In3.Cu', 'In4.Cu',
-               'group3', 'group4', 'group5', 'group6', 'group7', 'group8',
-               'copper_top_l1', 'copper_inner_l2', 'copper_inner_l3', 'copper_bottom_l4', ],
-         regex='',
-         content=[]
-         ),
-    Hint(layer='topsilk',
-         ext=['gto', 'sst', 'plc', 'ts', 'skt', 'topsilk'],
-         name=['sst01', 'topsilk', 'silk', 'slk', 'sst', 'F.SilkS', 'silkscreen_top'],
-         regex='',
-         content=[]
-         ),
-    Hint(layer='bottomsilk',
-         ext=['gbo', 'ssb', 'pls', 'bs', 'skb', 'bottomsilk'],
-         name=['bsilk', 'ssb', 'botsilk', 'bottomsilk', 'B.SilkS', 'silkscreen_bottom'],
-         regex='',
-         content=[]
-         ),
-    Hint(layer='topmask',
-         ext=['gts', 'stc', 'tmk', 'smt', 'tr', 'topmask', ],
-         name=['sm01', 'cmask', 'tmask', 'mask1', 'maskcom', 'topmask',
-               'mst', 'F.Mask', 'soldermask_top'],
-         regex='',
-         content=[]
-         ),
-    Hint(layer='bottommask',
-         ext=['gbs', 'sts', 'bmk', 'smb', 'br', 'bottommask', ],
-         name=['sm', 'bmask', 'mask2', 'masksold', 'botmask', 'bottommask',
-               'msb', 'B.Mask', 'soldermask_bottom'],
-         regex='',
-         content=[]
-         ),
-    Hint(layer='toppaste',
-         ext=['gtp', 'tm', 'toppaste', ],
-         name=['sp01', 'toppaste', 'pst', 'F.Paste', 'solderpaste_top'],
-         regex='',
-         content=[]
-         ),
-    Hint(layer='bottompaste',
-         ext=['gbp', 'bm', 'bottompaste', ],
-         name=['sp02', 'botpaste', 'bottompaste', 'psb', 'B.Paste', 'solderpaste_bottom'],
-         regex='',
-         content=[]
-         ),
-    Hint(layer='outline',
-         ext=['gko', 'outline', ],
-         name=['BDR', 'border', 'out', 'outline', 'Edge.Cuts', 'profile'],
-         regex='',
-         content=[]
-         ),
-    Hint(layer='ipc_netlist',
-         ext=['ipc'],
-         name=[],
-         regex='',
-         content=[]
-         ),
-    Hint(layer='drawing',
-         ext=['fab'],
-         name=['assembly drawing', 'assembly', 'fabrication',
-               'fab drawing', 'fab'],
-         regex='',
-         content=[]
-         ),
-]
-
-
-def layer_signatures(layer_class):
-    for hint in hints:
-        if hint.layer == layer_class:
-            return hint.ext + hint.name
-    return []
-
-
-def load_layer(filename):
-    return PCBLayer.from_cam(common.read(filename))
-
-
-def load_layer_data(data, filename=None):
-    return PCBLayer.from_cam(common.loads(data, filename))
-
-
-def guess_layer_class(filename):
-    try:
-        layer = guess_layer_class_by_content(filename)
-        if layer:
-            return layer
-    except:
-        pass
-
-    try:
-        directory, filename = os.path.split(filename)
-        name, ext = os.path.splitext(filename.lower())
-        for hint in hints:
-            if hint.regex:
-                if re.findall(hint.regex, filename, re.IGNORECASE):
-                    return hint.layer
-
-            patterns = [r'^(\w*[.-])*{}([.-]\w*)?$'.format(x) for x in hint.name]
-            if ext[1:] in hint.ext or any(re.findall(p, name, re.IGNORECASE) for p in patterns):
-                return hint.layer
-    except:
-        pass
-    return 'unknown'
-
-
-def guess_layer_class_by_content(filename):
-    try:
-        file = open(filename, 'r')
-        for line in file:
-            for hint in hints:
-                if len(hint.content) > 0:
-                    patterns = [r'^(.*){}(.*)$'.format(x) for x in hint.content]
-                    if any(re.findall(p, line, re.IGNORECASE) for p in patterns):
-                        return hint.layer
-    except:
-        pass
-
-    return False
-
-
-def sort_layers(layers, from_top=True):
-    layer_order = ['outline', 'toppaste', 'topsilk', 'topmask', 'top',
-                   'internal', 'bottom', 'bottommask', 'bottomsilk',
-                   'bottompaste']
-    append_after = ['drill', 'drawing']
-
-    output = []
-    drill_layers = [layer for layer in layers if layer.layer_class == 'drill']
-    internal_layers = list(sorted([layer for layer in layers
-                                   if layer.layer_class == 'internal']))
-
-    for layer_class in layer_order:
-        if layer_class == 'internal':
-            output += internal_layers
-        elif layer_class == 'drill':
-            output += drill_layers
-        else:
-            for layer in layers:
-                if layer.layer_class == layer_class:
-                    output.append(layer)
-    if not from_top:
-        output = list(reversed(output))
-
-    for layer_class in append_after:
-        for layer in layers:
-            if layer.layer_class == layer_class:
-                output.append(layer)
-    return output
-
-
-class PCBLayer(object):
-    """ Base class for PCB Layers
-
-    Parameters
-    ----------
-    source : CAMFile
-        CAMFile representing the layer
-
-
-    Attributes
-    ----------
-    filename : string
-        Source Filename
-
-    """
-    @classmethod
-    def from_cam(cls, camfile):
-        filename = camfile.filename
-        layer_class = guess_layer_class(filename)
-        if isinstance(camfile, ExcellonFile) or (layer_class == 'drill'):
-            return DrillLayer.from_cam(camfile)
-        elif layer_class == 'internal':
-            return InternalLayer.from_cam(camfile)
-        if isinstance(camfile, IPCNetlist):
-            layer_class = 'ipc_netlist'
-        return cls(filename, layer_class, camfile)
-
-    def __init__(self, filename=None, layer_class=None, cam_source=None, **kwargs):
-        super(PCBLayer, self).__init__(**kwargs)
-        self.filename = filename
-        self.layer_class = layer_class
-        self.cam_source = cam_source
-        self.surface = None
-        self.primitives = cam_source.primitives if cam_source is not None else []
-
-    @property
-    def bounds(self):
-        if self.cam_source is not None:
-            return self.cam_source.bounds
-        else:
-            return None
-
-    def __repr__(self):
-        return '<PCBLayer: {}>'.format(self.layer_class)
-
-
+    return f'{use} {side}'
 
 class LayerStack:
     @classmethod
-    def from_directory(cls, directory, board_name=None, verbose=False):
-        layers = []
-        names = set()
+    def from_directory(kls, directory, board_name=None, verbose=False):
 
-        # Validate
-        directory = os.path.abspath(directory)
-        if not os.path.isdir(directory):
-            raise TypeError('{} is not a directory.'.format(directory))
+        directory = Path(directory)
+        if not directory.is_dir():
+            raise FileNotFoundError(f'{directory} is not a directory')
 
-        # Load gerber files
-        for filename in os.listdir(directory):
-            try:
-                camfile = gerber_read(os.path.join(directory, filename))
-                layer = PCBLayer.from_cam(camfile)
-                layers.append(layer)
-                name = os.path.splitext(filename)[0]
-                if len(os.path.splitext(filename)) > 1:
-                    _name, ext = os.path.splitext(name)
-                    if ext[1:] in layer_signatures(layer.layer_class):
-                        name = _name
-                    if layer.layer_class == 'drill' and 'drill' in ext:
-                        name = _name
-                names.add(name)
-                if verbose:
-                    print('[PCB]: Added {} layer <{}>'.format(layer.layer_class,
-                                                              filename))
-            except ParseError:
-                if verbose:
-                    print('[PCB]: Skipping file {}'.format(filename))
-            except IOError:
-                if verbose:
-                    print('[PCB]: Skipping file {}'.format(filename))
+        files = [ path for path in directory.glob('**/*') if path.is_file() ]
+        generator, filemap = best_match(files)
 
-        # Try to guess board name
-        if board_name is None:
-            if len(names) == 1:
-                board_name = names.pop()
+        if len(filemap) < 6:
+            generator = None
+            filemap = autoguess(files)
+            if len(filemap < 6):
+                raise ValueError('Cannot figure out gerber file mapping')
+
+        elif generator == 'geda':
+            # geda is written by geniuses who waste no bytes of unnecessary output so it doesn't actually include the
+            # number format in files that use imperial units. Unfortunately it also doesn't include any hints that the
+            # file was generated by geda, so we have to guess by context whether this is just geda being geda or
+            # potential user error.
+            excellon_settings = FileSettings(number_format=(2, 4))
+
+        elif generator == 'allegro':
+            # Allegro puts information that is absolutely vital for parsing its excellon files... into another file,
+            # next to the actual excellon file. Despite pretty much everyone else having figured out a way to put that
+            # info into the excellon file itself, even if only as a comment.
+            if 'excellon params' in filemap:
+                excellon_settings = parse_allegro_ncparam(filemap['excellon params'][0].read_text())
+                del filemap['excellon params']
+            # Ignore if we can't find the param file -- maybe the user has convinced Allegro to actually put this
+            # information into a comment, or maybe they have made Allegro just use decimal points like XNC does.
+
+            filemap = autoguess([ f for files in filemap for f in files ])
+            if len(filemap < 6):
+                raise SystemError('Cannot figure out gerber file mapping')
+
+        else:
+            excellon_settings = None
+
+        if any(len(value) > 1 for value in filemap.values()):
+            raise SystemError('Ambgiuous layer names')
+
+        filemap = { key: values[0] for key, value in filemap.items() }
+
+        layers = {}
+        for key, path in filemap.items():
+            if 'outline' in key or 'drill' in key and identify_file(path.read_text()) != 'gerber':
+                if 'nonplated' in key:
+                    plated = False
+                elif 'plated' in key:
+                    plated = True
+                else:
+                    plated = None
+                layers[key] = ExcellonFile.open(path, plated=plated, settings=excellon_settings)
             else:
-                board_name = os.path.basename(directory)
-        # Return PCB
-        return cls(layers, board_name)
+                layers[key] = GerberFile.open(path)
 
-    def __init__(self, layers, name=None):
-        self.layers = sort_layers(layers)
-        self.name = name
+            hints = { layers[key].generator_hints } + { generator }
+            if len(hints) > 1:
+                warnings.warn('File identification returned ambiguous results. Please raise an issue on the gerbonara '
+                        'tracker and if possible please provide these input files for reference.')
+
+        board_name = common_prefix([f.name for f in filemap.values()])
+        board_name = re.subs('^\W+', '', board_name)
+        board_name = re.subs('\W+$', '', board_name)
+        return kls(layers, board_name=board_name)
+
+    def __init__(self, layers, board_name=None):
+        self.layers = layers
+        self.board_name = board_name
 
     def __len__(self):
         return len(self.layers)
-
-    @property
-    def top_layers(self):
-        board_layers = [l for l in reversed(self.layers) if l.layer_class in
-                        ('topsilk', 'topmask', 'top')]
-        drill_layers = [l for l in self.drill_layers if 'top' in l.layers]
-        # Drill layer goes under soldermask for proper rendering of tented vias
-        return [board_layers[0]] + drill_layers + board_layers[1:]
-
-    @property
-    def bottom_layers(self):
-        board_layers = [l for l in self.layers if l.layer_class in
-                        ('bottomsilk', 'bottommask', 'bottom')]
-        drill_layers = [l for l in self.drill_layers if 'bottom' in l.layers]
-        # Drill layer goes under soldermask for proper rendering of tented vias
-        return [board_layers[0]] + drill_layers + board_layers[1:]
-
-    @property
-    def drill_layers(self):
-        return [l for l in self.layers if l.layer_class == 'drill']
-
-    @property
-    def copper_layers(self):
-        return list(reversed([layer for layer in self.layers if
-                              layer.layer_class in
-                              ('top', 'bottom', 'internal')]))
-
-    @property
-    def outline_layer(self):
-        for layer in self.layers:
-            if layer.layer_class == 'outline':
-                return layer
-
-    @property
-    def layer_count(self):
-        """ Number of *COPPER* layers
-        """
-        return len([l for l in self.layers if l.layer_class in
-                    ('top', 'bottom', 'internal')])
-
-    @property
-    def board_bounds(self):
-        for layer in self.layers:
-            if layer.layer_class == 'outline':
-                return layer.bounding_box
-
-        for layer in self.layers:
-            if layer.layer_class == 'top':
-                return layer.bounding_box
 

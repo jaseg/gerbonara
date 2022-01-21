@@ -98,25 +98,28 @@ def parse_allegro_ncparam(data, settings=None):
 
 
 class ExcellonFile(CamFile):
-    def __init__(self, objects=None, comments=None, import_settings=None, filename=None, generator=None):
+    def __init__(self, objects=None, comments=None, import_settings=None, filename=None, generator_hints=None):
         super().__init__(filename=filename)
         self.objects = objects or []
         self.comments = comments or []
         self.import_settings = import_settings
-        self.generator = generator # This is a purely informational goodie from the parser. Use it as you wish.
+        self.generator_hints = generator_hints or [] # This is a purely informational goodie from the parser. Use it as you wish.
+
+    @property
+    def generator(self):
+        return self.generator_hints[0] if self.generator_hints else None
 
     @classmethod
-    def open(kls, filename, plated=None):
+    def open(kls, filename, plated=None, settings=None):
         filename = Path(filename)
     
         # Parse allegro parameter files.
         # Prefer nc_param.txt over ncparam.log since the txt is the machine-readable one.
-        for fn in 'nc_param.txt', 'ncdrill.log':
-            if (param_file := filename.parent / fn).isfile():
-                settings =  parse_allegro_ncparam(param_file.read_text())
-                break
-        else:
-            settings = None
+        if settings is None:
+            for fn in 'nc_param.txt', 'ncdrill.log':
+                if (param_file := filename.parent / fn).isfile():
+                    settings =  parse_allegro_ncparam(param_file.read_text())
+                    break
 
         return kls.from_string(filename.read_text(), settings=settings, filename=filename, plated=plated)
 
@@ -269,7 +272,7 @@ class ExcellonParser(object):
         self.pos = 0, 0
         self.drill_down = False
         self.is_plated = None
-        self.generator = None
+        self.generator_hints = []
 
     def _do_parse(self, data):
         leftover = None
@@ -303,7 +306,7 @@ class ExcellonParser(object):
     def parse_allegro_tooldef(self, match):
         # NOTE: We ignore the given tolerances here since they are non-standard.
         self.program_state = ProgramState.HEADER # TODO is this needed? we need a test file.
-        self.generator = 'allegro'
+        self.generator_hints.append('allegro')
 
         if (index := int(match['index1'])) != int(match['index2']): # index1 has leading zeros, index2 not.
             raise SyntaxError('BUG: Allegro excellon tool def has mismatching tool indices. Please file a bug report on our issue tracker and provide this file!')
@@ -340,6 +343,7 @@ class ExcellonParser(object):
             warnings.warn('Re-definition of tool index {index}, overwriting old definition.', SyntaxWarning) 
 
         tools[index] = tool
+        self.generator_hints.append('easyeda')
 
     @exprs.match('T([0-9]+)(([A-Z][.0-9]+)+)') # Tool definition: T** with at least one parameter
     def parse_normal_tooldef(self, match):
@@ -351,9 +355,13 @@ class ExcellonParser(object):
 
         params = { m[0]: settings.parse_gerber_value(m[1:]) for m in re.findall('[BCFHSTZ][.0-9]+', match[2]) }
 
-        if set(params.keys()) == set('TFSC') and self.generator is None:
-            self.generator = 'target3001' # target files look like altium files without the comments
         self.tools[index] = ExcellonTool(diameter=params.get('C'), depth_offset=params.get('Z'), plated=self.is_plated)
+
+        if set(params.keys()) == set('TFSC'):
+            self.generator_hints.append('target3001') # target files look like altium files without the comments
+
+        if len(self.tools) >= 3 and list(self.tools.keys()) == reversed(sorted(self.tools.keys())):
+            self.generator_hints.append('geda')
 
     @exprs.match('T([0-9]+)')
     def parse_tool_selection(self, match):
@@ -401,7 +409,7 @@ class ExcellonParser(object):
         if self.program_state == ProgramState.HEADER:
             # It seems that only fritzing puts both a '%' start of header thingy and an M48 statement at the beginning
             # of the file.
-            self.generator = 'fritzing'
+            self.generator_hints('fritzing')
         elif self.program_state is not None:
             warnings.warn(f'M48 "header start" statement found in the middle of the file, currently in {self.program_state}', SyntaxWarning)
         self.program_state = ProgramState.HEADER
@@ -554,19 +562,22 @@ class ExcellonParser(object):
     def handle_inch_mode(self, match):
         self.settings.unit = Inch
 
-    @exprs.match('(METRIC|INCH),(LZ|TZ)(0*\.0*)?')
+    @exprs.match('(METRIC|INCH)(,LZ|,TZ)?(0*\.0*)?')
     def parse_easyeda_format(self, match):
+        # geda likes to omit the LZ/TZ
         self.settings.unit = MM if match[1] == 'METRIC' else Inch
-        self.settings.zeros = 'leading' if match[2] == 'LZ' else 'trailing'
+        if match[2]:
+            self.settings.zeros = 'leading' if match[2] == ',LZ' else 'trailing'
         # Newer EasyEDA exports have this in an altium-like FILE_FORMAT comment instead. Some files even have both.
         # This is used by newer autodesk eagles, fritzing and diptrace
         if match[3]:
             if self.generator is None:
                 # newer eagles identify themselvees through a comment, and fritzing uses this wonky double-header-start
                 # with a "%" line followed  by an "M48" line. Thus, thus must be diptrace.
-                self.generator = 'diptrace'
+                self.generator_hints.append('diptrace')
             integer, _, fractional = match[3].partition('.')
             self.settings.number_format = len(integer), len(fractional)
+        self.generator_hints.append('easyeda')
     
     @exprs.match('G90')
     @header_command
@@ -615,12 +626,12 @@ class ExcellonParser(object):
         self.settings.notation = {'Leading': 'trailing', 'Trailing': 'leading'}[match[2]]
         self.settings.unit = to_unit(match[3])
         self.settings.zeros = match[4].lower()
-        self.generator = 'siemens'
+        self.generator_hints.append('siemens')
 
     @exprs.match('; Contents: (Thru|.*) / (Drill|Mill) / (Plated|Non-Plated)')
     def parse_siemens_meta(self, match):
         self.is_plated = (match[3] == 'Plated')
-        self.generator = 'siemens'
+        self.generator_hints.append('siemens')
 
     @exprs.match(';FILE_FORMAT=([0-9]:[0-9])')
     def parse_altium_easyeda_number_format_comment(self, match):
@@ -633,6 +644,7 @@ class ExcellonParser(object):
         # EasyEDA embeds the layer name in a comment. EasyEDA uses separate files for plated/non-plated. The (default?)
         # layer names are: "Drill PTH", "Drill NPTH"
         self.is_plated = 'NPTH' not in match[1]
+        self.generator_hints.append('easyeda')
 
     @exprs.match(';TYPE=(PLATED|NON_PLATED)')
     def parse_altium_composite_plating_comment(self, match):
@@ -642,25 +654,42 @@ class ExcellonParser(object):
 
     @exprs.match(';(Layer_Color=[-+0-9a-fA-F]*)')
     def parse_altium_layer_color(self, match):
-        self.generator = 'altium'
+        self.generator_hints.append('altium')
         self.comments.append(match[1])
     
     @exprs.match(';HEADER:')
     def parse_allegro_start_of_header(self, match):
         self.program_state = ProgramState.HEADER
-        self.generator = 'allegro'
+        self.generator_hints.append('allegro')
 
     @exprs.match(';GenerationSoftware,Autodesk,EAGLE,.*\*%')
     def parse_eagle_version_header(self, match):
         # NOTE: Only newer eagles export drills as XNC files. Older eagles produce an aperture-only gerber file called
         # "profile.gbr" instead.
-        self.generator = 'eagle'
+        self.generator_hints.append('eagle')
 
     @exprs.match(';EasyEDA .*')
     def parse_easyeda_version_header(self, match):
-        self.generator = 'easyeda'
+        self.generator_hints.append('easyeda')
+
+    @exprs.match(';DRILL .*KiCad .*')
+    def parse_kicad_version_header(self, match):
+        self.generator_hints.append('kicad')
+    
+    @exprs.match(';FORMAT={([-0-9]+:[-0-9]+) ?/ (.*) / (inch|.*) / decimal}')
+    def parse_kicad_number_format_comment(self, match):
+        x, _, y = match[1].partition(':')
+        x = None if x == '-' else int(x)
+        y = None if y == '-' else int(y)
+        self.settings.number_format = x, y
+        self.settings.notation = match[2]
+        self.settings.unit = Inch if match[3] == 'inch' else MM
 
     @exprs.match(';(.*)')
     def parse_comment(self, match):
         self.comments.append(match[1].strip())
+
+        if all(cmt.startswith(marker)
+                for cmt, marker in zip(reversed(self.comments), ['Version', 'Job', 'User', 'Date'])):
+            self.generator_hints.append('siemens')
 
