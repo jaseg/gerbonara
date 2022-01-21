@@ -556,6 +556,8 @@ class GerberParser:
         self.multi_quadrant_mode = None # used only for syntax checking
         self.macros = {}
         self.last_operation = None
+        self.generator_hints = []
+        self.layer_hints = []
 
     @classmethod
     def _split_commands(kls, data):
@@ -800,7 +802,34 @@ class GerberParser:
         self.graphics_state.scale_factor = a, b
 
     def _parse_comment(self, match):
-        self.target.comments.append(match["comment"])
+        cmt = match["comment"].strip()
+
+        # Parse metadata from allegro comments
+        # We do this for layer identification since allegro files usually do not follow any defined naming scheme
+        if cmt.startswith('File Origin:') and 'Allegro' in cmt:
+            self.generator_hints.append('allegro')
+
+        elif cmt.startswith('Layer:'):
+            if 'BOARD GEOMETRY' in cmt:
+                if 'SOLDERMASK_TOP' in cmt:
+                    self.layer_hints.append('top mask')
+                if 'SOLDERMASK_BOTTOM' in cmt:
+                    self.layer_hints.append('bottom mask')
+                if 'PASTEMASK_TOP' in cmt:
+                    self.layer_hints.append('top paste')
+                if 'PASTEMASK_BOTTOM' in cmt:
+                    self.layer_hints.append('bottom paste')
+                if 'SILKSCREEN_TOP' in cmt:
+                    self.layer_hints.append('top silk')
+                if 'SILKSCREEN_BOTTOM' in cmt:
+                    self.layer_hints.append('bottom silk')
+            elif 'ETCH' in cmt:
+                _1, _2, name = cmt.partition('/')
+                name = re.sub('\W+', '_', name)
+                self.layer_hints.append(f'{name} copper')
+
+        else:
+            self.target.comments.append(cmt)
 
     def _parse_region_start(self, _match):
         self.current_region = go.Region(

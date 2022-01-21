@@ -174,6 +174,7 @@ class LayerStack:
             filemap = autoguess([ f for files in filemap for f in files ])
             if len(filemap < 6):
                 raise SystemError('Cannot figure out gerber file mapping')
+            # FIXME use layer metadata from comments and ipc file if available
 
         else:
             excellon_settings = None
@@ -236,6 +237,7 @@ class LayerStack:
         self.drill_layers = [target]
 
     def normalize_drill_layers(self):
+        # TODO: maybe also separate into drill and route?
         drill_pth, drill_npth, drill_aux = [], [], []
 
         for layer in self.drill_layers:
