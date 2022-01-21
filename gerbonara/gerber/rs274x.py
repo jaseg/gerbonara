@@ -32,6 +32,7 @@ from pathlib import Path
 from itertools import count, chain
 from io import StringIO
 import textwrap
+import dataclasses
 
 from .cam import CamFile, FileSettings
 from .utils import sq_distance, rotate_point, MM, Inch, units, InterpMode
@@ -39,6 +40,7 @@ from .aperture_macros.parse import ApertureMacro, GenericMacros
 from . import graphic_primitives as gp
 from . import graphic_objects as go
 from . import apertures
+from .excellon import ExcellonFile
 
 
 def points_close(a, b):
@@ -74,10 +76,25 @@ class GerberFile(CamFile):
 
     def __init__(self, filename=None):
         super().__init__(filename)
-        self.apertures = []
+        self.apertures = [] # FIXME get rid of this? apertures are already in the objects.
         self.comments = []
         self.objects = []
         self.import_settings = None
+
+    def to_excellon(self):
+        new_objs = []
+        new_tools = {}
+        for obj in self.objects:
+            if not isinstance(obj, Line) or isinstance(obj, Arc) or isinstance(obj, Flash) or \
+                not isinstance(obj.aperture, CircleAperture):
+                raise ValueError('Cannot convert {type(obj)} to excellon!')
+
+            if not (new_tool := new_tools.get(id(obj.aperture))):
+                # TODO plating?
+                new_tool = new_tools[id(obj.aperture)] = ExcellonTool(obj.aperture.diameter)
+            new_obj = dataclasses.replace(obj, aperture=new_tool)
+            
+        return ExcellonFile(objects=new_objs, comments=self.comments)
 
     def to_svg(self, tag=Tag, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, color='black'):
 
@@ -115,6 +132,10 @@ class GerberFile(CamFile):
 
     def merge(self, other):
         """ Merge other GerberFile into this one """
+        if other is None:
+            return
+
+        self.import_settings = None
         self.comments += other.comments
 
         # dedup apertures

@@ -62,6 +62,10 @@ class Flash(GerberObject):
     def tool(self, value):
         self.aperture = value
 
+    @property
+    def plated(self):
+        return self.tool.plated
+
     def _with_offset(self, dx, dy):
         return replace(self, x=self.x+dx, y=self.y+dy)
 
@@ -216,6 +220,10 @@ class Line(GerberObject):
     def tool(self, value):
         self.aperture = value
 
+    @property
+    def plated(self):
+        return self.tool.plated
+
     def to_primitives(self, unit=None):
         conv = self.converted(unit)
         yield gp.Line(*conv.p1, *conv.p2, self.aperture.equivalent_width(unit), polarity_dark=self.polarity_dark)
@@ -284,6 +292,10 @@ class Arc(GerberObject):
     @tool.setter
     def tool(self, value):
         self.aperture = value
+
+    @property
+    def plated(self):
+        return self.tool.plated
 
     def _rotate(self, rotation, cx=0, cy=0):
         # rotate center first since we need old x1, y1 here

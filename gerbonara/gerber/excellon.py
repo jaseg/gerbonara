@@ -19,6 +19,7 @@ import math
 import operator
 import warnings
 import functools
+import dataclasses
 from enum import Enum
 from dataclasses import dataclass
 from collections import Counter
@@ -105,9 +106,56 @@ class ExcellonFile(CamFile):
         self.import_settings = import_settings
         self.generator_hints = generator_hints or [] # This is a purely informational goodie from the parser. Use it as you wish.
 
+    def __bool__(self):
+        return bool(self.objects)
+
+    @property
+    def is_plated(self):
+        return all(obj.plated for obj in self.objects)
+
+    @property
+    def is_nonplated(self):
+        return all(obj.plated == False for obj in self.objects) # False, not None
+
+    @property
+    def is_plating_unknown(self):
+        return all(obj.plated is None for obj in self.objects) # False, not None
+
+    @property
+    def is_mixed_plating(self):
+        return len({obj.plated for obj in self.objects}) > 1
+
+    def append(self, obj_or_comment):
+        if isinstnace(obj_or_comment, str):
+            self.comments.append(obj_or_comment)
+        else:
+            self.objects.append(obj_or_comment)
+
+    def to_gerber(self):
+        apertures = {}
+        out = GerberFile()
+        out.comments = self.comments
+
+        for obj in self.objects:
+            if id(obj.tool) not in apertures:
+                apertures[id(obj.tool)] = CircleAperture(obj.tool.diameter)
+
+            out.objects.append(dataclasses.replace(obj, aperture=apertures[id(obj.tool)]))
+
+        out.apertures = list(apertures.values())
+
     @property
     def generator(self):
         return self.generator_hints[0] if self.generator_hints else None
+
+    def merge(self, other):
+        if other is None:
+            return
+
+        self.objects += other.objects
+        self.comments += other.comments
+        self.generator_hints = None
+        self.import_settings = None
 
     @classmethod
     def open(kls, filename, plated=None, settings=None):
