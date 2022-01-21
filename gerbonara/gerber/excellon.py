@@ -65,7 +65,7 @@ def parse_allegro_ncparam(data, settings=None):
     # want to parse, but sometimes due to user error it doesn't end up in the gerber package. In this case, we want to
     # still be able to extract the same information from the human-readable ncdrill.log.
 
-    if settings is None
+    if settings is None:
         self.settings = FileSettings(number_format=(None, None))
 
     lz_supp, tz_supp = False, False
@@ -172,7 +172,7 @@ class ExcellonFile(CamFile):
         return kls.from_string(filename.read_text(), settings=settings, filename=filename, plated=plated)
 
     @classmethod
-    def from_string(kls, data, settings=None, filename=filename, plated=None):
+    def from_string(kls, data, settings=None, filename=None, plated=None):
         parser = ExcellonParser(settings)
         parser._do_parse(data)
         return kls(objects=parser.objects, comments=parser.comments, import_settings=settings,

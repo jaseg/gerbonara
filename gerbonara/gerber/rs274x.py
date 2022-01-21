@@ -141,7 +141,7 @@ class GerberFile(CamFile):
         # dedup apertures
         new_apertures = {}
         replace_apertures = {}
-        mock_settings = self.import_settings
+        mock_settings = FileSettings()
         for ap in self.apertures + other.apertures:
             gbr = ap.to_gerber(mock_settings)
             if gbr not in new_apertures:
@@ -825,7 +825,7 @@ class GerberParser:
                     self.layer_hints.append('bottom silk')
             elif 'ETCH' in cmt:
                 _1, _2, name = cmt.partition('/')
-                name = re.sub('\W+', '_', name)
+                name = re.sub(r'\W+', '_', name)
                 self.layer_hints.append(f'{name} copper')
 
         else:

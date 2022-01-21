@@ -222,7 +222,7 @@ class LayerStack:
 
     def __init__(self, graphic_layers, drill_layers, board_name=None):
         self.graphic_layers = graphic_layers
-        self.-drill_layers = drill_layers
+        self.drill_layers = drill_layers
         self.board_name = board_name
 
     def merge_drill_layers(self):
