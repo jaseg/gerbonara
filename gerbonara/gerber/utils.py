@@ -28,6 +28,9 @@ import re
 from enum import Enum
 from math import radians, sin, cos, sqrt, atan2, pi
 
+class UnknownStatementWarning(Warning):
+    pass
+
 class RegexMatcher:
     def __init__(self):
         self.mapping = {}
