@@ -94,7 +94,7 @@ class ApertureMacro:
         return f'<Aperture macro, variables {str(self.variables)}, primitives {self.primitives}>'
 
     def __eq__(self, other):
-        return hasattr(other, to_gerber) and self.to_gerber() == other.to_gerber()
+        return hasattr(other, 'to_gerber') and self.to_gerber() == other.to_gerber()
 
     def __hash__(self):
         return hash(self.to_gerber())

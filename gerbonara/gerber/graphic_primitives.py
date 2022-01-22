@@ -213,8 +213,8 @@ class ArcPoly(GraphicPrimitive):
         bbox = (None, None), (None, None)
         for (x1, y1), (x2, y2), arc in self.segments:
             if arc:
-                clockwise, center = arc
-                bbox = add_bounds(bbox, arc_bounds(x1, y1, x2, y2, *center, clockwise))
+                clockwise, (cx, cy) = arc
+                bbox = add_bounds(bbox, arc_bounds(x1, y1, x2, y2, (cx+x1, cy+y1), clockwise))
 
             else:
                 line_bounds = (min(x1, x2), min(y1, y2)), (max(x1, x2), max(y1, y2))

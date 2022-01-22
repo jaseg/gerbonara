@@ -223,7 +223,7 @@ class Outline(Primitive):
         self.coords = [(UnitExpression(x, unit), UnitExpression(y, unit)) for x, y in zip(args[1::2], args[2::2])]
 
     def to_gerber(self, unit=None):
-        coords = ','.join(coord.to_gerber(unit) for coord in self.coords)
+        coords = ','.join(coord.to_gerber(unit) for xy in self.coords for coord in xy)
         return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)//2-1},{coords},{self.rotation.to_gerber()}'
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):

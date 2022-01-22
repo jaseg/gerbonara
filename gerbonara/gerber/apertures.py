@@ -81,7 +81,7 @@ class Aperture:
 
     def __eq__(self, other):
         # We need to choose some unit here.
-        return hasattr(other, to_gerber) and self.to_gerber(MM) == other.to_gerber(MM)
+        return hasattr(other, 'to_gerber') and self.to_gerber(MM) == other.to_gerber(MM)
 
     def _rotate_hole_90(self):
         if self.hole_rect_h is None:

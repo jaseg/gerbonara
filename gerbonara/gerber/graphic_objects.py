@@ -82,7 +82,7 @@ class Flash(GerberObject):
 
         x = gs.file_settings.write_gerber_value(self.x, self.unit)
         y = gs.file_settings.write_gerber_value(self.y, self.unit)
-        yield f'D03X{x}Y{y}*'
+        yield f'X{x}Y{y}D03*'
 
         gs.update_point(self.x, self.y, unit=self.unit)
 
@@ -122,8 +122,8 @@ class Region(GerberObject):
     def _rotate(self, angle, cx=0, cy=0):
         self.poly.outline = [ gp.rotate_point(x, y, angle, cx, cy) for x, y in self.poly.outline ]
         self.poly.arc_centers = [
-                (arc[0], gp.rotate_point(*arc[1], angle, cx, cy)) if arc else None
-                for arc in self.poly.arc_centers ]
+                (arc[0], gp.rotate_point(*arc[1], angle, cx-p[0], cy-p[1])) if arc else None
+                for p, arc in zip(self.poly.outline, self.poly.arc_centers) ]
 
     def append(self, obj):
         if obj.unit != self.unit:
@@ -133,7 +133,7 @@ class Region(GerberObject):
         self.poly.outline.append(obj.p2)
 
         if isinstance(obj, Arc):
-            self.poly.arc_centers.append((obj.clockwise, obj.center))
+            self.poly.arc_centers.append((obj.clockwise, obj.center_relative))
         else:
             self.poly.arc_centers.append(None)
 
@@ -162,7 +162,7 @@ class Region(GerberObject):
 
                 x = gs.file_settings.write_gerber_value(point[0], self.unit)
                 y = gs.file_settings.write_gerber_value(point[1], self.unit)
-                yield f'D01X{x}Y{y}*'
+                yield f'X{x}Y{y}D01*'
 
                 gs.update_point(*point, unit=self.unit)
 
@@ -174,9 +174,9 @@ class Region(GerberObject):
                 x = gs.file_settings.write_gerber_value(x2, self.unit)
                 y = gs.file_settings.write_gerber_value(y2, self.unit)
                 # TODO are these coordinates absolute or relative now?!
-                i = gs.file_settings.write_gerber_value(cx-x2, self.unit)
-                j = gs.file_settings.write_gerber_value(cy-y2, self.unit)
-                yield f'D01X{x}Y{y}I{i}J{j}*'
+                i = gs.file_settings.write_gerber_value(cx, self.unit)
+                j = gs.file_settings.write_gerber_value(cy, self.unit)
+                yield f'X{x}Y{y}I{i}J{j}D01*'
 
                 gs.update_point(x2, y2, unit=self.unit)
 
@@ -236,7 +236,7 @@ class Line(GerberObject):
 
         x = gs.file_settings.write_gerber_value(self.x2, self.unit)
         y = gs.file_settings.write_gerber_value(self.y2, self.unit)
-        yield f'D01X{x}Y{y}*'
+        yield f'X{x}Y{y}D01*'
 
         gs.update_point(*self.p2, unit=self.unit)
 
@@ -282,6 +282,10 @@ class Arc(GerberObject):
         return self.cx + self.x1, self.cy + self.y1
 
     @property
+    def center_relative(self):
+        return self.cx, self.cy
+
+    @property
     def end_point(self):
         return self.p2
 
@@ -324,7 +328,7 @@ class Arc(GerberObject):
         y = gs.file_settings.write_gerber_value(self.y2, self.unit)
         i = gs.file_settings.write_gerber_value(self.cx, self.unit)
         j = gs.file_settings.write_gerber_value(self.cy, self.unit)
-        yield f'D01X{x}Y{y}I{i}J{j}*'
+        yield f'X{x}Y{y}I{i}J{j}D01*'
 
         gs.update_point(*self.p2, unit=self.unit)
 

@@ -364,10 +364,14 @@ class GraphicsState:
             self.point = (0, 0)
         old_point = self.map_coord(*self.update_point(x, y))
 
-        if aperture and math.isclose(self.aperture.equivalent_width(), 0):
-            warnings.warn('D01 interpolation with a zero-size aperture. This is invalid according to spec, however, we '
-                    'pass through the created objects here. Note that these will not show up in e.g. SVG output since '
-                    'their line width is zero.', SyntaxWarning)
+        if aperture:
+            if not self.aperture:
+                raise SyntaxError('Interpolation attempted without selecting aperture first')
+
+            if math.isclose(self.aperture.equivalent_width(), 0):
+                warnings.warn('D01 interpolation with a zero-size aperture. This is invalid according to spec, '
+                        'however, we pass through the created objects here. Note that these will not show up in e.g. '
+                        'SVG output since their line width is zero.', SyntaxWarning)
 
         if self.interpolation_mode == InterpMode.LINEAR:
             if i is not None or j is not None:
@@ -431,7 +435,7 @@ class GraphicsState:
             self.point = point_mm
             x = self.file_settings.write_gerber_value(point[0], unit=unit)
             y = self.file_settings.write_gerber_value(point[1], unit=unit)
-            yield f'D02X{x}Y{y}*'
+            yield f'X{x}Y{y}D02*'
 
     def set_interpolation_mode(self, mode):
         if self.interpolation_mode != mode:
@@ -445,14 +449,18 @@ class GerberParser:
     NAME = r"[a-zA-Z_$\.][a-zA-Z_$\.0-9+\-]+"
 
     STATEMENT_REGEXES = {
-        'unit_mode': r"MO(?P<unit>(MM|IN))",
-        'interpolation_mode': r"(?P<code>G0?[123]|G74|G75)$",
-        'coord': fr"(X(?P<x>{NUMBER}))?(Y(?P<y>{NUMBER}))?" \
+        'region_start': r'G36$',
+        'region_end': r'G37$',
+        'coord': fr"(?P<interpolation>G0?[123]|G74|G75)?(X(?P<x>{NUMBER}))?(Y(?P<y>{NUMBER}))?" \
             fr"(I(?P<i>{NUMBER}))?(J(?P<j>{NUMBER}))?" \
             fr"(?P<operation>D0?[123])$",
         'aperture': r"(G54|G55)?D(?P<number>\d+)",
         'comment': r"G0?4(?P<comment>[^*]*)",
+        # Allegro combines format spec and unit into one long illegal extended command.
+        'allegro_format_spec': r"FS(?P<zero>(L|T|D))?(?P<notation>(A|I))[NG0-9]*X(?P<x>[0-7][0-7])Y(?P<y>[0-7][0-7])[DM0-9]*\*MO(?P<unit>IN|MM)",
+        'unit_mode': r"MO(?P<unit>(MM|IN))",
         'format_spec': r"FS(?P<zero>(L|T|D))?(?P<notation>(A|I))[NG0-9]*X(?P<x>[0-7][0-7])Y(?P<y>[0-7][0-7])[DM0-9]*",
+        'allegro_legacy_params': r'IR(?P<rotation>[0-9]+)\*IP(?P<polarity>(POS|NEG))\*OF(A(?P<a>{DECIMAL}))?(B(?P<b>{DECIMAL}))?\*MI(A(?P<ma>0|1))?(B(?P<mb>0|1))?\*SF(A(?P<sa>{DECIMAL}))?(B(?P<sb>{DECIMAL}))?',
         'load_polarity': r"LP(?P<polarity>(D|C))",
         # FIXME LM, LR, LS
         'load_name': r"LN(?P<name>.*)",
@@ -462,12 +470,10 @@ class GerberParser:
         'axis_selection': r"AS(?P<axes>AXBY|AYBX)",
         'image_polarity': r"IP(?P<polarity>(POS|NEG))",
         'image_rotation': fr"IR(?P<rotation>{NUMBER})",
-        'mirror_image': r"MI(A(?P<a>0|1))?(B(?P<b>0|1))?",
-        'scale_factor': fr"SF(A(?P<a>{DECIMAL}))?(B(?P<b>{DECIMAL}))?",
+        'mirror_image': r"MI(A(?P<ma>0|1))?(B(?P<mb>0|1))?",
+        'scale_factor': fr"SF(A(?P<sa>{DECIMAL}))?(B(?P<sb>{DECIMAL}))?",
         'aperture_definition': fr"ADD(?P<number>\d+)(?P<shape>C|R|O|P|{NAME})(?P<modifiers>,[^,%]*)?$",
         'aperture_macro': fr"AM(?P<name>{NAME})\*(?P<macro>[^%]*)",
-        'region_start': r'G36',
-        'region_end': r'G37',
         'old_unit':r'(?P<mode>G7[01])',
         'old_notation': r'(?P<mode>G9[01])',
         'eof': r"M0?[02]",
@@ -502,11 +508,15 @@ class GerberParser:
 
         start = 0
         extended_command = False
+        lineno = 1
 
         for pos, c in enumerate(data):
+            if c == '\n':
+                lineno += 1
+
             if c == '%':
                 if extended_command:
-                    yield data[start:pos]
+                    yield lineno, data[start:pos]
                     extended_command = False
 
                 else:
@@ -518,14 +528,14 @@ class GerberParser:
             elif extended_command:
                 continue
 
-            if c == '\r' or c == '\n' or c == '*':
+            if c in '*\r\n':
                 word_command = data[start:pos].strip()
                 if word_command and word_command != '*':
-                    yield word_command
+                    yield lineno, word_command
                 start = pos + 1
 
     def parse(self, data):
-        for line in self._split_commands(data):
+        for lineno, line in self._split_commands(data):
             if not line.strip():
                 continue
             line = line.rstrip('*').strip()
@@ -533,14 +543,16 @@ class GerberParser:
             # multiple statements from one line.
             if line.strip() and self.eof_found:
                 warnings.warn('Data found in gerber file after EOF.', SyntaxWarning)
+            #print(f'Line {lineno}: {line}')
 
             for name, le_regex in self.STATEMENT_REGEXES.items():
                 if (match := le_regex.match(line)):
+                    #print(f'    match: {name} / {match}')
                     try:
                         getattr(self, f'_parse_{name}')(match.groupdict())
                     except:
-                        print('Original line was:', line)
-                        print('    match:', match)
+                        print(f'Line {lineno}: {line}')
+                        print(f'    match: {name} / {match}')
                         raise
                     line = line[match.end(0):]
                     break
@@ -556,20 +568,21 @@ class GerberParser:
         if not self.eof_found:
                     warnings.warn('File is missing mandatory M02 EOF marker. File may be truncated.', SyntaxWarning)
 
-    def _parse_interpolation_mode(self, match):
-        if match['code'] == 'G01':
-            self.graphics_state.interpolation_mode = InterpMode.LINEAR
-        elif match['code'] == 'G02':
-            self.graphics_state.interpolation_mode = InterpMode.CIRCULAR_CW
-        elif match['code'] == 'G03':
-            self.graphics_state.interpolation_mode = InterpMode.CIRCULAR_CCW
-        elif match['code'] == 'G74':
-            self.multi_quadrant_mode = True # used only for syntax checking
-        elif match['code'] == 'G75':
-            self.multi_quadrant_mode = False
-            # we always emit a G75 at the beginning of the file.
-
     def _parse_coord(self, match):
+        if match['interpolation'] == 'G01':
+            self.graphics_state.interpolation_mode = InterpMode.LINEAR
+        elif match['interpolation'] == 'G02':
+            self.graphics_state.interpolation_mode = InterpMode.CIRCULAR_CW
+        elif match['interpolation'] == 'G03':
+            self.graphics_state.interpolation_mode = InterpMode.CIRCULAR_CCW
+        elif match['interpolation'] == 'G74':
+            self.multi_quadrant_mode = True # used only for syntax checking
+        elif match['interpolation'] == 'G75':
+            self.multi_quadrant_mode = False
+
+        if match['interpolation'] in ('G74', 'G75') and match[0] != match['interpolation']:
+            raise SyntaxError('G74/G75 combined with coord')
+
         x = self.file_settings.parse_gerber_value(match['x'])
         y = self.file_settings.parse_gerber_value(match['y'])
         i = self.file_settings.parse_gerber_value(match['i'])
@@ -677,6 +690,10 @@ class GerberParser:
         else:
             self.file_settings.unit = Inch
 
+    def _parse_allegro_format_spec(self, match):
+        self._parse_format_spec(match)
+        self._parse_unit_mode(match)
+
     def _parse_load_polarity(self, match):
         self.graphics_state.polarity_dark = match['polarity'] == 'D'
 
@@ -685,6 +702,13 @@ class GerberParser:
         a = float(a) if a else 0
         b = float(b) if b else 0
         self.graphics_state.offset = a, b
+
+    def _parse_allegro_legacy_params(self, match):
+        self._parse_image_rotation(match)
+        self._parse_offset(match)
+        self._parse_image_polarity(match)
+        self._parse_mirror_image(match)
+        self._parse_scale_factor(match)
 
     def _parse_include_file(self, match):
         if self.include_dir is None:
@@ -718,27 +742,33 @@ class GerberParser:
         warnings.warn('Deprecated LN (load name) statement found. This deprecated since rev. I4 (Oct 2013).', DeprecationWarning)
 
     def _parse_axis_selection(self, match):
-        warnings.warn('Deprecated AS (axis selection) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
+        if match['axes'] != 'AXBY':
+            warnings.warn('Deprecated AS (axis selection) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
         self.graphics_state.output_axes = match['axes']
 
     def _parse_image_polarity(self, match):
-        # Do not warn, this is still common.
-        # warnings.warn('Deprecated IP (image polarity) statement found. This deprecated since rev. I4 (Oct 2013).',
-        #         DeprecationWarning)
-        self.graphics_state.image_polarity = dict(POS='positive', NEG='negative')[match['polarity']]
+        polarity = dict(POS='positive', NEG='negative')[match['polarity']]
+        if polarity != 'positive':
+            warnings.warn('Deprecated IP (image polarity) statement found. This deprecated since rev. I4 (Oct 2013).', DeprecationWarning)
+        self.graphics_state.image_polarity = polarity
     
     def _parse_image_rotation(self, match):
-        warnings.warn('Deprecated IR (image rotation) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
-        self.graphics_state.image_rotation = int(match['rotation'])
+        rotation = int(match['rotation'])
+        if rotation:
+            warnings.warn('Deprecated IR (image rotation) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
+        self.graphics_state.image_rotation = rotation
 
     def _parse_mirror_image(self, match):
-        warnings.warn('Deprecated MI (mirror image) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
-        self.graphics_state.mirror = bool(int(match['a'] or '0')), bool(int(match['b'] or '1'))
+        mirror = bool(int(match['ma'] or '0')), bool(int(match['mb'] or '1'))
+        if mirror != (False, False):
+            warnings.warn('Deprecated MI (mirror image) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
+        self.graphics_state.mirror = mirror
 
     def _parse_scale_factor(self, match):
-        warnings.warn('Deprecated SF (scale factor) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
-        a = float(match['a']) if match['a'] else 1.0
-        b = float(match['b']) if match['b'] else 1.0
+        a = float(match['sa']) if match['sa'] else 1.0
+        b = float(match['sb']) if match['sb'] else 1.0
+        if not math.isclose(math.dist((a, b), (1, 1)), 0):
+            warnings.warn('Deprecated SF (scale factor) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
         self.graphics_state.scale_factor = a, b
 
     def _parse_comment(self, match):
