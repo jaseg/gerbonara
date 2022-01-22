@@ -121,10 +121,10 @@ class ApertureMacro:
 
     def to_graphic_primitives(self, offset, rotation, parameters : [float], unit=None):
         variables = dict(self.variables)
-        for number, value in enumerate(parameters):
-            if i in variables:
+        for number, value in enumerate(parameters, start=1):
+            if number in variables:
                 raise SyntaxError(f'Re-definition of aperture macro variable {i} through parameter {value}')
-            variables[i] = value
+            variables[number] = value
 
         for primitive in self.primitives:
             yield from primitive.to_graphic_primitives(offset, rotation, variables, unit)

@@ -80,6 +80,10 @@ class FileSettings:
         if '.' in value:
             return float(value)
 
+        # TARGET3001! exports zeros as "00" even when it uses an explicit decimal point everywhere else.
+        if int(value) == 0:
+            return 0
+
         # Format precision
         integer_digits, decimal_digits = self.number_format
         if integer_digits is None or decimal_digits is None:

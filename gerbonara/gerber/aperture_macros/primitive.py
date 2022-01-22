@@ -232,9 +232,9 @@ class Outline(Primitive):
             bound_radii = [None] * len(bound_coords)
 
             rotation += deg_to_rad(calc.rotation)
-            bound_coords = [ rotate_point(*p, rotation, 0, 0) for p in bound_coords ]
+            bound_coords = [ gp.rotate_point(*p, rotation, 0, 0) for p in bound_coords ]
 
-            return gp.ArcPoly(bound_coords, bound_radii, polarity_dark=calc.exposure)
+            return [gp.ArcPoly(bound_coords, bound_radii, polarity_dark=calc.exposure)]
 
     def dilate(self, offset, unit):
         # we would need a whole polygon offset/clipping library here

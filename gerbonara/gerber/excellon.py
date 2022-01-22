@@ -50,7 +50,7 @@ class ExcellonContext:
             yield 'G05'
 
     def route_mode(self, unit, x, y):
-        x, y = self.unit(x, unit), self.unit(y, unit)
+        x, y = self.settings.unit(x, unit), self.settings.unit(y, unit)
 
         if self.mode == ProgramState.ROUTING and (self.x, self.y) == (x, y):
             return # nothing to do
@@ -369,7 +369,12 @@ class ExcellonParser(object):
                 warnings.warn('Commands found following end of program statement.', SyntaxWarning)
             # TODO check first command in file is "start of header" command.
 
-            self.exprs.handle(self, line)
+            try:
+                if not self.exprs.handle(self, line):
+                    raise ValueError('Unknown excellon statement:', line)
+            except:
+                print('Original line was:', line)
+                raise
 
     exprs = RegexMatcher()
 
@@ -447,7 +452,7 @@ class ExcellonParser(object):
 
         self.active_tool = self.tools[index]
 
-    coord = lambda name, key=None: fr'{name}(?P<{key or name}>[+-]?[0-9]*\.?[0-9]*)?'
+    coord = lambda name, key=None: fr'({name}(?P<{key or name}>[+-]?[0-9]*\.?[0-9]*))?'
     xy_coord = coord('X') + coord('Y')
 
     @exprs.match(r'R(?P<count>[0-9]+)' + xy_coord)
@@ -455,8 +460,8 @@ class ExcellonParser(object):
         if self.program_state == ProgramState.HEADER:
             return
 
-        dx = int(match['x'] or '0')
-        dy = int(match['y'] or '0')
+        dx = int(match['X'] or '0')
+        dy = int(match['Y'] or '0')
 
         for i in range(int(match['count'])):
             self.pos[0] += dx
@@ -473,9 +478,9 @@ class ExcellonParser(object):
             def wrapper(self, *args, **kwargs):
                 nonlocal name
                 if self.program_state is None:
-                    warnings.warn(f'{name} header statement found before start of header')
+                    warnings.warn(f'{name} header statement found before start of header', SyntaxWarning)
                 elif self.program_state != ProgramState.HEADER:
-                    warnings.warn(f'{name} header statement found after end of header')
+                    warnings.warn(f'{name} header statement found after end of header', SyntaxWarning)
                 fun(self, *args, **kwargs)
             return wrapper
         return wrap
@@ -485,7 +490,7 @@ class ExcellonParser(object):
         if self.program_state == ProgramState.HEADER:
             # It seems that only fritzing puts both a '%' start of header thingy and an M48 statement at the beginning
             # of the file.
-            self.generator_hints('fritzing')
+            self.generator_hints.append('fritzing')
         elif self.program_state is not None:
             warnings.warn(f'M48 "header start" statement found in the middle of the file, currently in {self.program_state}', SyntaxWarning)
         self.program_state = ProgramState.HEADER
@@ -585,7 +590,7 @@ class ExcellonParser(object):
         if self.program_state != ProgramState.ROUTING:
             return
 
-        if not self.drill_down or not (match['x'] or match['y']) or not self.ensure_active_tool():
+        if not self.drill_down or not (match['X'] or match['Y']) or not self.ensure_active_tool():
             return
 
         if self.interpolation_mode == InterpMode.LINEAR:
@@ -627,37 +632,36 @@ class ExcellonParser(object):
 
             self.objects.append(Arc(*start, *end, i, j, True, self.active_tool, unit=self.settings.unit))
 
-    @exprs.match('M71|METRIC') # XNC uses "METRIC"
-    @header_command('M71')
-    def handle_metric_mode(self, match):
-        self.settings.unit = MM
-
-    @exprs.match('M72|INCH') # XNC uses "INCH"
-    @header_command('M72')
-    def handle_inch_mode(self, match):
-        self.settings.unit = Inch
-
-    @exprs.match(r'(METRIC|INCH)(,LZ|,TZ)?(0*\.0*)?')
+    @exprs.match(r'(M71|METRIC|M72|INCH)(,LZ|,TZ)?(,0*\.0*)?')
     def parse_easyeda_format(self, match):
-        # geda likes to omit the LZ/TZ
-        self.settings.unit = MM if match[1] == 'METRIC' else Inch
+        metric = match[1] in ('METRIC', 'M71')
+
+        self.settings.unit = MM if metric else Inch
+
         if match[2]:
-            self.settings.zeros = 'leading' if match[2] == ',LZ' else 'trailing'
+            self.settings.zeros = 'trailing' if match[2] == ',LZ' else 'leading'
+
         # Newer EasyEDA exports have this in an altium-like FILE_FORMAT comment instead. Some files even have both.
         # This is used by newer autodesk eagles, fritzing and diptrace
         if match[3]:
-            if self.generator is None:
-                # newer eagles identify themselvees through a comment, and fritzing uses this wonky double-header-start
-                # with a "%" line followed  by an "M48" line. Thus, thus must be diptrace.
-                self.generator_hints.append('diptrace')
-            integer, _, fractional = match[3].partition('.')
+            integer, _, fractional = match[3][1:].partition('.')
             self.settings.number_format = len(integer), len(fractional)
-        self.generator_hints.append('easyeda')
+
+        elif self.settings.number_format == (None, None) and not metric:
+            warnings.warn('Using implicit number format from naked "INCH" statement. This is normal for Fritzing, Diptrace, Geda and pcb-rnd.', SyntaxWarning)
+            self.settings.number_format = (2,4)
     
     @exprs.match('G90')
     @header_command('G90')
     def handle_absolute_mode(self, match):
         self.settings.notation = 'absolute'
+
+    @exprs.match('G93' + xy_coord)
+    def handle_absolute_mode(self, match):
+        if int(match['X'] or 0) != 0 or int(match['Y'] or 0) != 0:
+            # Siemens tooling likes to include a meaningless G93X0Y0 after its header.
+            raise SyntaxError('G93 zero set command is not supported.')
+        self.generator_hints.append('siemens')
 
     @exprs.match('ICI,?(ON|OFF)')
     def handle_incremental_mode(self, match):
@@ -702,14 +706,14 @@ class ExcellonParser(object):
 
     @exprs.match(r'; Format\s*: ([0-9]+\.[0-9]+) / (Absolute|Incremental) / (Inch|MM) / (Leading|Trailing)')
     def parse_siemens_format(self, match):
-        x, _, y = match[1].split('.')
+        x, _, y = match[1].partition('.')
         self.settings.number_format = int(x), int(y)
         # NOTE: Siemens files seem to always contain both this comment and an explicit METRIC/INC statement. However,
         # the meaning of "leading" and "trailing" is swapped in both: When this comment says leading, we get something
         # like "INCH,TZ".
-        self.settings.notation = {'Leading': 'trailing', 'Trailing': 'leading'}[match[2]]
+        self.settings.notation = match[2].lower()
         self.settings.unit = to_unit(match[3])
-        self.settings.zeros = match[4].lower()
+        self.settings.zeros = {'Leading': 'trailing', 'Trailing': 'leading'}[match[4]]
         self.generator_hints.append('siemens')
 
     @exprs.match('; Contents: (Thru|.*) / (Drill|Mill) / (Plated|Non-Plated)')

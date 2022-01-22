@@ -96,9 +96,6 @@ class ExcellonTool(Aperture):
     plated : bool = None
     depth_offset : Length(float) = 0
     
-    def __post_init__(self):
-        print('created', self)
-
     def primitives(self, x, y, unit=None):
         return [ gp.Circle(x, y, self.unit.convert_to(unit, self.diameter/2)) ]
 

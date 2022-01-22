@@ -464,7 +464,7 @@ class GerberParser:
         'image_rotation': fr"IR(?P<rotation>{NUMBER})",
         'mirror_image': r"MI(A(?P<a>0|1))?(B(?P<b>0|1))?",
         'scale_factor': fr"SF(A(?P<a>{DECIMAL}))?(B(?P<b>{DECIMAL}))?",
-        'aperture_definition': fr"ADD(?P<number>\d+)(?P<shape>C|R|O|P|{NAME})[,]?(?P<modifiers>[^,%]*)",
+        'aperture_definition': fr"ADD(?P<number>\d+)(?P<shape>C|R|O|P|{NAME})(?P<modifiers>,[^,%]*)?$",
         'aperture_macro': fr"AM(?P<name>{NAME})\*(?P<macro>[^%]*)",
         'region_start': r'G36',
         'region_end': r'G37',
@@ -536,7 +536,12 @@ class GerberParser:
 
             for name, le_regex in self.STATEMENT_REGEXES.items():
                 if (match := le_regex.match(line)):
-                    getattr(self, f'_parse_{name}')(match.groupdict())
+                    try:
+                        getattr(self, f'_parse_{name}')(match.groupdict())
+                    except:
+                        print('Original line was:', line)
+                        print('    match:', match)
+                        raise
                     line = line[match.end(0):]
                     break
 
@@ -627,7 +632,7 @@ class GerberParser:
 
     def _parse_aperture_definition(self, match):
         # number, shape, modifiers
-        modifiers = [ float(val) for val in match['modifiers'].split('X') ] if match['modifiers'].strip() else []
+        modifiers = [ float(val) for val in match['modifiers'].strip(' ,').split('X') ] if match['modifiers'] else []
 
         aperture_classes = {
                 'C': apertures.CircleAperture,

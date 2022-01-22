@@ -44,7 +44,9 @@ class RegexMatcher:
             if (match := re.fullmatch(regex, line)):
                 #print('  handler', handler.__name__)
                 handler(inst, match)
-                break
+                return True
+        else:
+            return False
 
 class LengthUnit:
     def __init__(self, name, shorthand, this_in_mm):

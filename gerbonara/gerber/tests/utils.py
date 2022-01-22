@@ -61,8 +61,16 @@ def tmpfile(request):
 
 @pytest.fixture
 def reference(request, print_on_error):
-    ref = reference_path(request.param)
-    yield ref
+    ref = request.param
+    if isinstance(ref, tuple):
+        ref, args = ref
+        ref = reference_path(ref)
+        yield ref, args
+
+    else:
+        ref = reference_path(request.param)
+        yield ref
+
     print_on_error(f'Reference file: {ref}')
 
 def filter_syntax_warnings(fun):

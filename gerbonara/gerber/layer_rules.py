@@ -58,6 +58,19 @@ MATCH_RULES = {
     'drill plated':     r'.*\.(drl)', # diptrace has unplated drills on the outline layer
     },
 
+'target': {
+    'top copper':       r'.*\.Top',
+    'top mask':         r'.*\.StopTop',
+    'top silk':         r'.*\.PosiTop',
+    'top paste':        r'.*\.PasteTop',
+    'bottom copper':    r'.*\.Bot',
+    'bottop mask':      r'.*\.StopBot',
+    'bottop silk':      r'.*\.PosiBot',
+    'bottop paste':     r'.*\.PasteBot',
+    'drill outline':    r'.*\.Outline',
+    'drill plated':     r'.*\.Drill',
+    },
+
 'orcad': {
     'top copper':       r'.*\.top',
     'top mask':         r'.*\.smt',
