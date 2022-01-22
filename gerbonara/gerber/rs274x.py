@@ -199,10 +199,10 @@ class GerberFile(CamFile):
         for number, aperture in enumerate(self.apertures, start=10):
 
             if isinstance(aperture, apertures.ApertureMacroInstance):
-                macro_grb = aperture._rotated().macro.to_gerber() # use native unit to compare macros
-                if macro_grb not in processed_macros:
-                    processed_macros.add(macro_grb)
-                    yield am_stmt(aperture._rotated().macro)
+                macro_def = am_stmt(aperture._rotated().macro)
+                if macro_def not in processed_macros:
+                    processed_macros.add(macro_def)
+                    yield macro_def
 
             yield f'%ADD{number}{aperture.to_gerber(settings)}*%'
 
@@ -503,10 +503,6 @@ class GerberParser:
 
     @classmethod
     def _split_commands(kls, data):
-        """
-        Split the data into commands. Commands end with * (and also newline to help with some badly formatted files)
-        """
-
         start = 0
         extended_command = False
         lineno = 1
@@ -521,7 +517,9 @@ class GerberParser:
                     extended_command = False
 
                 else:
-                    extended_command = True
+                    # Ignore % inside G04 comments
+                    if not data[start:pos].startswith('G04'):
+                        extended_command = True
 
                 start = pos + 1
                 continue
@@ -581,12 +579,8 @@ class GerberParser:
         elif match['interpolation'] == 'G75':
             self.multi_quadrant_mode = False
 
-        if match['interpolation'] in ('G74', 'G75'):
-            if match[0] == match['interpolation']:
-                return # nothing else to do
-
-            else:
-                raise SyntaxError('G74/G75 combined with coord')
+        if match['interpolation'] in ('G74', 'G75') and (match['x'] or match['y'] or match['i'] or match['j']):
+            raise SyntaxError('G74/G75 combined with coord')
 
         x = self.file_settings.parse_gerber_value(match['x'])
         y = self.file_settings.parse_gerber_value(match['y'])
@@ -595,10 +589,10 @@ class GerberParser:
 
         if not (op := match['operation']):
             if self.last_operation == 'D01':
-                warnings.warn('Coordinate statement without explicit operation code. This is forbidden by spec.',
-                        SyntaxWarning)
+                warnings.warn('Coordinate statement without explicit operation code. This is forbidden by spec.', SyntaxWarning)
                 op = 'D01'
-            else:
+
+            elif match['x'] or match['y'] or match['i'] or match['j']:
                 raise SyntaxError('Ambiguous coordinate statement. Coordinate statement does not have an operation '\
                                   'mode and the last operation statement was not D01.')
 
@@ -618,25 +612,25 @@ class GerberParser:
             else:
                 self.current_region.append(self.graphics_state.interpolate(x, y, i, j, aperture=False))
 
-        else:
-            if i is not None or j is not None:
-                raise SyntaxError("i/j coordinates given for D02/D03 operation (which doesn't take i/j)")
-                
-            if op in ('D2', 'D02'):
-                self.graphics_state.update_point(x, y)
-                if self.current_region:
-                    # Start a new region for every outline. As gerber has no concept of fill rules or winding numbers,
-                    # it does not make a graphical difference, and it makes the implementation slightly easier.
-                    self.target.objects.append(self.current_region)
-                    self.current_region = go.Region(
-                            polarity_dark=self.graphics_state.polarity_dark,
-                            unit=self.file_settings.unit)
+        elif op in ('D2', 'D02'):
+            self.graphics_state.update_point(x, y)
+            if self.current_region:
+                # Start a new region for every outline. As gerber has no concept of fill rules or winding numbers,
+                # it does not make a graphical difference, and it makes the implementation slightly easier.
+                self.target.objects.append(self.current_region)
+                self.current_region = go.Region(
+                        polarity_dark=self.graphics_state.polarity_dark,
+                        unit=self.file_settings.unit)
 
-            else: # D03
-                if self.current_region is None:
-                    self.target.objects.append(self.graphics_state.flash(x, y))
-                else:
-                    raise SyntaxError('DO3 flash statement inside region')
+        elif op in ('D3', 'D03'):
+            if self.current_region is None:
+                self.target.objects.append(self.graphics_state.flash(x, y))
+            else:
+                raise SyntaxError('DO3 flash statement inside region')
+
+        else:
+            # Do nothing if there is no explicit D code.
+            pass
 
     def _parse_aperture(self, match):
         number = int(match['number'])
