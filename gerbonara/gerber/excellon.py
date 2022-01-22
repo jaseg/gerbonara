@@ -194,12 +194,20 @@ class ExcellonFile(CamFile):
         tool_map = { id(obj.tool): obj.tool for obj in self.objects }
         tools = sorted(tool_map.items(), key=lambda id_tool: (id_tool[1].plated, id_tool[1].diameter, id_tool[1].depth_offset))
         tools = { tool_id: index for index, (tool_id, _tool) in enumerate(tools, start=1) }
+        # FIXME dedup tools
+
+        mixed_plating = (len({ tool.plated for tool in tool_map.values() }) > 1)
+        if mixed_plating:
+            warnings.warn('Multiple plating values in same file. Will use non-standard Altium comment syntax to indicate hole plating.')
 
         if tools and max(tools.values()) >= 100:
             warnings.warn('More than 99 tools defined. Some programs may not like three-digit tool indices.', SyntaxWarning)
 
         for tool_id, index in tools.items():
-            yield f'T{index:02d}' + tool_map[tool_id].to_xnc(settings)
+            tool = tool_map[tool_id]
+            if mixed_plating:
+                yield ';TYPE=PLATED' if tool.plated else ';TYPE=NON_PLATED'
+            yield f'T{index:02d}' + tool.to_xnc(settings)
 
         yield '%'
 
@@ -325,6 +333,8 @@ class ExcellonParser(object):
         # from the excellon file, the caller must pass in an already filled-out FileSettings object.
         if settings is None:
             self.settings = FileSettings(number_format=(None, None))
+        else:
+            self.settings = settings
         self.program_state = None
         self.interpolation_mode = InterpMode.LINEAR
         self.tools = {}

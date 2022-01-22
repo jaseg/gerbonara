@@ -114,7 +114,7 @@ def layername_autoguesser(fn):
     elif re.match('(solder)?mask', fn):
         use = 'mask'
 
-    elif (m := re.match('(la?y?e?r?|in(ner)?)\W*(?P<num>[0-9]+)', fn)):
+    elif (m := re.match(f'(la?y?e?r?|in(ner)?)\W*(?P<num>[0-9]+)', fn)):
         use = 'copper'
         side = f'inner_{m["num"]:02d}'
 
@@ -129,7 +129,7 @@ def layername_autoguesser(fn):
         use = 'drill'
         side = 'unknown'
 
-        if re.match('np(th)?|(non|un)\W*plated|(non|un)\Wgalv', fn):
+        if re.match(r'np(th)?|(non|un)\W*plated|(non|un)\Wgalv', fn):
             side = 'nonplated'
 
         elif re.match('pth|plated|galv', fn):
@@ -216,8 +216,8 @@ class LayerStack:
                             'tracker and if possible please provide these input files for reference.')
 
         board_name = common_prefix([f.name for f in filemap.values()])
-        board_name = re.subs('^\W+', '', board_name)
-        board_name = re.subs('\W+$', '', board_name)
+        board_name = re.subs(r'^\W+', '', board_name)
+        board_name = re.subs(r'\W+$', '', board_name)
         return kls(layers, drill_layers, board_name=board_name)
 
     def __init__(self, graphic_layers, drill_layers, board_name=None):

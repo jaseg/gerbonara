@@ -10,6 +10,7 @@ from ..cam import FileSettings
 
 from .image_support import *
 from .utils import *
+from ..utils import Inch, MM
 
 REFERENCE_FILES = [
         'easyeda/Gerber_Drill_NPTH.DRL',
@@ -34,10 +35,17 @@ REFERENCE_FILES = [
 @pytest.mark.parametrize('reference', REFERENCE_FILES, indirect=True)
 def test_round_trip(reference, tmpfile):
     tmp = tmpfile('Output excellon', '.drl')
+    # Altium uses an excellon format specification format that gerbv doesn't understand, so we have to fix that.
+    unit_spec = ('mm', 'leading', 4) if 'altium-composite-drill' in str(reference) else None 
+    # pcb-rnd does not include any unit specification at all
+    if 'pcb-rnd' in str(reference):
+        settings = FileSettings(unit=Inch, zeros='leading', number_format=(2,4))
+    else:
+        settings = None
 
-    ExcellonFile.open(reference).save(tmp)
+    ExcellonFile.open(reference, settings=settings).save(tmp)
 
-    mean, _max, hist = gerber_difference(reference, tmp, diff_out=tmpfile('Difference', '.png'))
+    mean, _max, hist = gerber_difference(reference, tmp, diff_out=tmpfile('Difference', '.png'), ref_unit_spec=unit_spec)
     assert mean < 5e-5
     assert hist[9] == 0
     assert hist[3:].sum() < 5e-5*hist.size

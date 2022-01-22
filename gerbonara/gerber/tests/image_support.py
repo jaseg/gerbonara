@@ -1,6 +1,7 @@
 import subprocess
 from pathlib import Path
 import tempfile
+import textwrap
 import os
 from functools import total_ordering
 import shutil
@@ -65,16 +66,33 @@ def svg_to_png(in_svg, out_png, dpi=100, bg='black'):
 
 to_gerbv_svg_units = lambda val, unit='mm': val*72 if unit == 'inch' else val/25.4*72
 
-def gerbv_export(in_gbr, out_svg, format='svg', origin=(0, 0), size=(6, 6), fg='#ffffff', bg='#000000'):
-    x, y = origin
-    w, h = size
-    cmd = ['gerbv', '-x', format,
-        '--border=0',
-        f'--origin={x:.6f}x{y:.6f}', f'--window_inch={w:.6f}x{h:.6f}',
-        f'--foreground={fg}',
-        f'--background={bg}',
-        '-o', str(out_svg), str(in_gbr)]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def gerbv_export(in_gbr, out_svg, export_format='svg', origin=(0, 0), size=(6, 6), fg='#ffffff', bg='#000000', override_unit_spec=None):
+    with tempfile.NamedTemporaryFile('w') as f:
+        if override_unit_spec:
+            units, zeros, digits = override_unit_spec
+            units = 0 if units == 'inch' else 1
+            zeros = {None: 0, 'leading': 1, 'trailing': 2}[zeros]
+            unit_spec = textwrap.dedent(f'''(cons 'attribs (list
+                    (list 'autodetect 'Boolean 0)
+                    (list 'zero_suppression 'Enum {zeros})
+                    (list 'units 'Enum {units})
+                    (list 'digits 'Integer {digits})
+                ))''')
+        else:
+            unit_spec = ''
+
+        f.write(f'''(gerbv-file-version! "2.0A")(define-layer! 0 (cons 'filename "{in_gbr}"){unit_spec})''')
+        f.flush()
+
+        x, y = origin
+        w, h = size
+        cmd = ['gerbv', '-x', export_format,
+            '--border=0',
+            f'--origin={x:.6f}x{y:.6f}', f'--window_inch={w:.6f}x{h:.6f}',
+            f'--foreground={fg}',
+            f'--background={bg}',
+            '-o', str(out_svg), '-p', f.name]
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 @contextmanager
 def svg_soup(filename):
@@ -101,12 +119,12 @@ def cleanup_gerbv_svg(filename):
     with svg_soup(filename) as soup:
         cleanup_clips(soup)
 
-def gerber_difference(reference, actual, diff_out=None, svg_transform=None, size=(10,10)):
+def gerber_difference(reference, actual, diff_out=None, svg_transform=None, size=(10,10), ref_unit_spec=None):
     with tempfile.NamedTemporaryFile(suffix='.svg') as act_svg,\
         tempfile.NamedTemporaryFile(suffix='.svg') as ref_svg:
 
-        gerbv_export(reference, ref_svg.name, size=size, format='svg')
-        gerbv_export(actual, act_svg.name, size=size, format='svg')
+        gerbv_export(reference, ref_svg.name, size=size, export_format='svg', override_unit_spec=ref_unit_spec)
+        gerbv_export(actual, act_svg.name, size=size, export_format='svg')
 
         with svg_soup(ref_svg.name) as soup:
             if svg_transform is not None:
@@ -123,9 +141,9 @@ def gerber_difference_merge(ref1, ref2, actual, diff_out=None, composite_out=Non
         tempfile.NamedTemporaryFile(suffix='.svg') as ref1_svg,\
         tempfile.NamedTemporaryFile(suffix='.svg') as ref2_svg:
 
-        gerbv_export(ref1, ref1_svg.name, size=size, format='svg')
-        gerbv_export(ref2, ref2_svg.name, size=size, format='svg')
-        gerbv_export(actual, act_svg.name, size=size, format='svg')
+        gerbv_export(ref1, ref1_svg.name, size=size, export_format='svg')
+        gerbv_export(ref2, ref2_svg.name, size=size, export_format='svg')
+        gerbv_export(actual, act_svg.name, size=size, export_format='svg')
 
         with svg_soup(ref1_svg.name) as soup1:
             if svg_transform1 is not None:

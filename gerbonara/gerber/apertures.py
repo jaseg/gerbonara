@@ -96,12 +96,15 @@ class ExcellonTool(Aperture):
     plated : bool = None
     depth_offset : Length(float) = 0
     
+    def __post_init__(self):
+        print('created', self)
+
     def primitives(self, x, y, unit=None):
         return [ gp.Circle(x, y, self.unit.convert_to(unit, self.diameter/2)) ]
 
     def to_xnc(self, settings):
-        z_off = 'Z' + settings.write_excellon_value(self.depth_offset) if self.depth_offset is not None else ''
-        return 'C' + settings.write_excellon_value(self.diameter) + z_off
+        z_off = 'Z' + settings.write_excellon_value(self.depth_offset, self.unit) if self.depth_offset is not None else ''
+        return 'C' + settings.write_excellon_value(self.diameter, self.unit) + z_off
 
     def __eq__(self, other):
         if not isinstance(other, ExcellonTool):
@@ -118,7 +121,7 @@ class ExcellonTool(Aperture):
     def __str__(self):
         plated = '' if self.plated is None else (' plated' if self.plated else ' non-plated')
         z_off = '' if self.depth_offset is None else f' z_offset={self.depth_offset}'
-        return f'<Excellon Tool d={self.diameter:.3f}{plated}{z_off}>'
+        return f'<Excellon Tool d={self.diameter:.3f}{plated}{z_off} [{self.unit}]>'
 
     def equivalent_width(self, unit=MM):
         return unit(self.diameter, self.unit)
@@ -150,7 +153,7 @@ class CircleAperture(Aperture):
         return [ gp.Circle(x, y, self.unit.convert_to(unit, self.diameter/2)) ]
 
     def __str__(self):
-        return f'<circle aperture d={self.diameter:.3}>'
+        return f'<circle aperture d={self.diameter:.3} [{self.unit}]>'
 
     flash = _flash_hole
 
@@ -191,7 +194,7 @@ class RectangleAperture(Aperture):
         return [ gp.Rectangle(x, y, self.unit.convert_to(unit, self.w), self.unit.convert_to(unit, self.h), rotation=self.rotation) ]
 
     def __str__(self):
-        return f'<rect aperture {self.w:.3}x{self.h:.3}>'
+        return f'<rect aperture {self.w:.3}x{self.h:.3} [{self.unit}]>'
 
     flash = _flash_hole
 
@@ -240,7 +243,7 @@ class ObroundAperture(Aperture):
         return [ gp.Obround(x, y, self.unit.convert_to(unit, self.w), self.unit.convert_to(unit, self.h), rotation=self.rotation) ]
 
     def __str__(self):
-        return f'<obround aperture {self.w:.3}x{self.h:.3}>'
+        return f'<obround aperture {self.w:.3}x{self.h:.3} [{self.unit}]>'
 
     flash = _flash_hole
 
@@ -289,7 +292,7 @@ class PolygonAperture(Aperture):
         return [ gp.RegularPolygon(x, y, self.unit.convert_to(unit, self.diameter)/2, self.n_vertices, rotation=self.rotation) ]
 
     def __str__(self):
-        return f'<{self.n_vertices}-gon aperture d={self.diameter:.3}'
+        return f'<{self.n_vertices}-gon aperture d={self.diameter:.3} [{self.unit}]>'
 
     def dilated(self, offset, unit=MM):
         offset = self.unit(offset, unit)

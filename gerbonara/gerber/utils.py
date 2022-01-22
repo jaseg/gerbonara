@@ -86,6 +86,9 @@ class LengthUnit:
     def __deepcopy__(self, memo):
         return self
 
+    def __str__(self):
+        return self.shorthand
+
 
 MILLIMETERS_PER_INCH = 25.4
 Inch = LengthUnit('inch', 'in', MILLIMETERS_PER_INCH)

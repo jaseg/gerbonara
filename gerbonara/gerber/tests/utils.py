@@ -11,7 +11,7 @@ from PIL import Image
 import pytest
 
 fail_dir = Path('gerbonara_test_failures')
-reference_path = lambda reference: Path(__file__).parent / 'resources' / reference
+reference_path = lambda reference: Path(__file__).parent / 'resources' / str(reference)
 to_gerbv_svg_units = lambda val, unit='mm': val*72 if unit == 'inch' else val/25.4*72
 
 def path_test_name(request):
