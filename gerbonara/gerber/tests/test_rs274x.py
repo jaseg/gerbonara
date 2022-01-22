@@ -1,88 +1,16 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 # Author: Jan Götte <code@jaseg.de>
-import os
-import re
 import math
-import functools
-import tempfile
-import shutil
-from argparse import Namespace
-from itertools import chain
-from pathlib import Path
-from contextlib import contextmanager
-from PIL import Image
 
+from PIL import Image
 import pytest
 
 from ..rs274x import GerberFile
 from ..cam import FileSettings
 
 from .image_support import *
-
-
-deg_to_rad = lambda a: a/180 * math.pi
-
-fail_dir = Path('gerbonara_test_failures')
-reference_path = lambda reference: Path(__file__).parent / 'resources' / reference
-
-def path_test_name(request):
-    """ Create a slug suitable for use in file names from the test's nodeid """
-    module, _, test_name = request.node.nodeid.rpartition('::')
-    _test, _, test_name = test_name.partition('_')
-    test_name, _, _ext = test_name.partition('.')
-    return re.sub(r'[^\w\d]', '_', test_name)
-
-@pytest.fixture
-def print_on_error(request):
-    messages = []
-
-    def register_print(*args, sep=' ', end='\n'):
-        nonlocal messages
-        messages.append(sep.join(str(arg) for arg in args) + end)
-
-    yield register_print
-
-    if request.node.rep_call.failed:
-        for msg in messages:
-            print(msg, end='')
-
-@pytest.fixture
-def tmpfile(request):
-    registered = []
-
-    def register_tempfile(name, suffix):
-        nonlocal registered
-        f = tempfile.NamedTemporaryFile(suffix=suffix)
-        registered.append((name, suffix, f))
-        return Path(f.name)
-
-    yield register_tempfile
-
-    if request.node.rep_call.failed:
-        fail_dir.mkdir(exist_ok=True)
-        test_name = path_test_name(request)
-        for name, suffix, tmp in registered:
-            slug = re.sub(r'[^\w\d]+', '_', name.lower())
-            perm_path = fail_dir / f'failure_{test_name}_{slug}{suffix}'
-            shutil.copy(tmp.name, perm_path)
-            print(f'{name} saved to {perm_path}')
-
-    for _name, _suffix, tmp in registered:
-        tmp.close()
-
-@pytest.fixture
-def reference(request, print_on_error):
-    ref = reference_path(request.param)
-    yield ref
-    print_on_error(f'Reference file: {ref}')
-
-def filter_syntax_warnings(fun):
-    a = pytest.mark.filterwarnings('ignore:Deprecated.*statement found.*:DeprecationWarning')
-    b = pytest.mark.filterwarnings('ignore::SyntaxWarning')
-    return a(b(fun))
-
-to_gerbv_svg_units = lambda val, unit='mm': val*72 if unit == 'inch' else val/25.4*72
+from .utils import *
 
 REFERENCE_FILES = [ l.strip() for l in '''
     board_outline.GKO
@@ -179,7 +107,7 @@ def test_rotation(reference, angle, tmpfile):
     tmp_gbr = tmpfile('Output gerber', '.gbr')
 
     f = GerberFile.open(reference)
-    f.rotate(deg_to_rad(angle))
+    f.rotate(math.radians(angle))
     f.save(tmp_gbr)
 
     cx, cy = 0, to_gerbv_svg_units(10, unit='inch')
@@ -200,7 +128,7 @@ def test_rotation_center(reference, angle, center, tmpfile):
     tmp_gbr = tmpfile('Output gerber', '.gbr')
 
     f = GerberFile.open(reference)
-    f.rotate(deg_to_rad(angle), center=center)
+    f.rotate(math.radians(angle), center=center)
     f.save(tmp_gbr)
 
     # calculate circle center in SVG coordinates 
@@ -243,7 +171,7 @@ def test_combined(reference, angle, center, offset, tmpfile):
     tmp_gbr = tmpfile('Output gerber', '.gbr')
 
     f = GerberFile.open(reference)
-    f.rotate(deg_to_rad(angle), center=center)
+    f.rotate(math.radians(angle), center=center)
     f.offset(*offset)
     f.save(tmp_gbr, settings=FileSettings(unit=f.unit, number_format=(4,7)))
 
@@ -284,7 +212,7 @@ def test_compositing(file_a, file_b, angle, offset, tmpfile, print_on_error):
 
     ax, ay, bx, by = offset
     grb_a = GerberFile.open(ref_a)
-    grb_a.rotate(deg_to_rad(angle))
+    grb_a.rotate(math.radians(angle))
     grb_a.offset(ax, ay)
 
     grb_b = GerberFile.open(ref_b)

@@ -24,6 +24,7 @@ files.
 """
 
 import os
+import re
 from enum import Enum
 from math import radians, sin, cos, sqrt, atan2, pi
 
@@ -41,7 +42,9 @@ class RegexMatcher:
     def handle(self, inst, line):
         for regex, handler in self.mapping.items():
             if (match := re.fullmatch(regex, line)):
-                handler(match)
+                #print('  handler', handler.__name__)
+                handler(inst, match)
+                break
 
 class LengthUnit:
     def __init__(self, name, shorthand, this_in_mm):

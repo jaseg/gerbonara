@@ -26,6 +26,13 @@ def strip_right(*args):
         args.pop()
     return args
 
+def none_close(a, b):
+    if a is None and b is None:
+        return True
+    elif a is not None and b is not None:
+        return math.isclose(a, b)
+    else:
+        return False
 
 class Length:
     def __init__(self, obj_type):
@@ -88,13 +95,13 @@ class ExcellonTool(Aperture):
     diameter : Length(float)
     plated : bool = None
     depth_offset : Length(float) = 0
-
+    
     def primitives(self, x, y, unit=None):
         return [ gp.Circle(x, y, self.unit.convert_to(unit, self.diameter/2)) ]
 
     def to_xnc(self, settings):
-        z_off += 'Z' + settings.write_gerber_value(self.depth_offset) if self.depth_offset is not None else ''
-        return 'C' + settings.write_gerber_value(self.diameter) + z_off
+        z_off = 'Z' + settings.write_excellon_value(self.depth_offset) if self.depth_offset is not None else ''
+        return 'C' + settings.write_excellon_value(self.diameter) + z_off
 
     def __eq__(self, other):
         if not isinstance(other, ExcellonTool):
@@ -103,10 +110,10 @@ class ExcellonTool(Aperture):
         if not self.plated == other.plated:
             return False
 
-        if not math.isclose(self.depth_offset, self.unit(other.depth_offset, other.unit)):
+        if not none_close(self.depth_offset, self.unit(other.depth_offset, other.unit)):
             return False
 
-        return math.isclose(self.diameter, self.unit(other.diameter, other.unit))
+        return none_close(self.diameter, self.unit(other.diameter, other.unit))
 
     def __str__(self):
         plated = '' if self.plated is None else (' plated' if self.plated else ' non-plated')

@@ -33,7 +33,7 @@ class FileSettings:
         `zeros='trailing'`
     '''
     notation : str = 'absolute'
-    unit : LengthUnit = Inch
+    unit : LengthUnit = MM
     angle_unit : str = 'degree'
     zeros : bool = None
     number_format : tuple = (2, 5)
@@ -52,7 +52,7 @@ class FileSettings:
             if len(value) != 2:
                 raise ValueError(f'Number format must be a (integer, fractional) tuple of integers, not {value}')
 
-            if value[0] > 6 or value[1] > 7:
+            if value != (None, None) and (value[0] > 6 or value[1] > 7):
                 raise ValueError(f'Requested precision of {value} is too high. Only up to 6.7 digits are supported by spec.')
 
 
@@ -131,44 +131,92 @@ class FileSettings:
 
         return sign + (num or '0')
 
+    def write_excellon_value(self, value, unit=None):
+        if unit is not None:
+            value = self.unit(value, unit)
+        
+        integer_digits, decimal_digits = self.number_format
+        if integer_digits is None:
+            integer_digits = 2
+        if decimal_digits is None:
+            decimal_digits = 6
+
+        return format(value, f'0{integer_digits+decimal_digits+1}.{decimal_digits}f')
+
+
+class Tag:
+    def __init__(self, name, children=None, root=False, **attrs):
+        self.name, self.attrs = name, attrs
+        self.children = children or []
+        self.root = root
+
+    def __str__(self):
+        prefix = '<?xml version="1.0" encoding="utf-8"?>\n' if self.root else ''
+        opening = ' '.join([self.name] + [f'{key.replace("__", ":")}="{value}"' for key, value in self.attrs.items()])
+        if self.children:
+            children = '\n'.join(textwrap.indent(str(c), '  ') for c in self.children)
+            return f'{prefix}<{opening}>\n{children}\n</{self.name}>'
+        else:
+            return f'{prefix}<{opening}/>'
+
 
 class CamFile:
     def __init__(self, filename=None, layer_name=None):
         self.filename = filename
         self.layer_name = layer_name
         self.import_settings = None
+        self.objects = []
 
-    @property
-    def bounds(self):
-        """ File boundaries
+    def to_svg(self, tag=Tag, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, color='black'):
+
+        if force_bounds is None:
+            (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
+        else:
+            (min_x, min_y), (max_x, max_y) = force_bounds
+            min_x = svg_unit(min_x, arg_unit)
+            min_y = svg_unit(min_y, arg_unit)
+            max_x = svg_unit(max_x, arg_unit)
+            max_y = svg_unit(max_y, arg_unit)
+
+        if margin:
+            margin = svg_unit(margin, arg_unit)
+            min_x -= margin
+            min_y -= margin
+            max_x += margin
+            max_y += margin
+
+        w, h = max_x - min_x, max_y - min_y
+        w = 1.0 if math.isclose(w, 0.0) else w
+        h = 1.0 if math.isclose(h, 0.0) else h
+
+        primitives = [ prim.to_svg(tag, color) for obj in self.objects for prim in obj.to_primitives(unit=svg_unit) ]
+
+        # setup viewport transform flipping y axis
+        xform = f'translate({min_x} {min_y+h}) scale(1 -1) translate({-min_x} {-min_y})'
+
+        svg_unit = 'in' if svg_unit == 'inch' else 'mm'
+        # TODO export apertures as <uses> where reasonable.
+        return tag('svg', [tag('g', primitives, transform=xform)],
+                width=f'{w}{svg_unit}', height=f'{h}{svg_unit}',
+                viewBox=f'{min_x} {min_y} {w} {h}',
+                xmlns="http://www.w3.org/2000/svg", xmlns__xlink="http://www.w3.org/1999/xlink", root=True)
+
+    def size(self, unit=MM):
+        (x0, y0), (x1, y1) = self.bounding_box(unit, default=((0, 0), (0, 0)))
+        return (x1 - x0, y1 - y0)
+
+    def bounding_box(self, unit=MM, default=None):
+        """ Calculate bounding box of file. Returns value given by 'default' argument when there are no graphical
+        objects (default: None)
         """
-        pass
+        bounds = [ p.bounding_box(unit) for p in self.objects ]
+        if not bounds:
+            return default
 
-    @property
-    def bounding_box(self):
-        pass
+        min_x = min(x0 for (x0, y0), (x1, y1) in bounds)
+        min_y = min(y0 for (x0, y0), (x1, y1) in bounds)
+        max_x = max(x1 for (x0, y0), (x1, y1) in bounds)
+        max_y = max(y1 for (x0, y0), (x1, y1) in bounds)
 
-    def render(self, ctx=None, invert=False, filename=None):
-        """ Generate image of layer.
+        return ((min_x, min_y), (max_x, max_y))
 
-        Parameters
-        ----------
-        ctx : :class:`GerberContext`
-            GerberContext subclass used for rendering the image
-
-        filename : string <optional>
-            If provided, save the rendered image to `filename`
-        """
-        if ctx is None:
-            from .render import GerberCairoContext
-            ctx = GerberCairoContext()
-        ctx.set_bounds(self.bounding_box)
-        ctx.paint_background()
-        ctx.invert = invert
-        ctx.new_render_layer()
-        for p in self.primitives:
-            ctx.render(p)
-        ctx.flatten()
-
-        if filename is not None:
-            ctx.dump(filename)

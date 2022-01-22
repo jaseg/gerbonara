@@ -53,33 +53,21 @@ def points_close(a, b):
     else:
         return math.isclose(a[0], b[0]) and math.isclose(a[1], b[1])
 
-class Tag:
-    def __init__(self, name, children=None, root=False, **attrs):
-        self.name, self.attrs = name, attrs
-        self.children = children or []
-        self.root = root
-
-    def __str__(self):
-        prefix = '<?xml version="1.0" encoding="utf-8"?>\n' if self.root else ''
-        opening = ' '.join([self.name] + [f'{key.replace("__", ":")}="{value}"' for key, value in self.attrs.items()])
-        if self.children:
-            children = '\n'.join(textwrap.indent(str(c), '  ') for c in self.children)
-            return f'{prefix}<{opening}>\n{children}\n</{self.name}>'
-        else:
-            return f'{prefix}<{opening}/>'
-
 class GerberFile(CamFile):
     """ A class representing a single gerber file
 
     The GerberFile class represents a single gerber file.
     """
 
-    def __init__(self, filename=None):
-        super().__init__(filename)
+    def __init__(self, objects=None, comments=None, import_settings=None, filename=None, generator_hints=None,
+            layer_hints=None):
+        super().__init__(filename=filename)
+        self.objects = objects or []
+        self.comments = comments or []
+        self.generator_hints = generator_hints or []
+        self.layer_hints = layer_hints or []
+        self.import_settings = import_settings
         self.apertures = [] # FIXME get rid of this? apertures are already in the objects.
-        self.comments = []
-        self.objects = []
-        self.import_settings = None
 
     def to_excellon(self):
         new_objs = []
@@ -95,40 +83,6 @@ class GerberFile(CamFile):
             new_obj = dataclasses.replace(obj, aperture=new_tool)
             
         return ExcellonFile(objects=new_objs, comments=self.comments)
-
-    def to_svg(self, tag=Tag, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, color='black'):
-
-        if force_bounds is None:
-            (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
-        else:
-            (min_x, min_y), (max_x, max_y) = force_bounds
-            min_x = svg_unit(min_x, arg_unit)
-            min_y = svg_unit(min_y, arg_unit)
-            max_x = svg_unit(max_x, arg_unit)
-            max_y = svg_unit(max_y, arg_unit)
-
-        if margin:
-            margin = svg_unit(margin, arg_unit)
-            min_x -= margin
-            min_y -= margin
-            max_x += margin
-            max_y += margin
-
-        w, h = max_x - min_x, max_y - min_y
-        w = 1.0 if math.isclose(w, 0.0) else w
-        h = 1.0 if math.isclose(h, 0.0) else h
-
-        primitives = [ prim.to_svg(tag, color) for obj in self.objects for prim in obj.to_primitives(unit=svg_unit) ]
-
-        # setup viewport transform flipping y axis
-        xform = f'translate({min_x} {min_y+h}) scale(1 -1) translate({-min_x} {-min_y})'
-
-        svg_unit = 'in' if svg_unit == 'inch' else 'mm'
-        # TODO export apertures as <uses> where reasonable.
-        return tag('svg', [tag('g', primitives, transform=xform)],
-                width=f'{w}{svg_unit}', height=f'{h}{svg_unit}',
-                viewBox=f'{min_x} {min_y} {w} {h}',
-                xmlns="http://www.w3.org/2000/svg", xmlns__xlink="http://www.w3.org/1999/xlink", root=True)
 
     def merge(self, other):
         """ Merge other GerberFile into this one """
@@ -215,25 +169,6 @@ class GerberFile(CamFile):
         obj = kls()
         GerberParser(obj, include_dir=enable_include_dir).parse(data)
         return obj
-
-    def size(self, unit=MM):
-        (x0, y0), (x1, y1) = self.bounding_box(unit, default=((0, 0), (0, 0)))
-        return (x1 - x0, y1 - y0)
-
-    def bounding_box(self, unit=MM, default=None):
-        """ Calculate bounding box of file. Returns value given by 'default' argument when there are no graphical
-        objects (default: None)
-        """
-        bounds = [ p.bounding_box(unit) for p in self.objects ]
-        if not bounds:
-            return default
-
-        min_x = min(x0 for (x0, y0), (x1, y1) in bounds)
-        min_y = min(y0 for (x0, y0), (x1, y1) in bounds)
-        max_x = max(x1 for (x0, y0), (x1, y1) in bounds)
-        max_y = max(y1 for (x0, y0), (x1, y1) in bounds)
-
-        return ((min_x, min_y), (max_x, max_y))
 
     def generate_statements(self, settings, drop_comments=True):
         yield '%MOMM*%' if (settings.unit == 'mm') else '%MOIN*%'

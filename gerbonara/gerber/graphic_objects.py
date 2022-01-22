@@ -90,8 +90,8 @@ class Flash(GerberObject):
         yield from ctx.select_tool(self.tool)
         yield from ctx.drill_mode()
 
-        x = ctx.settings.write_gerber_value(self.x, self.unit)
-        y = ctx.settings.write_gerber_value(self.y, self.unit)
+        x = ctx.settings.write_excellon_value(self.x, self.unit)
+        y = ctx.settings.write_excellon_value(self.y, self.unit)
         yield f'X{x}Y{y}'
 
         ctx.set_current_point(self.unit, self.x, self.y)

@@ -20,6 +20,7 @@ import operator
 import warnings
 import functools
 import dataclasses
+import re
 from enum import Enum
 from dataclasses import dataclass
 from collections import Counter
@@ -41,7 +42,7 @@ class ExcellonContext:
     def select_tool(self, tool):
         if self.current_tool != tool:
             self.current_tool = tool
-            yield f'T{tools[tool]:02d}'
+            yield f'T{self.tools[id(tool)]:02d}'
 
     def drill_mode(self):
         if self.mode != ProgramState.DRILLING:
@@ -54,10 +55,10 @@ class ExcellonContext:
         if self.mode == ProgramState.ROUTING and (self.x, self.y) == (x, y):
             return # nothing to do
 
-        yield 'G00' + 'X' + self.settings.write_gerber_value(x) + 'Y' + self.settings.write_gerber_value(y)
+        yield 'G00' + 'X' + self.settings.write_excellon_value(x) + 'Y' + self.settings.write_excellon_value(y)
 
     def set_current_point(self, unit, x, y):
-        self.current_point = self.unit(x, unit), self.unit(y, unit)
+        self.current_point = self.settings.unit(x, unit), self.settings.unit(y, unit)
 
 def parse_allegro_ncparam(data, settings=None):
     # This function parses data from allegro's nc_param.txt and ncdrill.log files. We have to parse these files because
@@ -70,7 +71,7 @@ def parse_allegro_ncparam(data, settings=None):
 
     lz_supp, tz_supp = False, False
     for line in data.splitlines():
-        line = re.sub('\s+', ' ', line.strip())
+        line = re.sub(r'\s+', ' ', line.strip())
 
         if (match := re.fullmatch(r'FORMAT ([0-9]+\.[0-9]+)', line)):
             x, _, y = match[1].partition('.')
@@ -165,7 +166,7 @@ class ExcellonFile(CamFile):
         # Prefer nc_param.txt over ncparam.log since the txt is the machine-readable one.
         if settings is None:
             for fn in 'nc_param.txt', 'ncdrill.log':
-                if (param_file := filename.parent / fn).isfile():
+                if (param_file := filename.parent / fn).is_file():
                     settings =  parse_allegro_ncparam(param_file.read_text())
                     break
 
@@ -176,7 +177,7 @@ class ExcellonFile(CamFile):
         parser = ExcellonParser(settings)
         parser._do_parse(data)
         return kls(objects=parser.objects, comments=parser.comments, import_settings=settings,
-                generator=parser.generator, filename=filename, plated=plated)
+                generator_hints=parser.generator_hints, filename=filename)
 
     def _generate_statements(self, settings):
 
@@ -190,21 +191,23 @@ class ExcellonFile(CamFile):
         yield 'METRIC' if settings.unit == MM else 'INCH'
 
         # Build tool index
-        tools = set(obj.tool for obj in self.objects)
-        tools = sorted(tools, key=lambda tool: (tool.plated, tool.diameter, tool.depth_offset))
-        tools = { tool: index for index, tool in enumerate(tools, start=1) }
+        tool_map = { id(obj.tool): obj.tool for obj in self.objects }
+        tools = sorted(tool_map.items(), key=lambda id_tool: (id_tool[1].plated, id_tool[1].diameter, id_tool[1].depth_offset))
+        tools = { tool_id: index for index, (tool_id, _tool) in enumerate(tools, start=1) }
 
-        if max(tools) >= 100:
+        if tools and max(tools.values()) >= 100:
             warnings.warn('More than 99 tools defined. Some programs may not like three-digit tool indices.', SyntaxWarning)
 
-        for tool, index in tools.items():
-            yield f'T{index:02d}' + tool.to_xnc(settings)
+        for tool_id, index in tools.items():
+            yield f'T{index:02d}' + tool_map[tool_id].to_xnc(settings)
 
         yield '%'
 
+        ctx = ExcellonContext(settings, tools)
+
         # Export objects
         for obj in self.objects:
-            obj.to_xnc(ctx)
+            yield from obj.to_xnc(ctx)
 
         yield 'M30'
 
@@ -212,15 +215,25 @@ class ExcellonFile(CamFile):
         ''' Export to Excellon format. This function always generates XNC, which is a well-defined subset of Excellon.
         '''
         if settings is None:
-            settings = self.import_settings.copy() or FileSettings()
+            if self.import_settings:
+                settings = self.import_settings.copy()
+            else:
+                settings = FileSettings()
             settings.zeros = None
             settings.number_format = (3,5)
         return '\n'.join(self._generate_statements(settings))
+
+    def save(self, filename, settings=None):
+        with open(filename, 'w') as f:
+            f.write(self.to_excellon(settings))
 
     def offset(self, x=0, y=0, unit=MM):
         self.objects = [ obj.with_offset(x, y, unit) for obj in self.objects ]
 
     def rotate(self, angle, cx=0, cy=0, unit=MM):
+        if math.isclose(angle % (2*math.pi), 0):
+            return
+
         for obj in self.objects:
             obj.rotate(angle, cx, cy, unit=unit)
 
@@ -300,7 +313,7 @@ class ProgramState(Enum):
     HEADER = 0
     DRILLING = 1
     ROUTING = 2
-    FINISHED = 2
+    FINISHED = 3
 
 
 class ExcellonParser(object):
@@ -320,6 +333,7 @@ class ExcellonParser(object):
         self.pos = 0, 0
         self.drill_down = False
         self.is_plated = None
+        self.comments = []
         self.generator_hints = []
 
     def _do_parse(self, data):
@@ -350,7 +364,7 @@ class ExcellonParser(object):
     exprs = RegexMatcher()
 
     # NOTE: These must be kept before the generic comment handler at the end of this class so they match first.
-    @exprs.match(';T(?P<index1>[0-9]+) Holesize (?P<index2>[0-9]+)\. = (?P<diameter>[0-9/.]+) Tolerance = \+[0-9/.]+/-[0-9/.]+ (?P<plated>PLATED|NON_PLATED|OPTIONAL) (?P<unit>MILS|MM) Quantity = [0-9]+')
+    @exprs.match(r';T(?P<index1>[0-9]+) Holesize (?P<index2>[0-9]+)\. = (?P<diameter>[0-9/.]+) Tolerance = \+[0-9/.]+/-[0-9/.]+ (?P<plated>PLATED|NON_PLATED|OPTIONAL) (?P<unit>MILS|MM) Quantity = [0-9]+')
     def parse_allegro_tooldef(self, match):
         # NOTE: We ignore the given tolerances here since they are non-standard.
         self.program_state = ProgramState.HEADER # TODO is this needed? we need a test file.
@@ -390,7 +404,7 @@ class ExcellonParser(object):
         if (index := int(match['index'])) in self.tools:
             warnings.warn('Re-definition of tool index {index}, overwriting old definition.', SyntaxWarning) 
 
-        tools[index] = tool
+        self.tools[index] = tool
         self.generator_hints.append('easyeda')
 
     @exprs.match('T([0-9]+)(([A-Z][.0-9]+)+)') # Tool definition: T** with at least one parameter
@@ -401,9 +415,10 @@ class ExcellonParser(object):
         if (index := int(match[1])) in self.tools:
             warnings.warn('Re-definition of tool index {index}, overwriting old definition.', SyntaxWarning) 
 
-        params = { m[0]: settings.parse_gerber_value(m[1:]) for m in re.findall('[BCFHSTZ][.0-9]+', match[2]) }
+        params = { m[0]: self.settings.parse_gerber_value(m[1:]) for m in re.findall('[BCFHSTZ][.0-9]+', match[2]) }
 
-        self.tools[index] = ExcellonTool(diameter=params.get('C'), depth_offset=params.get('Z'), plated=self.is_plated)
+        self.tools[index] = ExcellonTool(diameter=params.get('C'), depth_offset=params.get('Z'), plated=self.is_plated,
+                unit=self.settings.unit)
 
         if set(params.keys()) == set('TFSC'):
             self.generator_hints.append('target3001') # target files look like altium files without the comments
@@ -422,7 +437,7 @@ class ExcellonParser(object):
 
         self.active_tool = self.tools[index]
 
-    coord = lambda name, key=None: f'(?P<{key or name}>{name}[+-]?[0-9]*\.?[0-9]*)?'
+    coord = lambda name, key=None: fr'{name}(?P<{key or name}>[+-]?[0-9]*\.?[0-9]*)?'
     xy_coord = coord('X') + coord('Y')
 
     @exprs.match(r'R(?P<count>[0-9]+)' + xy_coord)
@@ -442,15 +457,18 @@ class ExcellonParser(object):
 
             self.objects.append(Flash(*self.pos, self.active_tool, unit=self.settings.unit))
 
-    def header_command(fun):
-        @functools.wraps(fun)
-        def wrapper(*args, **kwargs):
-            if self.program_state is None:
-                warnings.warn('Header statement found before start of header')
-            elif self.program_state != ProgramState.HEADER:
-                warnings.warn('Header statement found after end of header')
-            fun(*args, **kwargs)
-        return wrapper
+    def header_command(name):
+        def wrap(fun):
+            @functools.wraps(fun)
+            def wrapper(self, *args, **kwargs):
+                nonlocal name
+                if self.program_state is None:
+                    warnings.warn(f'{name} header statement found before start of header')
+                elif self.program_state != ProgramState.HEADER:
+                    warnings.warn(f'{name} header statement found after end of header')
+                fun(self, *args, **kwargs)
+            return wrapper
+        return wrap
 
     @exprs.match('M48')
     def handle_begin_header(self, match):
@@ -463,7 +481,7 @@ class ExcellonParser(object):
         self.program_state = ProgramState.HEADER
 
     @exprs.match('M95')
-    @header_command
+    @header_command('M95')
     def handle_end_header(self, match):
         self.program_state = ProgramState.DRILLING
 
@@ -489,28 +507,28 @@ class ExcellonParser(object):
     def handle_end_of_program(self, match):
         if self.program_state in (None, ProgramState.HEADER):
             warnings.warn('M30 statement found before end of header.', SyntaxWarning)
-        self.program_state = FINISHED
+        self.program_state = ProgramState.FINISHED
         # ignore.
         # TODO: maybe add warning if this is followed by other commands.
 
     def do_move(self, match=None, x='X', y='Y'):
-        x = settings.parse_gerber_value(match['X'])
-        y = settings.parse_gerber_value(match['Y'])
+        x = self.settings.parse_gerber_value(match['X'])
+        y = self.settings.parse_gerber_value(match['Y'])
 
         old_pos = self.pos
 
         if self.settings.absolute:
             if x is not None:
-                self.pos[0] = x
+                self.pos = (x, self.pos[1])
             if y is not None:
-                self.pos[1] = y
+                self.pos = (self.pos[0], y)
         else: # incremental
             if x is not None:
-                self.pos[0] += x
+                self.pos = (self.pos[0]+x, self.pos[1])
             if y is not None:
-                self.pos[1] += y
+                self.pos = (self.pos[0], self.pos[1]+y)
 
-        return old_pos, new_pos
+        return old_pos, self.pos
 
     @exprs.match('G00' + xy_coord)
     def handle_start_routing(self, match):
@@ -554,8 +572,7 @@ class ExcellonParser(object):
 
         start, end = self.do_move(match)
 
-        # Yes, drills in the header doesn't follow the specification, but it there are many files like this
-        if self.program_state not in (ProgramState.DRILLING, ProgramState.HEADER):
+        if self.program_state != ProgramState.ROUTING:
             return
 
         if not self.drill_down or not (match['x'] or match['y']) or not self.ensure_active_tool():
@@ -601,16 +618,16 @@ class ExcellonParser(object):
             self.objects.append(Arc(*start, *end, i, j, True, self.active_tool, unit=self.settings.unit))
 
     @exprs.match('M71|METRIC') # XNC uses "METRIC"
-    @header_command
+    @header_command('M71')
     def handle_metric_mode(self, match):
         self.settings.unit = MM
 
     @exprs.match('M72|INCH') # XNC uses "INCH"
-    @header_command
+    @header_command('M72')
     def handle_inch_mode(self, match):
         self.settings.unit = Inch
 
-    @exprs.match('(METRIC|INCH)(,LZ|,TZ)?(0*\.0*)?')
+    @exprs.match(r'(METRIC|INCH)(,LZ|,TZ)?(0*\.0*)?')
     def parse_easyeda_format(self, match):
         # geda likes to omit the LZ/TZ
         self.settings.unit = MM if match[1] == 'METRIC' else Inch
@@ -628,7 +645,7 @@ class ExcellonParser(object):
         self.generator_hints.append('easyeda')
     
     @exprs.match('G90')
-    @header_command
+    @header_command('G90')
     def handle_absolute_mode(self, match):
         self.settings.notation = 'absolute'
 
@@ -662,7 +679,16 @@ class ExcellonParser(object):
 
     @exprs.match(xy_coord)
     def handle_naked_coordinate(self, match):
-        self.do_interpolation(match)
+        _start, end = self.do_move(match)
+
+        if not self.ensure_active_tool():
+            return
+
+        # Yes, drills in the header doesn't follow the specification, but it there are many files like this
+        if self.program_state not in (ProgramState.DRILLING, ProgramState.HEADER):
+            return
+
+        self.objects.append(Flash(*end, self.active_tool, unit=self.settings.unit))
 
     @exprs.match(r'; Format\s*: ([0-9]+\.[0-9]+) / (Absolute|Incremental) / (Inch|MM) / (Leading|Trailing)')
     def parse_siemens_format(self, match):
@@ -684,7 +710,7 @@ class ExcellonParser(object):
     @exprs.match(';FILE_FORMAT=([0-9]:[0-9])')
     def parse_altium_easyeda_number_format_comment(self, match):
         # Altium or newer EasyEDA exports
-        x, _, y = fmt.partition(':')
+        x, _, y = match[1].partition(':')
         self.settings.number_format = int(x), int(y)
 
     @exprs.match(';Layer: (.*)')
@@ -710,7 +736,7 @@ class ExcellonParser(object):
         self.program_state = ProgramState.HEADER
         self.generator_hints.append('allegro')
 
-    @exprs.match(';GenerationSoftware,Autodesk,EAGLE,.*\*%')
+    @exprs.match(r';GenerationSoftware,Autodesk,EAGLE,.*\*%')
     def parse_eagle_version_header(self, match):
         # NOTE: Only newer eagles export drills as XNC files. Older eagles produce an aperture-only gerber file called
         # "profile.gbr" instead.

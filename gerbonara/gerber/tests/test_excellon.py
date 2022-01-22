@@ -1,17 +1,7 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 # Author: Jan Götte <code@jaseg.de>
-import os
-import re
 import math
-import functools
-import tempfile
-import shutil
-from argparse import Namespace
-from itertools import chain
-from pathlib import Path
-from contextlib import contextmanager
-from PIL import Image
 
 import pytest
 
@@ -24,7 +14,6 @@ from .utils import *
 REFERENCE_FILES = [
         'easyeda/Gerber_Drill_NPTH.DRL',
         'easyeda/Gerber_Drill_PTH.DRL',
-        'allegro-2/MinnowMax_RevA1_IPC356A.ipc',
         'altium-composite-drill/NC Drill/LimeSDR-QPCIe_1v2-SlotHoles.TXT',
         'altium-composite-drill/NC Drill/LimeSDR-QPCIe_1v2-RoundHoles.TXT',
         'pcb-rnd/power-art.xln',
@@ -48,7 +37,7 @@ def test_round_trip(reference, tmpfile):
 
     ExcellonFile.open(reference).save(tmp)
 
-    mean, _max, hist = excellon_difference(reference, tmp, diff_out=tmpfile('Difference', '.png'))
+    mean, _max, hist = gerber_difference(reference, tmp, diff_out=tmpfile('Difference', '.png'))
     assert mean < 5e-5
     assert hist[9] == 0
     assert hist[3:].sum() < 5e-5*hist.size
