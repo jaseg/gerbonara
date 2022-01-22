@@ -579,7 +579,8 @@ class GerberParser:
         elif match['interpolation'] == 'G75':
             self.multi_quadrant_mode = False
 
-        if match['interpolation'] in ('G74', 'G75') and (match['x'] or match['y'] or match['i'] or match['j']):
+        has_coord = (match['x'] or match['y'] or match['i'] or match['j'])
+        if match['interpolation'] in ('G74', 'G75') and has_coord:
             raise SyntaxError('G74/G75 combined with coord')
 
         x = self.file_settings.parse_gerber_value(match['x'])
@@ -587,12 +588,12 @@ class GerberParser:
         i = self.file_settings.parse_gerber_value(match['i'])
         j = self.file_settings.parse_gerber_value(match['j'])
 
-        if not (op := match['operation']):
+        if not (op := match['operation']) and has_coord:
             if self.last_operation == 'D01':
                 warnings.warn('Coordinate statement without explicit operation code. This is forbidden by spec.', SyntaxWarning)
                 op = 'D01'
 
-            elif match['x'] or match['y'] or match['i'] or match['j']:
+            else:
                 raise SyntaxError('Ambiguous coordinate statement. Coordinate statement does not have an operation '\
                                   'mode and the last operation statement was not D01.')
 

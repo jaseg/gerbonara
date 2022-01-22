@@ -77,7 +77,7 @@ class Aperture:
         #print(f'aperture to gerber {self.unit=} {settings=} {unit=}')
         actual_inst = self._rotated()
         params = 'X'.join(f'{float(par):.4}' for par in actual_inst.params(unit) if par is not None)
-        return f'{actual_inst.gerber_shape_code},{params}'
+        return ','.join((actual_inst.gerber_shape_code, params))
 
     def __eq__(self, other):
         # We need to choose some unit here.

@@ -204,27 +204,27 @@ class Outline(Primitive):
         if len(args) > 5004:
             raise ValueError(f'Invalid aperture macro outline primitive, too many points ({len(args)//2-2}).')
 
-        self.exposure = args[0]
+        self.exposure = args.pop(0)
 
         # length arg must not contain variables (that would not make sense)
-        length_arg = args[1].calculate()
+        length_arg = args.pop(0).calculate()
 
-        if length_arg != len(args)//2 - 2:
-            raise ValueError(f'Invalid aperture macro outline primitive, given size does not match length of coordinate list({len(args)}).')
+        if length_arg != len(args)//2-1:
+            raise ValueError(f'Invalid aperture macro outline primitive, given size {length_arg} does not match length of coordinate list({len(args)//2-1}).')
 
-        if len(args) % 1 != 1:
+        if len(args) % 2 == 1:
             self.rotation = args.pop()
         else:
             self.rotation = ConstantExpression(0.0)
 
-        if args[2] != args[-2] or args[3] != args[-1]:
+        if args[0] != args[-2] or args[1] != args[-1]:
             raise ValueError(f'Invalid aperture macro outline primitive, polygon is not closed {args[2:4], args[-3:-1]}')
 
-        self.coords = [(UnitExpression(x, unit), UnitExpression(y, unit)) for x, y in zip(args[1::2], args[2::2])]
+        self.coords = [(UnitExpression(x, unit), UnitExpression(y, unit)) for x, y in zip(args[0::2], args[1::2])]
 
     def to_gerber(self, unit=None):
         coords = ','.join(coord.to_gerber(unit) for xy in self.coords for coord in xy)
-        return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)//2-1},{coords},{self.rotation.to_gerber()}'
+        return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)-1},{coords},{self.rotation.to_gerber()}'
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
         with self.Calculator(self, variable_binding, unit) as calc:
