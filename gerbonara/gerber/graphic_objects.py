@@ -226,7 +226,8 @@ class Line(GerberObject):
 
     def to_primitives(self, unit=None):
         conv = self.converted(unit)
-        yield gp.Line(*conv.p1, *conv.p2, self.aperture.equivalent_width(unit), polarity_dark=self.polarity_dark)
+        w = self.aperture.equivalent_width(unit) if self.aperture else 0.1 # for debugging
+        yield gp.Line(*conv.p1, *conv.p2, w, polarity_dark=self.polarity_dark)
 
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
@@ -277,16 +278,22 @@ class Arc(GerberObject):
         return abs(r1 - r2)
 
     def sweep_angle(self):
-        f = math.atan2(self.x2, self.y2) - math.atan2(self.x1, self.y1)
-        f = (f + math.pi) % (2*math.pi) - math.pi
+        cx, cy = self.cx + self.x1, self.cy + self.y1
+        x1, y1 = self.x1 - cx, self.y1 - cy
+        x2, y2 = self.x2 - cx, self.y2 - cy
 
-        if self.clockwise:
-            f = -f
-
-        if f > math.pi:
-            f = 2*math.pi - f
-
-        return f
+        a1, a2 = math.atan2(y1, x1), math.atan2(y2, x2)
+        f = abs(a2 - a1)
+        if not self.clockwise:
+            if a2 > a1:
+                return a2 - a1
+            else:
+                return 2*math.pi - abs(a2 - a1)
+        else:
+            if a1 > a2:
+                return a1 - a2
+            else:
+                return 2*math.pi - abs(a1 - a2)
 
     @property
     def p1(self):
@@ -329,11 +336,12 @@ class Arc(GerberObject):
 
     def to_primitives(self, unit=None):
         conv = self.converted(unit)
+        w = self.aperture.equivalent_width(unit) if self.aperture else 0.1 # for debugging
         yield gp.Arc(x1=conv.x1, y1=conv.y1,
                 x2=conv.x2, y2=conv.y2,
                 cx=conv.cx, cy=conv.cy,
                 clockwise=self.clockwise,
-                width=self.aperture.equivalent_width(unit),
+                width=w,
                 polarity_dark=self.polarity_dark)
 
     def to_statements(self, gs):

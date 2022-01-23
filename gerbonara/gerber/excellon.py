@@ -108,7 +108,7 @@ class ExcellonFile(CamFile):
         self.generator_hints = generator_hints or [] # This is a purely informational goodie from the parser. Use it as you wish.
 
     def __bool__(self):
-        return bool(self.objects)
+        return not self.is_empty
 
     @property
     def is_plated(self):
@@ -257,8 +257,9 @@ class ExcellonFile(CamFile):
     def is_nonplated(self):
         return not any(obj.plated for obj in self.objects)
 
-    def empty(self):
-        return self.objects.empty()
+    @property
+    def is_empty(self):
+        return not self.objects
 
     def __len__(self):
         return len(self.objects)

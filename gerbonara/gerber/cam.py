@@ -168,6 +168,8 @@ class CamFile:
             max_x = svg_unit(max_x, arg_unit)
             max_y = svg_unit(max_y, arg_unit)
 
+        content_min_x, content_min_y = min_x, min_y
+        content_w, content_h = max_x - min_x, max_y - min_y
         if margin:
             margin = svg_unit(margin, arg_unit)
             min_x -= margin
@@ -201,7 +203,7 @@ class CamFile:
             tags.append(polyline.to_svg(tag, fg, bg))
 
         # setup viewport transform flipping y axis
-        xform = f'translate({min_x} {min_y+h}) scale(1 -1) translate({-min_x} {-min_y})'
+        xform = f'translate({content_min_x} {content_min_y+content_h}) scale(1 -1) translate({-content_min_x} {-content_min_y})'
 
         svg_unit = 'in' if svg_unit == 'inch' else 'mm'
         # TODO export apertures as <uses> where reasonable.
@@ -230,6 +232,11 @@ class CamFile:
         min_y = min(y0 for (x0, y0), (x1, y1) in bounds)
         max_x = max(x1 for (x0, y0), (x1, y1) in bounds)
         max_y = max(y1 for (x0, y0), (x1, y1) in bounds)
+
+        #for p in self.objects:
+        #    bb = (o_min_x, o_min_y), (o_max_x, o_max_y) = p.bounding_box(unit)
+        #    if o_min_x == min_x or o_min_y == min_y or o_max_x == max_x or o_max_y == max_y:
+        #        print('\033[91m  bounds\033[0m', bb, p)
 
         return ((min_x, min_y), (max_x, max_y))
 

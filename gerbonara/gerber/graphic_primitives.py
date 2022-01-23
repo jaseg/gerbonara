@@ -89,8 +89,12 @@ def arc_bounds(x1, y1, x2, y2, cx, cy, clockwise):
     # 
     # This solution manages to handle circular arcs given in gerber format (with explicit center and endpoints, plus
     # sweep direction instead of a format with e.g. angles and radius) without any trigonometric functions (e.g. atan2).
+    #
+    # cx, cy are relative to p1.
 
     # Center arc on cx, cy
+    cx += x1
+    cy += y1
     x1 -= cx
     x2 -= cx
     y1 -= cy
@@ -212,7 +216,7 @@ class ArcPoly(GraphicPrimitive):
         for (x1, y1), (x2, y2), arc in self.segments:
             if arc:
                 clockwise, (cx, cy) = arc
-                bbox = add_bounds(bbox, arc_bounds(x1, y1, x2, y2, (cx+x1, cy+y1), clockwise))
+                bbox = add_bounds(bbox, arc_bounds(x1, y1, x2, y2, cx, cy, clockwise))
 
             else:
                 line_bounds = (min(x1, x2), min(y1, y2)), (max(x1, x2), max(y1, y2))
@@ -277,7 +281,8 @@ class Polyline:
 
         (x0, y0), *rest = self.coords
         d = f'M {x0:.6} {y0:.6} ' + ' '.join(f'L {x:.6} {y:.6}' for x, y in rest)
-        return tag('path', d=d, style=f'fill: none; stroke: {color}; stroke-width: {self.width:.6}; stroke-linecap: round')
+        width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
+        return tag('path', d=d, style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linecap: round')
 
 @dataclass
 class Line(GraphicPrimitive):
@@ -293,8 +298,9 @@ class Line(GraphicPrimitive):
 
     def to_svg(self, tag, fg, bg):
         color = fg if self.polarity_dark else bg
+        width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
         return tag('path', d=f'M {self.x1:.6} {self.y1:.6} L {self.x2:.6} {self.y2:.6}',
-                style=f'fill: none; stroke: {color}; stroke-width: {self.width:.6}; stroke-linecap: round')
+                style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linecap: round')
 
 @dataclass
 class Arc(GraphicPrimitive):
@@ -330,8 +336,9 @@ class Arc(GraphicPrimitive):
     def to_svg(self, tag, fg, bg):
         color = fg if self.polarity_dark else bg
         arc = svg_arc((self.x1, self.y1), (self.x2, self.y2), (self.cx, self.cy), self.clockwise)
+        width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
         return tag('path', d=f'M {self.x1:.6} {self.y1:.6} {arc}',
-                style=f'fill: none; stroke: {color}; stroke-width: {self.width:.6}; stroke-linecap: round; fill: none')
+                style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linecap: round; fill: none')
 
 def svg_rotation(angle_rad, cx=0, cy=0):
     return f'rotate({float(rad_to_deg(angle_rad)):.4} {float(cx):.6} {float(cy):.6})'

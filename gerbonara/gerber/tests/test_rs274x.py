@@ -456,12 +456,11 @@ def test_svg_export(reference, tmpfile):
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', REFERENCE_FILES, indirect=True)
 def test_bounding_box(reference, tmpfile):
+    if reference.name == 'MinnowMax_assy.art':
+        # This leads to worst-case performance in resvg, this testcase takes over 1h to finish. So skip.
+        pytest.skip()
     # skip this check on files that contain lines with a zero-size aperture at the board edge
     if any(reference.match(f'*/{f}') for f in HAS_ZERO_SIZE_APERTURES):
-        pytest.skip()
-
-    # skip this file because it does not contain any graphical objects
-    if reference.match('*/multiline_read.ger'):
         pytest.skip()
 
     margin = 1.0 # inch
@@ -469,6 +468,10 @@ def test_bounding_box(reference, tmpfile):
     margin_px = int(dpi*margin) # intentionally round down to avoid aliasing artifacts
 
     grb = GerberFile.open(reference)
+
+    if grb.is_empty:
+        pytest.skip()
+
     out_svg = tmpfile('Output', '.svg')
     with open(out_svg, 'w') as f:
         f.write(str(grb.to_svg(margin=margin, arg_unit='inch', fg='white', bg='black')))
@@ -484,11 +487,13 @@ def test_bounding_box(reference, tmpfile):
     rows = img.sum(axis=0)
     col_prefix, col_suffix = np.argmax(cols > 0), np.argmax(cols[::-1] > 0)
     row_prefix, row_suffix = np.argmax(rows > 0), np.argmax(rows[::-1] > 0)
+    print('cols:', col_prefix, col_suffix)
+    print('rows:', row_prefix, row_suffix)
 
     # Check that all margins are completely black and that the content touches the margins. Allow for some tolerance to
-    # allow for antialiasing artifacts.
-    assert margin_px-1 <= col_prefix <= margin_px+1
-    assert margin_px-1 <= col_suffix <= margin_px+1
-    assert margin_px-1 <= row_prefix <= margin_px+1
-    assert margin_px-1 <= row_suffix <= margin_px+1
+    # allow for antialiasing artifacts and for things like very thin features.
+    assert margin_px-2 <= col_prefix <= margin_px+2
+    assert margin_px-2 <= col_suffix <= margin_px+2
+    assert margin_px-2 <= row_prefix <= margin_px+2
+    assert margin_px-2 <= row_suffix <= margin_px+2
 
