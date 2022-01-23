@@ -420,13 +420,11 @@ class GraphicsState:
             arc = lambda cx, cy: go.Arc(*old_point, *new_point, cx, cy,
                     clockwise=clockwise, aperture=(self.aperture if aperture else None),
                     polarity_dark=self.polarity_dark, unit=self.file_settings.unit, attrs=attrs)
-            print(f'arcs: {clockwise=}')
             arcs = [ arc(cx, cy), arc(-cx, cy), arc(cx, -cy), arc(-cx, -cy) ]
             arcs = sorted(arcs, key=lambda a: a.numeric_error())
 
             for a in arcs:
                 d = gp.point_line_distance(old_point, new_point, (old_point[0]+a.cx, old_point[1]+a.cy))
-                print(f'{a.numeric_error()=:<.5f} {d=:<.5f} {a}')
                 if (d > 0) == clockwise:
                     return a
             assert False
@@ -614,8 +612,6 @@ class GerberParser:
                     warnings.warn('File is missing mandatory M02 EOF marker. File may be truncated.', SyntaxWarning)
 
     def _parse_coord(self, match):
-        if match.group(0) == 'Y3083D02':
-            print(match)
         if match['interpolation'] == 'G01':
             self.graphics_state.interpolation_mode = InterpMode.LINEAR
         elif match['interpolation'] == 'G02':
@@ -646,8 +642,10 @@ class GerberParser:
                     warnings.warn('Ambiguous coordinate statement. Coordinate statement does not have an operation '\
                                   'mode and the last operation statement was not D01. This is garbage, and forbidden '\
                                   'by spec. but since this looks like a Siemens/Mentor Graphics file, we will let it '\
-                                  'slide and treat this as a D01.', SyntaxWarning)
-                    op = 'D01'
+                                  'slide and treat this as the same as the last operation.', SyntaxWarning)
+                    # Yes, we repeat the last op, and don't do a D01. This is confirmed by
+                    # resources/siemens/80101_0125_F200_L12_Bottom.gdo which contains an implicit-double-D02
+                    op = self.last_operation
                 else:
                     raise SyntaxError('Ambiguous coordinate statement. Coordinate statement does not have an '\
                             'operation mode and the last operation statement was not D01. This is garbage, and '\
