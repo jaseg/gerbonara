@@ -416,18 +416,20 @@ class GraphicsState:
         else:
             # Super-legacy. No one uses this EXCEPT everything that mentor graphics / siemens make uses this m(
             (cx, cy) = self.map_coord(*control_point, relative=True)
+
             arc = lambda cx, cy: go.Arc(*old_point, *new_point, cx, cy,
                     clockwise=clockwise, aperture=(self.aperture if aperture else None),
                     polarity_dark=self.polarity_dark, unit=self.file_settings.unit, attrs=attrs)
-            print('arcs:')
+            print(f'arcs: {clockwise=}')
             arcs = [ arc(cx, cy), arc(-cx, cy), arc(cx, -cy), arc(-cx, -cy) ]
-            for a in arcs:
-                print(f'{a.sweep_angle()=} {a.numeric_error()=} {a}')
-            print(GerberFile(arcs).to_svg())
-            arcs = [ a for a in arcs if a.sweep_angle() <= math.pi/2 ]
             arcs = sorted(arcs, key=lambda a: a.numeric_error())
-            return arcs[0]
 
+            for a in arcs:
+                d = gp.point_line_distance(old_point, new_point, (old_point[0]+a.cx, old_point[1]+a.cy))
+                print(f'{a.numeric_error()=:<.5f} {d=:<.5f} {a}')
+                if (d > 0) == clockwise:
+                    return a
+            assert False
 
     def update_point(self, x, y, unit=None):
         old_point = self.point
@@ -612,6 +614,8 @@ class GerberParser:
                     warnings.warn('File is missing mandatory M02 EOF marker. File may be truncated.', SyntaxWarning)
 
     def _parse_coord(self, match):
+        if match.group(0) == 'Y3083D02':
+            print(match)
         if match['interpolation'] == 'G01':
             self.graphics_state.interpolation_mode = InterpMode.LINEAR
         elif match['interpolation'] == 'G02':
