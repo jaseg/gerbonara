@@ -1,6 +1,6 @@
 
 import math
-from dataclasses import dataclass, replace, fields, InitVar, KW_ONLY
+from dataclasses import dataclass, replace, field, fields, InitVar, KW_ONLY
 
 from .aperture_macros.parse import GenericMacros
 from .utils import MM, Inch
@@ -8,17 +8,17 @@ from .utils import MM, Inch
 from . import graphic_primitives as gp
 
 
-def _flash_hole(self, x, y, unit=None):
+def _flash_hole(self, x, y, unit=None, polarity_dark=True):
     if getattr(self, 'hole_rect_h', None) is not None:
-        return [*self.primitives(x, y, unit),
+        return [*self.primitives(x, y, unit, polarity_dark),
                 gp.Rectangle((x, y),
                     (self.unit.convert_to(unit, self.hole_dia), self.unit.convert_to(unit, self.hole_rect_h)),
-                    rotation=self.rotation, polarity_dark=False)]
+                    rotation=self.rotation, polarity_dark=(not polarity_dark))]
     elif self.hole_dia is not None:
-        return [*self.primitives(x, y, unit),
-                gp.Circle(x, y, self.unit.convert_to(unit, self.hole_dia/2), polarity_dark=False)]
+        return [*self.primitives(x, y, unit, polarity_dark),
+                gp.Circle(x, y, self.unit.convert_to(unit, self.hole_dia/2), polarity_dark=(not polarity_dark))]
     else:
-        return self.primitives(x, y, unit)
+        return self.primitives(x, y, unit, polarity_dark)
 
 def strip_right(*args):
     args = list(args)
@@ -42,6 +42,7 @@ class Length:
 class Aperture:
     _ : KW_ONLY
     unit : str = None
+    attrs : dict = field(default_factory=dict)
 
     @property
     def hole_shape(self):
@@ -63,8 +64,8 @@ class Aperture:
 
         return out
 
-    def flash(self, x, y, unit=None):
-        return self.primitives(x, y, unit)
+    def flash(self, x, y, unit=None, polarity_dark=True):
+        return self.primitives(x, y, unit, polarity_dark)
 
     def equivalent_width(self, unit=None):
         raise ValueError('Non-circular aperture used in interpolation statement, line width is not properly defined.')
@@ -74,7 +75,6 @@ class Aperture:
         # we emulate this parameter. Our circle, rectangle and oblong classes below have a rotation parameter. Only at
         # export time during to_gerber, this parameter is evaluated. 
         unit = settings.unit if settings else None
-        #print(f'aperture to gerber {self.unit=} {settings=} {unit=}')
         actual_inst = self._rotated()
         params = 'X'.join(f'{float(par):.4}' for par in actual_inst.params(unit) if par is not None)
         return ','.join((actual_inst.gerber_shape_code, params))
@@ -96,8 +96,8 @@ class ExcellonTool(Aperture):
     plated : bool = None
     depth_offset : Length(float) = 0
     
-    def primitives(self, x, y, unit=None):
-        return [ gp.Circle(x, y, self.unit.convert_to(unit, self.diameter/2)) ]
+    def primitives(self, x, y, unit=None, polarity_dark=True):
+        return [ gp.Circle(x, y, self.unit.convert_to(unit, self.diameter/2), polarity_dark=polarity_dark) ]
 
     def to_xnc(self, settings):
         z_off = 'Z' + settings.write_excellon_value(self.depth_offset, self.unit) if self.depth_offset is not None else ''
@@ -146,8 +146,8 @@ class CircleAperture(Aperture):
     hole_rect_h : Length(float) = None
     rotation : float = 0 # radians; for rectangular hole; see hack in Aperture.to_gerber
 
-    def primitives(self, x, y, unit=None):
-        return [ gp.Circle(x, y, self.unit.convert_to(unit, self.diameter/2)) ]
+    def primitives(self, x, y, unit=None, polarity_dark=True):
+        return [ gp.Circle(x, y, self.unit.convert_to(unit, self.diameter/2), polarity_dark=polarity_dark) ]
 
     def __str__(self):
         return f'<circle aperture d={self.diameter:.3} [{self.unit}]>'
@@ -187,8 +187,9 @@ class RectangleAperture(Aperture):
     hole_rect_h : Length(float) = None
     rotation : float = 0 # radians
 
-    def primitives(self, x, y, unit=None):
-        return [ gp.Rectangle(x, y, self.unit.convert_to(unit, self.w), self.unit.convert_to(unit, self.h), rotation=self.rotation) ]
+    def primitives(self, x, y, unit=None, polarity_dark=True):
+        return [ gp.Rectangle(x, y, self.unit.convert_to(unit, self.w), self.unit.convert_to(unit, self.h),
+            rotation=self.rotation, polarity_dark=polarity_dark) ]
 
     def __str__(self):
         return f'<rect aperture {self.w:.3}x{self.h:.3} [{self.unit}]>'
@@ -236,8 +237,9 @@ class ObroundAperture(Aperture):
     hole_rect_h : Length(float) = None
     rotation : float = 0
 
-    def primitives(self, x, y, unit=None):
-        return [ gp.Obround(x, y, self.unit.convert_to(unit, self.w), self.unit.convert_to(unit, self.h), rotation=self.rotation) ]
+    def primitives(self, x, y, unit=None, polarity_dark=True):
+        return [ gp.Obround(x, y, self.unit.convert_to(unit, self.w), self.unit.convert_to(unit, self.h),
+            rotation=self.rotation, polarity_dark=polarity_dark) ]
 
     def __str__(self):
         return f'<obround aperture {self.w:.3}x{self.h:.3} [{self.unit}]>'
@@ -285,8 +287,9 @@ class PolygonAperture(Aperture):
     def __post_init__(self):
         self.n_vertices = int(self.n_vertices)
 
-    def primitives(self, x, y, unit=None):
-        return [ gp.RegularPolygon(x, y, self.unit.convert_to(unit, self.diameter)/2, self.n_vertices, rotation=self.rotation) ]
+    def primitives(self, x, y, unit=None, polarity_dark=True):
+        return [ gp.RegularPolygon(x, y, self.unit.convert_to(unit, self.diameter)/2, self.n_vertices,
+            rotation=self.rotation, polarity_dark=polarity_dark) ]
 
     def __str__(self):
         return f'<{self.n_vertices}-gon aperture d={self.diameter:.3} [{self.unit}]>'
@@ -322,10 +325,10 @@ class ApertureMacroInstance(Aperture):
     def gerber_shape_code(self):
         return self.macro.name
 
-    def primitives(self, x, y, unit=None):
+    def primitives(self, x, y, unit=None, polarity_dark=True):
         return self.macro.to_graphic_primitives(
                 offset=(x, y), rotation=self.rotation,
-                parameters=self.parameters, unit=unit)
+                parameters=self.parameters, unit=unit, polarity_dark=polarity_dark)
 
     def dilated(self, offset, unit=MM):
         return replace(self, macro=self.macro.dilated(offset, unit))

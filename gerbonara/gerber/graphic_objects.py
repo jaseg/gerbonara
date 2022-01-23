@@ -1,6 +1,6 @@
 
 import math
-from dataclasses import dataclass, KW_ONLY, astuple, replace, fields
+from dataclasses import dataclass, KW_ONLY, astuple, replace, field, fields
 
 from .utils import MM, InterpMode
 from . import graphic_primitives as gp
@@ -23,6 +23,7 @@ class GerberObject:
     _ : KW_ONLY
     polarity_dark : bool = True
     unit : str = None
+    attrs : dict = field(default_factory=dict)
 
     def converted(self, unit):
         return replace(self, 
@@ -74,7 +75,7 @@ class Flash(GerberObject):
 
     def to_primitives(self, unit=None):
         conv = self.converted(unit)
-        yield from self.aperture.flash(conv.x, conv.y, unit)
+        yield from self.aperture.flash(conv.x, conv.y, unit, self.polarity_dark)
 
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
@@ -141,13 +142,14 @@ class Region(GerberObject):
         self.poly.polarity_dark = self.polarity_dark # FIXME: is this the right spot to do this?
         if unit == self.unit:
             yield self.poly
+
         else:
             to = lambda value: self.unit.convert_to(unit, value)
             conv_outline = [ (to(x), to(y)) for x, y in self.poly.outline ]
             convert_entry = lambda entry: (entry[0], (to(entry[1][0]), to(entry[1][1])))
             conv_arc = [ None if entry is None else convert_entry(entry) for entry in self.poly.arc_centers ]
 
-            yield gp.ArcPoly(conv_outline, conv_arc)
+            yield gp.ArcPoly(conv_outline, conv_arc, polarity_dark=self.polarity_dark)
 
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
@@ -329,7 +331,7 @@ class Arc(GerberObject):
         conv = self.converted(unit)
         yield gp.Arc(x1=conv.x1, y1=conv.y1,
                 x2=conv.x2, y2=conv.y2,
-                cx=conv.cx+conv.x1, cy=conv.cy+conv.y1,
+                cx=conv.cx, cy=conv.cy,
                 clockwise=self.clockwise,
                 width=self.aperture.equivalent_width(unit),
                 polarity_dark=self.polarity_dark)

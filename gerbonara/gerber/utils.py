@@ -203,7 +203,7 @@ class Tag:
 
     def __str__(self):
         prefix = '<?xml version="1.0" encoding="utf-8"?>\n' if self.root else ''
-        opening = ' '.join([self.name] + [f'{key.replace("__", ":")}="{value}"' for key, value in self.attrs.items()])
+        opening = ' '.join([self.name] + [f'{key.replace("__", ":").replace("_", "-")}="{value}"' for key, value in self.attrs.items()])
         if self.children:
             children = '\n'.join(textwrap.indent(str(c), '  ') for c in self.children)
             return f'{prefix}<{opening}>\n{children}\n</{self.name}>'

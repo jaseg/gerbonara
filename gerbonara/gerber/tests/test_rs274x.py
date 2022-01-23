@@ -433,14 +433,14 @@ def test_svg_export(reference, tmpfile):
 
     out_svg = tmpfile('Output', '.svg')
     with open(out_svg, 'w') as f:
-        f.write(str(grb.to_svg(force_bounds=bounds, arg_unit='inch', color='white')))
+        f.write(str(grb.to_svg(force_bounds=bounds, arg_unit='inch', fg='black', bg='white')))
 
     # NOTE: Instead of having gerbv directly export a PNG, we ask gerbv to output SVG which we then rasterize using
     # resvg. We have to do this since gerbv's built-in cairo-based PNG export has severe aliasing issues. In contrast,
     # using resvg for both allows an apples-to-apples comparison of both results.
     ref_svg = tmpfile('Reference export', '.svg')
     ref_png = tmpfile('Reference render', '.png')
-    gerbv_export(reference, ref_svg, origin=bounds[0], size=bounds[1])
+    gerbv_export(reference, ref_svg, origin=bounds[0], size=bounds[1], fg='#000000', bg='#ffffff')
     svg_to_png(ref_svg, ref_png, dpi=72) # make dpi match Cairo's default
 
     out_png = tmpfile('Output render', '.png')
@@ -471,7 +471,7 @@ def test_bounding_box(reference, tmpfile):
     grb = GerberFile.open(reference)
     out_svg = tmpfile('Output', '.svg')
     with open(out_svg, 'w') as f:
-        f.write(str(grb.to_svg(margin=margin, arg_unit='inch', color='white')))
+        f.write(str(grb.to_svg(margin=margin, arg_unit='inch', fg='white', bg='black')))
 
     out_png = tmpfile('Render', '.png')
     svg_to_png(out_svg, out_png, dpi=dpi)

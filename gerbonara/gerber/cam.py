@@ -157,7 +157,7 @@ class CamFile:
         self.import_settings = None
         self.objects = []
 
-    def to_svg(self, tag=Tag, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, color='black'):
+    def to_svg(self, tag=Tag, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, fg='black', bg='white'):
 
         if force_bounds is None:
             (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
@@ -180,6 +180,8 @@ class CamFile:
         h = 1.0 if math.isclose(h, 0.0) else h
 
         primitives = [ prim for obj in self.objects for prim in obj.to_primitives(unit=svg_unit) ]
+        view = tag('sodipodi:namedview', [], id='namedview1', pagecolor=bg,
+                inkscape__document_units=svg_unit.shorthand)
         tags = []
         polyline = None
         for primitive in primitives:
@@ -188,25 +190,29 @@ class CamFile:
                     polyline = gp.Polyline(primitive)
                 else:
                     if not polyline.append(primitive):
-                        tags.append(polyline.to_svg(tag, color))
+                        tags.append(polyline.to_svg(tag, fg, bg))
                         polyline = gp.Polyline(primitive)
             else:
                 if polyline:
-                    tags.append(polyline.to_svg(tag, color))
+                    tags.append(polyline.to_svg(tag, fg, bg))
                     polyline = None
-                tags.append(primitive.to_svg(tag, color))
+                tags.append(primitive.to_svg(tag, fg, bg))
         if polyline:
-            tags.append(polyline.to_svg(tag, color))
+            tags.append(polyline.to_svg(tag, fg, bg))
 
         # setup viewport transform flipping y axis
         xform = f'translate({min_x} {min_y+h}) scale(1 -1) translate({-min_x} {-min_y})'
 
         svg_unit = 'in' if svg_unit == 'inch' else 'mm'
         # TODO export apertures as <uses> where reasonable.
-        return tag('svg', [tag('g', tags, transform=xform)],
+        return tag('svg', [view, tag('g', tags, transform=xform)],
                 width=f'{w}{svg_unit}', height=f'{h}{svg_unit}',
                 viewBox=f'{min_x} {min_y} {w} {h}',
-                xmlns="http://www.w3.org/2000/svg", xmlns__xlink="http://www.w3.org/1999/xlink", root=True)
+                xmlns="http://www.w3.org/2000/svg",
+                xmlns__xlink="http://www.w3.org/1999/xlink",
+                xmlns__sodipodi='http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd',
+                xmlns__inkscape='http://www.inkscape.org/namespaces/inkscape',
+                root=True)
 
     def size(self, unit=MM):
         (x0, y0), (x1, y1) = self.bounding_box(unit, default=((0, 0), (0, 0)))

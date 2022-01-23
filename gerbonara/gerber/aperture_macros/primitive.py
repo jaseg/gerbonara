@@ -81,11 +81,11 @@ class Circle(Primitive):
         if self.rotation is None:
             self.rotation = ConstantExpression(0)
 
-    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
+    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
             x, y = gp.rotate_point(calc.x, calc.y, deg_to_rad(calc.rotation) + rotation, 0, 0)
             x, y = x+offset[0], y+offset[1]
-            return [ gp.Circle(x, y, calc.diameter/2, polarity_dark=bool(calc.exposure)) ]
+            return [ gp.Circle(x, y, calc.diameter/2, polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
 
     def dilate(self, offset, unit):
         self.diameter += UnitExpression(offset, unit)
@@ -100,7 +100,7 @@ class VectorLine(Primitive):
     end_y : UnitExpression
     rotation : Expression
 
-    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
+    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
             center_x = (calc.end_x + calc.start_x) / 2
             center_y = (calc.end_y + calc.start_y) / 2
@@ -112,7 +112,7 @@ class VectorLine(Primitive):
             rotation += deg_to_rad(calc.rotation) + math.atan2(delta_y, delta_x)
 
             return [ gp.Rectangle(center_x, center_y, length, calc.width, rotation=rotation,
-                        polarity_dark=bool(calc.exposure)) ]
+                        polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
 
     def dilate(self, offset, unit):
         self.width += UnitExpression(2*offset, unit)
@@ -128,14 +128,14 @@ class CenterLine(Primitive):
     y : UnitExpression
     rotation : Expression
 
-    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
+    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
             rotation += deg_to_rad(calc.rotation)
             x, y = gp.rotate_point(calc.x, calc.y, rotation, 0, 0)
             x, y = x+offset[0], y+offset[1]
             w, h = calc.width, calc.height
 
-            return [ gp.Rectangle(x, y, w, h, rotation, polarity_dark=bool(calc.exposure)) ]
+            return [ gp.Rectangle(x, y, w, h, rotation, polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
 
     def dilate(self, offset, unit):
         self.width += UnitExpression(2*offset, unit)
@@ -151,13 +151,13 @@ class Polygon(Primitive):
     diameter : UnitExpression
     rotation : Expression
 
-    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
+    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
             rotation += deg_to_rad(calc.rotation)
             x, y = gp.rotate_point(calc.x, calc.y, rotation, 0, 0)
             x, y = x+offset[0], y+offset[1]
             return [ gp.RegularPolygon(calc.x, calc.y, calc.diameter/2, calc.n_vertices, rotation,
-                        polarity_dark=bool(calc.exposure)) ]
+                        polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
 
     def dilate(self, offset, unit):
         self.diameter += UnitExpression(2*offset, unit)
@@ -174,13 +174,13 @@ class Thermal(Primitive):
     gap_w : UnitExpression
     rotation : Expression
 
-    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
+    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
             rotation += deg_to_rad(calc.rotation)
             x, y = gp.rotate_point(calc.x, calc.y, rotation, 0, 0)
             x, y = x+offset[0], y+offset[1]
 
-            dark = bool(calc.exposure)
+            dark = (bool(calc.exposure) == polarity_dark)
 
             return [
                     gp.Circle(x, y, calc.d_outer/2, polarity_dark=dark),
@@ -226,7 +226,7 @@ class Outline(Primitive):
         coords = ','.join(coord.to_gerber(unit) for xy in self.coords for coord in xy)
         return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)-1},{coords},{self.rotation.to_gerber()}'
 
-    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None):
+    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
             bound_coords = [ (calc(x)+offset[0], calc(y)+offset[1]) for x, y in self.coords ]
             bound_radii = [None] * len(bound_coords)
@@ -234,7 +234,7 @@ class Outline(Primitive):
             rotation += deg_to_rad(calc.rotation)
             bound_coords = [ gp.rotate_point(*p, rotation, 0, 0) for p in bound_coords ]
 
-            return [gp.ArcPoly(bound_coords, bound_radii, polarity_dark=calc.exposure)]
+            return [gp.ArcPoly(bound_coords, bound_radii, polarity_dark=(bool(calc.exposure) == polarity_dark))]
 
     def dilate(self, offset, unit):
         # we would need a whole polygon offset/clipping library here

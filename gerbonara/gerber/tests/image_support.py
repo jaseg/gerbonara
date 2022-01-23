@@ -67,6 +67,9 @@ def svg_to_png(in_svg, out_png, dpi=100, bg='black'):
 to_gerbv_svg_units = lambda val, unit='mm': val*72 if unit == 'inch' else val/25.4*72
 
 def gerbv_export(in_gbr, out_svg, export_format='svg', origin=(0, 0), size=(6, 6), fg='#ffffff', bg='#000000', override_unit_spec=None):
+    # NOTE: gerbv seems to always export 'clear' polarity apertures as white, irrespective of --foreground, --background
+    # and project file color settings.
+    # TODO: File issue upstream.
     with tempfile.NamedTemporaryFile('w') as f:
         if override_unit_spec:
             units, zeros, digits = override_unit_spec
@@ -92,6 +95,7 @@ def gerbv_export(in_gbr, out_svg, export_format='svg', origin=(0, 0), size=(6, 6
             '--border=0',
             f'--origin={x:.6f}x{y:.6f}', f'--window_inch={w:.6f}x{h:.6f}',
             f'--background={bg}',
+            f'--foreground={fg}',
             '-o', str(out_svg), '-p', f.name]
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

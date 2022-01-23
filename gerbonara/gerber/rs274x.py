@@ -256,31 +256,28 @@ class GerberFile(CamFile):
     
 
 class GraphicsState:
-    polarity_dark : bool = True
-    image_polarity : str = 'positive' # IP image polarity; deprecated
-    point : tuple = None
-    aperture : apertures.Aperture = None
-    file_settings : FileSettings = None
-    interpolation_mode : InterpMode = InterpMode.LINEAR
-    multi_quadrant_mode : bool = None # used only for syntax checking
-    aperture_mirroring = (False, False) # LM mirroring (x, y)
-    aperture_rotation = 0 # LR rotation in degree, ccw
-    aperture_scale = 1 # LS scale factor, NOTE: same for both axes
-    # The following are deprecated file-wide settings. We normalize these during parsing.
-    image_offset : (float, float) = (0, 0)
-    image_rotation: int = 0 # IR image rotation in degree ccw, one of 0, 90, 180 or 270; deprecated
-    image_mirror : tuple = (False, False) # IM image mirroring, (x, y); deprecated
-    image_scale : tuple = (1.0, 1.0) # SF image scaling (x, y); deprecated
-    image_axes : str = 'AXBY' # AS axis mapping; deprecated
-    # for statement generation
-    aperture_map = {}
-
-
     def __init__(self, file_settings=None, aperture_map=None):
+        self.image_polarity = 'positive' # IP image polarity; deprecated
+        self.polarity_dark = True
+        self.point = None
+        self.aperture = None
+        self.file_settings = None
+        self.interpolation_mode = InterpMode.LINEAR
+        self.multi_quadrant_mode = None # used only for syntax checking
+        self.aperture_mirroring = (False, False) # LM mirroring (x, y)
+        self.aperture_rotation = 0 # LR rotation in degree, ccw
+        self.aperture_scale = 1 # LS scale factor, NOTE: same for both axes
+        # The following are deprecated file-wide settings. We normalize these during parsing.
+        self.image_offset = (0, 0)
+        self.image_rotation = 0 # IR image rotation in degree ccw, one of 0, 90, 180 or 270; deprecated
+        self.image_mirror = (False, False) # IM image mirroring, (x, y); deprecated
+        self.image_scale = (1.0, 1.0) # SF image scaling (x, y); deprecated
+        self.image_axes = 'AXBY' # AS axis mapping; deprecated
         self._mat = None
         self.file_settings = file_settings
         if aperture_map is not None:
             self.aperture_map = aperture_map
+        self.aperture_map = {}
 
     def __setattr__(self, name, value):
         # input validation
@@ -299,7 +296,7 @@ class GraphicsState:
 
         # polarity handling
         if name == 'image_polarity': # global IP statement image polarity, can only be set at beginning of file
-            if self.image_polarity == 'negative':
+            if getattr(self, 'image_polarity', None) == 'negative':
                 self.polarity_dark = False # evaluated before image_polarity is set below through super().__setattr__
 
         elif name == 'polarity_dark': # local LP statement polarity for subsequent objects
@@ -347,13 +344,15 @@ class GraphicsState:
             rx, ry = (a*x + b*y), (c*x + d*y)
             return rx, ry
 
-    def flash(self, x, y):
+    def flash(self, x, y, attrs=None):
+        attrs = attrs or {}
         self.update_point(x, y)
         return go.Flash(*self.map_coord(*self.point), self.aperture,
                 polarity_dark=self.polarity_dark,
-                unit=self.file_settings.unit)
+                unit=self.file_settings.unit,
+                attrs=attrs)
 
-    def interpolate(self, x, y, i=None, j=None, aperture=True, multi_quadrant=False):
+    def interpolate(self, x, y, i=None, j=None, aperture=True, multi_quadrant=False, attrs=None):
         if self.point is None:
             warnings.warn('D01 interpolation without preceding D02 move.', SyntaxWarning)
             self.point = (0, 0)
@@ -372,13 +371,13 @@ class GraphicsState:
             if i is not None or j is not None:
                 raise SyntaxError("i/j coordinates given for linear D01 operation (which doesn't take i/j)")
 
-            return self._create_line(old_point, self.map_coord(*self.point), aperture)
+            return self._create_line(old_point, self.map_coord(*self.point), aperture, attrs)
 
         else:
 
             if i is None and j is None:
                 warnings.warn('Linear segment implied during arc interpolation mode through D01 w/o I, J values', SyntaxWarning)
-                return self._create_line(old_point, self.map_coord(*self.point), aperture)
+                return self._create_line(old_point, self.map_coord(*self.point), aperture, attrs)
 
             else:
                 if i is None:
@@ -387,26 +386,28 @@ class GraphicsState:
                 if j is None:
                     warnings.warn('Arc is missing J value', SyntaxWarning)
                     j = 0
-                return self._create_arc(old_point, self.map_coord(*self.point), (i, j), aperture, multi_quadrant)
+                return self._create_arc(old_point, self.map_coord(*self.point), (i, j), aperture, multi_quadrant, attrs)
 
-    def _create_line(self, old_point, new_point, aperture=True):
+    def _create_line(self, old_point, new_point, aperture=True, attrs=None):
+        attrs = attrs or {}
         return go.Line(*old_point, *new_point, self.aperture if aperture else None,
-                polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
+                polarity_dark=self.polarity_dark, unit=self.file_settings.unit, attrs=attrs)
 
-    def _create_arc(self, old_point, new_point, control_point, aperture=True, multi_quadrant=False):
+    def _create_arc(self, old_point, new_point, control_point, aperture=True, multi_quadrant=False, attrs=None):
+        attrs = attrs or {}
         clockwise = self.interpolation_mode == InterpMode.CIRCULAR_CW
 
         if not multi_quadrant:
             return go.Arc(*old_point, *new_point, *self.map_coord(*control_point, relative=True),
                     clockwise=clockwise, aperture=(self.aperture if aperture else None),
-                    polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
+                    polarity_dark=self.polarity_dark, unit=self.file_settings.unit, attrs=attrs)
 
         else:
             # Super-legacy. No one uses this EXCEPT everything that mentor graphics / siemens make uses this m(
             (cx, cy) = self.map_coord(*control_point, relative=True)
             arc = lambda cx, cy: go.Arc(*old_point, *new_point, cx, cy,
                     clockwise=clockwise, aperture=(self.aperture if aperture else None),
-                    polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
+                    polarity_dark=self.polarity_dark, unit=self.file_settings.unit, attrs=attrs)
             arcs = [ arc(cx, cy), arc(-cx, cy), arc(cx, -cy), arc(-cx, -cy) ]
             arcs = [ a for a in arcs if a.sweep_angle() <= math.pi/2 ]
             arcs = sorted(arcs, key=lambda a: a.numeric_error())
@@ -469,7 +470,6 @@ class GerberParser:
             fr"(I(?P<i>{NUMBER}))?(J(?P<j>{NUMBER}))?" \
             fr"(?P<operation>D0?[123])?$",
         'aperture': r"(G54|G55)?D(?P<number>\d+)",
-        'comment': r"G0?4(?P<comment>[^*]*)",
         # Allegro combines format spec and unit into one long illegal extended command.
         'allegro_format_spec': r"FS(?P<zero>(L|T|D))?(?P<notation>(A|I))[NG0-9]*X(?P<x>[0-7][0-7])Y(?P<y>[0-7][0-7])[DM0-9]*\*MO(?P<unit>IN|MM)",
         'unit_mode': r"MO(?P<unit>(MM|IN))",
@@ -493,6 +493,10 @@ class GerberParser:
         'old_notation': r'(?P<mode>G9[01])',
         'eof': r"M0?[02]",
         'ignored': r"(?P<stmt>M01)",
+        # NOTE: The official spec says names can be empty or contain commas. I think that doesn't make sense.
+        'attribute': r"(?P<eagle_garbage>G04 #@! %)?(?P<type>TF|TA|TO|TD)(?P<name>[._$a-zA-Z][._$a-zA-Z0-9]*)(,(?P<value>.*))",
+        # Eagle file attributes handled above.
+        'comment': r"G0?4(?P<comment>[^*]*)",
         }
 
     STATEMENT_REGEXES = { key: re.compile(value) for key, value in STATEMENT_REGEXES.items() }
@@ -514,6 +518,9 @@ class GerberParser:
         self.last_operation = None
         self.generator_hints = []
         self.layer_hints = []
+        self.file_attrs = {}
+        self.object_attrs = {}
+        self.aperture_attrs = {}
 
     @classmethod
     def _split_commands(kls, data):
@@ -531,7 +538,8 @@ class GerberParser:
                     extended_command = False
 
                 else:
-                    # Ignore % inside G04 comments
+                    # Ignore % inside G04 comments. Eagle uses a completely borked file attribute syntax with unbalanced
+                    # percent signs inside G04 comments.
                     if not data[start:pos].startswith('G04'):
                         extended_command = True
 
@@ -685,10 +693,10 @@ class GerberParser:
             if match['shape'] in 'RO' and (math.isclose(modifiers[0], 0) or math.isclose(modifiers[1], 0)):
                 warnings.warn('Definition of zero-width and/or zero-height rectangle or obround aperture. This is invalid according to spec.' , SyntaxWarning)
 
-            new_aperture = kls(*modifiers, unit=self.file_settings.unit)
+            new_aperture = kls(*modifiers, unit=self.file_settings.unit, attrs=self.aperture_attrs.copy())
 
         elif (macro := self.aperture_macros.get(match['shape'])):
-            new_aperture = apertures.ApertureMacroInstance(macro, modifiers, unit=self.file_settings.unit)
+            new_aperture = apertures.ApertureMacroInstance(macro, modifiers, unit=self.file_settings.unit, attrs=self.aperture_attrs.copy())
 
         else:
             raise ValueError(f'Aperture shape "{match["shape"]}" is unknown')
@@ -854,6 +862,32 @@ class GerberParser:
         self.file_settings.notation = 'absolute' if match['mode'] == 'G90' else 'incremental'
         warnings.warn(f'Deprecated {match["mode"]} notation mode statement found. This deprecated since 2012.', DeprecationWarning)
         self.target.comments.append('Replaced deprecated {match["mode"]} notation mode statement with FS statement')
+
+    def _parse_attribtue(self, match):
+        if match['type'] == 'TD':
+            if match['value']:
+                raise SyntaxError('TD attribute deletion command must not contain attribute fields')
+
+            if not match['name']:
+                self.object_attrs = {}
+                self.aperture_attrs = {}
+                return
+
+            if match['name'] in self.file_attrs:
+                raise SyntaxError('Attempt to TD delete file attribute. This does not make sense.')
+            elif match['name'] in self.object_attrs:
+                del self.object_attrs[match['name']]
+            elif match['name'] in self.aperture_attrs:
+                del self.aperture_attrs[match['name']]
+            else:
+                raise SyntaxError(f'Attempt to TD delete previously undefined attribute {match["name"]}.')
+
+        else:
+            target = {'TF': self.file_attrs, 'TO': self.object_attrs, 'TA': self.aperture_attrs}[match['type']]
+            target[match['name']] = match['value'].split(',')
+
+            if 'eagle' in self.file_attrs.get('.GenerationSoftware', '').lower() or match['eagle_garbage']:
+                self.generator_hints.append('eagle')
     
     def _parse_eof(self, _match):
         self.eof_found = True
@@ -885,6 +919,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     bounds = (0.0, 0.0), (6.0, 6.0) # bottom left, top right
-    svg = str(GerberFile.open(args.testfile).to_svg(force_bounds=bounds, arg_unit='inch', color='white'))
+    svg = str(GerberFile.open(args.testfile).to_svg(force_bounds=bounds, arg_unit='inch', fg='white', bg='black'))
     print(svg)
 

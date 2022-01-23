@@ -119,7 +119,7 @@ class ApertureMacro:
         primitive_defs = [ prim.to_gerber(unit) for prim in self.primitives ]
         return '*\n'.join(comments + variable_defs + primitive_defs)
 
-    def to_graphic_primitives(self, offset, rotation, parameters : [float], unit=None):
+    def to_graphic_primitives(self, offset, rotation, parameters : [float], unit=None, polarity_dark=True):
         variables = dict(self.variables)
         for number, value in enumerate(parameters, start=1):
             if number in variables:
@@ -127,7 +127,7 @@ class ApertureMacro:
             variables[number] = value
 
         for primitive in self.primitives:
-            yield from primitive.to_graphic_primitives(offset, rotation, variables, unit)
+            yield from primitive.to_graphic_primitives(offset, rotation, variables, unit, polarity_dark)
 
     def rotated(self, angle):
         dup = copy.deepcopy(self)
