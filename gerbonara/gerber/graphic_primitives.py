@@ -176,14 +176,14 @@ def point_line_distance(l1, l2, p):
     return abs((x2-x1)*(y1-y0) - (x1-x0)*(y2-y1)) / length
 
 def svg_arc(old, new, center, clockwise):
-    r = point_distance(old, center)
+    r = math.hypot(*center)
     d = point_line_distance(old, new, center)
     # invert sweep flag since the svg y axis is mirrored
     sweep_flag = int(not clockwise)
     # In the degenerate case where old == new, we always take the long way around. To represent this "full-circle arc"
     # in SVG, we have to split it into two.
-    if math.isclose(point_distance(old, new), 0):
-        intermediate = center[0] + (center[0] - old[0]), center[1] + (center[1] - old[1])
+    if math.isclose(math.dist(old, new), 0):
+        intermediate = old[0] + 2*center[0], old[1] + 2*center[1]
         # Note that we have to preserve the sweep flag to avoid causing self-intersections by flipping the direction of
         # a circular cutin
         return f'A {r:.6} {r:.6} 0 1 {sweep_flag} {intermediate[0]:.6} {intermediate[1]:.6} ' +\
@@ -242,6 +242,41 @@ class ArcPoly(GraphicPrimitive):
     def to_svg(self, tag, color='black'):
         return tag('path', d=' '.join(self._path_d()), style=f'fill: {color}')
 
+class Polyline:
+    def __init__(self, *lines):
+        self.coords = []
+        self.polarity_dark = None
+        self.width = None
+
+        for line in lines:
+            self.append(line)
+
+    def append(self, line):
+        assert isinstance(line, Line)
+        if not self.coords:
+            self.coords.append((line.x1, line.y1))
+            self.coords.append((line.x2, line.y2))
+            self.polarity_dark = line.polarity_dark
+            self.width = line.width
+            return True
+
+        else:
+            x, y = self.coords[-1]
+            if self.polarity_dark == line.polarity_dark and self.width == line.width \
+                    and math.isclose(line.x1, x) and math.isclose(line.y1, y):
+                self.coords.append((line.x2, line.y2))
+                return True
+
+            else:
+                return False
+
+    def to_svg(self, tag, color='black'):
+        if not self.coords:
+            return None
+
+        (x0, y0), *rest = self.coords
+        d = f'M {x0:.6} {y0:.6} ' + ' '.join(f'L {x:.6} {y:.6}' for x, y in rest)
+        return tag('path', d=d, style=f'fill: none; stroke: {color}; stroke-width: {self.width:.6}; stroke-linecap: round')
 
 @dataclass
 class Line(GraphicPrimitive):
@@ -257,7 +292,7 @@ class Line(GraphicPrimitive):
 
     def to_svg(self, tag, color='black'):
         return tag('path', d=f'M {self.x1:.6} {self.y1:.6} L {self.x2:.6} {self.y2:.6}',
-                style=f'stroke: {color}; stroke-width: {self.width:.6}; stroke-linecap: round')
+                style=f'fill: none; stroke: {color}; stroke-width: {self.width:.6}; stroke-linecap: round')
 
 @dataclass
 class Arc(GraphicPrimitive):
@@ -293,7 +328,7 @@ class Arc(GraphicPrimitive):
     def to_svg(self, tag, color='black'):
         arc = svg_arc((self.x1, self.y1), (self.x2, self.y2), (self.cx, self.cy), self.clockwise)
         return tag('path', d=f'M {self.x1:.6} {self.y1:.6} {arc}',
-                style=f'stroke: {color}, stroke-width: {self.width:.6}; stroke-linecap: round; fill: none')
+                style=f'fill: none; stroke: {color}; stroke-width: {self.width:.6}; stroke-linecap: round; fill: none')
 
 def svg_rotation(angle_rad, cx=0, cy=0):
     return f'rotate({float(rad_to_deg(angle_rad)):.4} {float(cx):.6} {float(cy):.6})'

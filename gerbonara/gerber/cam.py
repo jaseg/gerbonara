@@ -15,10 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 from dataclasses import dataclass
 from copy import deepcopy
 
-from .utils import LengthUnit, MM, Inch
+from .utils import LengthUnit, MM, Inch, Tag
+from . import graphic_primitives as gp
 
 @dataclass
 class FileSettings:
@@ -148,22 +150,6 @@ class FileSettings:
         return format(value, f'0{integer_digits+decimal_digits+1}.{decimal_digits}f')
 
 
-class Tag:
-    def __init__(self, name, children=None, root=False, **attrs):
-        self.name, self.attrs = name, attrs
-        self.children = children or []
-        self.root = root
-
-    def __str__(self):
-        prefix = '<?xml version="1.0" encoding="utf-8"?>\n' if self.root else ''
-        opening = ' '.join([self.name] + [f'{key.replace("__", ":")}="{value}"' for key, value in self.attrs.items()])
-        if self.children:
-            children = '\n'.join(textwrap.indent(str(c), '  ') for c in self.children)
-            return f'{prefix}<{opening}>\n{children}\n</{self.name}>'
-        else:
-            return f'{prefix}<{opening}/>'
-
-
 class CamFile:
     def __init__(self, filename=None, layer_name=None):
         self.filename = filename
@@ -193,14 +179,31 @@ class CamFile:
         w = 1.0 if math.isclose(w, 0.0) else w
         h = 1.0 if math.isclose(h, 0.0) else h
 
-        primitives = [ prim.to_svg(tag, color) for obj in self.objects for prim in obj.to_primitives(unit=svg_unit) ]
+        primitives = [ prim for obj in self.objects for prim in obj.to_primitives(unit=svg_unit) ]
+        tags = []
+        polyline = None
+        for primitive in primitives:
+            if isinstance(primitive, gp.Line):
+                if not polyline:
+                    polyline = gp.Polyline(primitive)
+                else:
+                    if not polyline.append(primitive):
+                        tags.append(polyline.to_svg(tag, color))
+                        polyline = gp.Polyline(primitive)
+            else:
+                if polyline:
+                    tags.append(polyline.to_svg(tag, color))
+                    polyline = None
+                tags.append(primitive.to_svg(tag, color))
+        if polyline:
+            tags.append(polyline.to_svg(tag, color))
 
         # setup viewport transform flipping y axis
         xform = f'translate({min_x} {min_y+h}) scale(1 -1) translate({-min_x} {-min_y})'
 
         svg_unit = 'in' if svg_unit == 'inch' else 'mm'
         # TODO export apertures as <uses> where reasonable.
-        return tag('svg', [tag('g', primitives, transform=xform)],
+        return tag('svg', [tag('g', tags, transform=xform)],
                 width=f'{w}{svg_unit}', height=f'{h}{svg_unit}',
                 viewBox=f'{min_x} {min_y} {w} {h}',
                 xmlns="http://www.w3.org/2000/svg", xmlns__xlink="http://www.w3.org/1999/xlink", root=True)

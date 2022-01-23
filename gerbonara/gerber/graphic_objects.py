@@ -143,8 +143,7 @@ class Region(GerberObject):
             yield self.poly
         else:
             to = lambda value: self.unit.convert_to(unit, value)
-            conv_outline = [ (to(x), to(y))
-                    for x, y in self.poly.outline ]
+            conv_outline = [ (to(x), to(y)) for x, y in self.poly.outline ]
             convert_entry = lambda entry: (entry[0], (to(entry[1][0]), to(entry[1][1])))
             conv_arc = [ None if entry is None else convert_entry(entry) for entry in self.poly.arc_centers ]
 
@@ -181,7 +180,6 @@ class Region(GerberObject):
                 gs.update_point(x2, y2, unit=self.unit)
 
         yield 'G37*'
-
 
 @dataclass
 class Line(GerberObject):
@@ -269,6 +267,25 @@ class Arc(GerberObject):
     def _with_offset(self, dx, dy):
         return replace(self, x1=self.x1+dx, y1=self.y1+dy, x2=self.x2+dx, y2=self.y2+dy)
 
+    def numeric_error(self, unit=None):
+        conv = self.converted(unit)
+        cx, cy = conv.cx + conv.x1, conv.cy + conv.y1
+        r1 = math.dist((cx, cy), conv.p1)
+        r2 = math.dist((cx, cy), conv.p2)
+        return abs(r1 - r2)
+
+    def sweep_angle(self):
+        f = math.atan2(self.x2, self.y2) - math.atan2(self.x1, self.y1)
+        f = (f + math.pi) % (2*math.pi) - math.pi
+
+        if self.clockwise:
+            f = -f
+
+        if f > math.pi:
+            f = 2*math.pi - f
+
+        return f
+
     @property
     def p1(self):
         return self.x1, self.y1
@@ -346,16 +363,6 @@ class Arc(GerberObject):
         ctx.set_current_point(self.unit, self.x2, self.y2)
 
     def curve_length(self, unit=MM):
-        r = math.hypot(self.cx, self.cy)
-        f = math.atan2(self.x2, self.y2) - math.atan2(self.x1, self.y1)
-        f = (f + math.pi) % (2*math.pi) - math.pi
-
-        if self.clockwise:
-            f = -f
-
-        if f > math.pi:
-            f = 2*math.pi - f
-
-        return self.unit.convert_to(unit, 2*math.pi*r * (f/math.pi))
+        return self.unit.convert_to(unit, math.hypot(self.cx, self.cy) * self.sweep_angle)
 
 

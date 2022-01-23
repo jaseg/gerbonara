@@ -25,6 +25,7 @@ files.
 
 import os
 import re
+import textwrap
 from enum import Enum
 from math import radians, sin, cos, sqrt, atan2, pi
 
@@ -193,5 +194,20 @@ def sq_distance(point1, point2):
     diff1 = point1[0] - point2[0]
     diff2 = point1[1] - point2[1]
     return diff1 * diff1 + diff2 * diff2
+
+class Tag:
+    def __init__(self, name, children=None, root=False, **attrs):
+        self.name, self.attrs = name, attrs
+        self.children = children or []
+        self.root = root
+
+    def __str__(self):
+        prefix = '<?xml version="1.0" encoding="utf-8"?>\n' if self.root else ''
+        opening = ' '.join([self.name] + [f'{key.replace("__", ":")}="{value}"' for key, value in self.attrs.items()])
+        if self.children:
+            children = '\n'.join(textwrap.indent(str(c), '  ') for c in self.children)
+            return f'{prefix}<{opening}>\n{children}\n</{self.name}>'
+        else:
+            return f'{prefix}<{opening}/>'
 
 

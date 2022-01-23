@@ -20,18 +20,12 @@
 """ This module provides an RS-274-X class and parser.
 """
 
-import copy
-import json
-import os
 import re
-import sys
 import math
 import warnings
-import functools
 from pathlib import Path
 from itertools import count, chain
 from io import StringIO
-import textwrap
 import dataclasses
 
 from .cam import CamFile, FileSettings
@@ -359,7 +353,7 @@ class GraphicsState:
                 polarity_dark=self.polarity_dark,
                 unit=self.file_settings.unit)
 
-    def interpolate(self, x, y, i=None, j=None, aperture=True):
+    def interpolate(self, x, y, i=None, j=None, aperture=True, multi_quadrant=False):
         if self.point is None:
             warnings.warn('D01 interpolation without preceding D02 move.', SyntaxWarning)
             self.point = (0, 0)
@@ -393,21 +387,40 @@ class GraphicsState:
                 if j is None:
                     warnings.warn('Arc is missing J value', SyntaxWarning)
                     j = 0
-                return self._create_arc(old_point, self.map_coord(*self.point), (i, j), aperture)
+                return self._create_arc(old_point, self.map_coord(*self.point), (i, j), aperture, multi_quadrant)
 
     def _create_line(self, old_point, new_point, aperture=True):
         return go.Line(*old_point, *new_point, self.aperture if aperture else None,
                 polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
 
-    def _create_arc(self, old_point, new_point, control_point, aperture=True):
+    def _create_arc(self, old_point, new_point, control_point, aperture=True, multi_quadrant=False):
         clockwise = self.interpolation_mode == InterpMode.CIRCULAR_CW
-        return go.Arc(*old_point, *new_point, *self.map_coord(*control_point, relative=True),
-                clockwise=clockwise, aperture=(self.aperture if aperture else None),
-                polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
+
+        if not multi_quadrant:
+            return go.Arc(*old_point, *new_point, *self.map_coord(*control_point, relative=True),
+                    clockwise=clockwise, aperture=(self.aperture if aperture else None),
+                    polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
+
+        else:
+            # Super-legacy. No one uses this EXCEPT everything that mentor graphics / siemens make uses this m(
+            (cx, cy) = self.map_coord(*control_point, relative=True)
+            arc = lambda cx, cy: go.Arc(*old_point, *new_point, cx, cy,
+                    clockwise=clockwise, aperture=(self.aperture if aperture else None),
+                    polarity_dark=self.polarity_dark, unit=self.file_settings.unit)
+            arcs = [ arc(cx, cy), arc(-cx, cy), arc(cx, -cy), arc(-cx, -cy) ]
+            arcs = [ a for a in arcs if a.sweep_angle() <= math.pi/2 ]
+            arcs = sorted(arcs, key=lambda a: a.numeric_error())
+            return arcs[0]
+
 
     def update_point(self, x, y, unit=None):
         old_point = self.point
         x, y = MM(x, unit), MM(y, unit)
+
+        if (x is None or y is None) and self.point is None:
+            warnings.warn('Coordinate omitted from first coordinate statement in the file. This is likely a Siemens '
+                    'file. We pretend the omitted coordinate was 0.', SyntaxWarning)
+            self.point = (0, 0)
 
         if x is None:
             x = self.point[0]
@@ -475,6 +488,7 @@ class GerberParser:
         'scale_factor': fr"SF(A(?P<sa>{DECIMAL}))?(B(?P<sb>{DECIMAL}))?",
         'aperture_definition': fr"ADD(?P<number>\d+)(?P<shape>C|R|O|P|{NAME})(?P<modifiers>,[^,%]*)?$",
         'aperture_macro': fr"AM(?P<name>{NAME})\*(?P<macro>[^%]*)",
+        'siemens_garbage': r'^ICAS$',
         'old_unit':r'(?P<mode>G7[01])',
         'old_notation': r'(?P<mode>G9[01])',
         'eof': r"M0?[02]",
@@ -549,10 +563,10 @@ class GerberParser:
                     #print(f'    match: {name} / {match}')
                     try:
                         getattr(self, f'_parse_{name}')(match)
-                    except:
-                        print(f'Line {lineno}: {line}')
-                        print(f'    match: {name} / {match}')
-                        raise
+                    except Exception as e:
+                        #print(f'Line {lineno}: {line}')
+                        #print(f'    match: {name} / {match}')
+                        raise SyntaxError(f'Syntax error in line {lineno} "{line}": {e}') from e
                     line = line[match.end(0):]
                     break
 
@@ -594,8 +608,16 @@ class GerberParser:
                 op = 'D01'
 
             else:
-                raise SyntaxError('Ambiguous coordinate statement. Coordinate statement does not have an operation '\
-                                  'mode and the last operation statement was not D01.')
+                if 'siemens' in self.generator_hints:
+                    warnings.warn('Ambiguous coordinate statement. Coordinate statement does not have an operation '\
+                                  'mode and the last operation statement was not D01. This is garbage, and forbidden '\
+                                  'by spec. but since this looks like a Siemens/Mentor Graphics file, we will let it '\
+                                  'slide and treat this as a D01.', SyntaxWarning)
+                    op = 'D01'
+                else:
+                    raise SyntaxError('Ambiguous coordinate statement. Coordinate statement does not have an '\
+                            'operation mode and the last operation statement was not D01. This is garbage, and '\
+                            'forbidden by spec.')
 
         self.last_operation = op
 
@@ -606,12 +628,14 @@ class GerberParser:
                             'This can cause problems with older gerber interpreters.', SyntaxWarning)
 
                 elif self.multi_quadrant_mode:
-                    raise SyntaxError('Circular arc interpolation in multi-quadrant mode (G74) is not implemented.')
+                    warnings.warn('Deprecated G74 multi-quadant mode arc found. G74 is bad and you should feel bad.', SyntaxWarning)
 
             if self.current_region is None:
-                self.target.objects.append(self.graphics_state.interpolate(x, y, i, j))
+                self.target.objects.append(self.graphics_state.interpolate(x, y, i, j,
+                    multi_quadrant=bool(self.multi_quadrant_mode)))
             else:
-                self.current_region.append(self.graphics_state.interpolate(x, y, i, j, aperture=False))
+                self.current_region.append(self.graphics_state.interpolate(x, y, i, j, aperture=False,
+                    multi_quadrant=bool(self.multi_quadrant_mode)))
 
         elif op in ('D2', 'D02'):
             self.graphics_state.update_point(x, y)
@@ -771,6 +795,9 @@ class GerberParser:
             warnings.warn('Deprecated SF (scale factor) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
         self.graphics_state.scale_factor = a, b
 
+    def _parse_siemens_garbage(self, match):
+        self.generator_hints.append('siemens')
+
     def _parse_comment(self, match):
         cmt = match["comment"].strip()
 
@@ -797,6 +824,9 @@ class GerberParser:
                 _1, _2, name = cmt.partition('/')
                 name = re.sub(r'\W+', '_', name)
                 self.layer_hints.append(f'{name} copper')
+
+        elif cmt.startswith('Mentor Graphics'):
+            self.generator_hints.append('siemens')
 
         else:
             self.target.comments.append(cmt)
@@ -854,5 +884,7 @@ if __name__ == '__main__':
     parser.add_argument('testfile')
     args = parser.parse_args()
 
-    print(GerberFile.open(args.testfile).to_gerber())
+    bounds = (0.0, 0.0), (6.0, 6.0) # bottom left, top right
+    svg = str(GerberFile.open(args.testfile).to_svg(force_bounds=bounds, arg_unit='inch', color='white'))
+    print(svg)
 
