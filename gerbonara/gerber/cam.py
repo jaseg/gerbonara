@@ -21,6 +21,7 @@ from copy import deepcopy
 
 from .utils import LengthUnit, MM, Inch, Tag
 from . import graphic_primitives as gp
+from . import graphic_objects as go
 
 @dataclass
 class FileSettings:
@@ -181,24 +182,37 @@ class CamFile:
         w = 1.0 if math.isclose(w, 0.0) else w
         h = 1.0 if math.isclose(h, 0.0) else h
 
-        primitives = [ prim for obj in self.objects for prim in obj.to_primitives(unit=svg_unit) ]
         view = tag('sodipodi:namedview', [], id='namedview1', pagecolor=bg,
                 inkscape__document_units=svg_unit.shorthand)
+
         tags = []
         polyline = None
-        for primitive in primitives:
-            if isinstance(primitive, gp.Line):
-                if not polyline:
-                    polyline = gp.Polyline(primitive)
-                else:
-                    if not polyline.append(primitive):
-                        tags.append(polyline.to_svg(tag, fg, bg))
-                        polyline = gp.Polyline(primitive)
-            else:
-                if polyline:
-                    tags.append(polyline.to_svg(tag, fg, bg))
-                    polyline = None
-                tags.append(primitive.to_svg(tag, fg, bg))
+        for i, obj in enumerate(self.objects):
+            #if isinstance(obj, go.Flash):
+            #    if polyline:
+            #        tags.append(polyline.to_svg(tag, fg, bg))
+            #        polyline = None
+
+            #    mask_tags = [ prim.to_svg(tag, 'white', 'black') for prim in obj.to_primitives(unit=svg_unit) ]
+            #    mask_tags.insert(0, tag('rect', width='100%', height='100%', fill='black'))
+            #    mask_id = f'mask{i}'
+            #    tag('mask', mask_tags, id=mask_id)
+            #    tag('rect', width='100%', height='100%', mask='url(#{mask_id})', fill=fg)
+
+            #else:
+                for primitive in obj.to_primitives(unit=svg_unit):
+                    if isinstance(primitive, gp.Line):
+                        if not polyline:
+                            polyline = gp.Polyline(primitive)
+                        else:
+                            if not polyline.append(primitive):
+                                tags.append(polyline.to_svg(tag, fg, bg))
+                                polyline = gp.Polyline(primitive)
+                    else:
+                        if polyline:
+                            tags.append(polyline.to_svg(tag, fg, bg))
+                            polyline = None
+                        tags.append(primitive.to_svg(tag, fg, bg))
         if polyline:
             tags.append(polyline.to_svg(tag, fg, bg))
 

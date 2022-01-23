@@ -154,6 +154,10 @@ class Region(GerberObject):
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
         yield 'G36*'
+        # Repeat interpolation mode at start of region statement to work around gerbv bug. Without this, gerbv will
+        # not display a region consisting of only a single arc.
+        # TODO report gerbv issue upstream
+        yield gs.interpolation_mode_statement() + '*'
 
         yield from gs.set_current_point(self.poly.outline[0], unit=self.unit)
 
@@ -266,7 +270,7 @@ class Arc(GerberObject):
     cy : Length(float)
     clockwise : bool
     aperture : object
-
+    
     def _with_offset(self, dx, dy):
         return replace(self, x1=self.x1+dx, y1=self.y1+dy, x2=self.x2+dx, y2=self.y2+dy)
 

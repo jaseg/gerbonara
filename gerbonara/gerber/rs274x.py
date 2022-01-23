@@ -470,7 +470,13 @@ class GraphicsState:
     def set_interpolation_mode(self, mode):
         if self.interpolation_mode != mode:
             self.interpolation_mode = mode
-            yield {InterpMode.LINEAR: 'G01', InterpMode.CIRCULAR_CW: 'G02', InterpMode.CIRCULAR_CCW: 'G03'}[mode]
+            yield self.interpolation_mode_statement()
+
+    def interpolation_mode_statement(self):
+        return {
+                InterpMode.LINEAR: 'G01',
+                InterpMode.CIRCULAR_CW: 'G02',
+                InterpMode.CIRCULAR_CCW: 'G03'}[self.interpolation_mode]
 
 
 class GerberParser:
@@ -489,18 +495,18 @@ class GerberParser:
         'allegro_format_spec': r"FS(?P<zero>(L|T|D))?(?P<notation>(A|I))[NG0-9]*X(?P<x>[0-7][0-7])Y(?P<y>[0-7][0-7])[DM0-9]*\*MO(?P<unit>IN|MM)",
         'unit_mode': r"MO(?P<unit>(MM|IN))",
         'format_spec': r"FS(?P<zero>(L|T|D))?(?P<notation>(A|I))[NG0-9]*X(?P<x>[0-7][0-7])Y(?P<y>[0-7][0-7])[DM0-9]*",
-        'allegro_legacy_params': r'IR(?P<rotation>[0-9]+)\*IP(?P<polarity>(POS|NEG))\*OF(A(?P<a>{DECIMAL}))?(B(?P<b>{DECIMAL}))?\*MI(A(?P<ma>0|1))?(B(?P<mb>0|1))?\*SF(A(?P<sa>{DECIMAL}))?(B(?P<sb>{DECIMAL}))?',
+        'allegro_legacy_params': fr'^IR(?P<rotation>[0-9]+)\*IP(?P<polarity>(POS|NEG))\*OF(A(?P<a>{DECIMAL}))?(B(?P<b>{DECIMAL}))?\*MI(A(?P<ma>0|1))?(B(?P<mb>0|1))?\*SF(A(?P<sa>{DECIMAL}))?(B(?P<sb>{DECIMAL}))?',
         'load_polarity': r"LP(?P<polarity>(D|C))",
         # FIXME LM, LR, LS
         'load_name': r"LN(?P<name>.*)",
         'offset': fr"OF(A(?P<a>{DECIMAL}))?(B(?P<b>{DECIMAL}))?",
         'include_file': r"IF(?P<filename>.*)",
-        'image_name': r"IN(?P<name>.*)",
-        'axis_selection': r"AS(?P<axes>AXBY|AYBX)",
-        'image_polarity': r"IP(?P<polarity>(POS|NEG))",
-        'image_rotation': fr"IR(?P<rotation>{NUMBER})",
-        'mirror_image': r"MI(A(?P<ma>0|1))?(B(?P<mb>0|1))?",
-        'scale_factor': fr"SF(A(?P<sa>{DECIMAL}))?(B(?P<sb>{DECIMAL}))?",
+        'image_name': r"^IN(?P<name>.*)",
+        'axis_selection': r"^AS(?P<axes>AXBY|AYBX)",
+        'image_polarity': r"^IP(?P<polarity>(POS|NEG))",
+        'image_rotation': fr"^IR(?P<rotation>{NUMBER})",
+        'mirror_image': r"^MI(A(?P<ma>0|1))?(B(?P<mb>0|1))?",
+        'scale_factor': fr"^SF(A(?P<sa>{DECIMAL}))?(B(?P<sb>{DECIMAL}))?",
         'aperture_definition': fr"ADD(?P<number>\d+)(?P<shape>C|R|O|P|{NAME})(?P<modifiers>,[^,%]*)?$",
         'aperture_macro': fr"AM(?P<name>{NAME})\*(?P<macro>[^%]*)",
         'siemens_garbage': r'^ICAS$',
@@ -810,7 +816,7 @@ class GerberParser:
         mirror = bool(int(match['ma'] or '0')), bool(int(match['mb'] or '1'))
         if mirror != (False, False):
             warnings.warn('Deprecated MI (mirror image) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
-        self.graphics_state.mirror = mirror
+        self.graphics_state.image_mirror = mirror
 
     def _parse_scale_factor(self, match):
         a = float(match['sa']) if match['sa'] else 1.0

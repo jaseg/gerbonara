@@ -65,13 +65,13 @@ class Obround(GraphicPrimitive):
 
     def to_line(self):
         if self.w > self.h:
-            w, a, b = self.h, self.w, 0
+            w, a, b = self.h, self.w-self.h, 0
         else:
-            w, a, b = self.w, 0, self.h
+            w, a, b = self.w, 0, self.h-self.w
         return Line(
                 *rotate_point(self.x-a/2, self.y-b/2, self.rotation, self.x, self.y),
                 *rotate_point(self.x+a/2, self.y+b/2, self.rotation, self.x, self.y),
-                w)
+                w, polarity_dark=self.polarity_dark)
 
     def bounding_box(self):
         return self.to_line().bounding_box()
@@ -399,5 +399,5 @@ class RegularPolygon(GraphicPrimitive):
         return self.to_arc_poly().bounding_box()
 
     def to_svg(self, tag, fg, bg):
-        return self.to_arc_poly().to_svg(tag, color, fg, bg)
+        return self.to_arc_poly().to_svg(tag, fg, bg)
 
