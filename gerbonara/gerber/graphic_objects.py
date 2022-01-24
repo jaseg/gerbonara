@@ -249,8 +249,8 @@ class Line(GerberObject):
         yield from ctx.select_tool(self.tool)
         yield from ctx.route_mode(self.unit, *self.p1)
 
-        x = ctx.settings.write_gerber_value(self.x2, self.unit)
-        y = ctx.settings.write_gerber_value(self.y2, self.unit)
+        x = ctx.settings.write_excellon_value(self.x2, self.unit)
+        y = ctx.settings.write_excellon_value(self.y2, self.unit)
         yield f'G01X{x}Y{y}'
 
         ctx.set_current_point(self.unit, *self.p2)
@@ -368,10 +368,10 @@ class Arc(GerberObject):
         yield from ctx.route_mode(self.unit, self.x1, self.y1)
         code = 'G02' if self.clockwise else 'G03'
 
-        x = ctx.settings.write_gerber_value(self.x2, self.unit)
-        y = ctx.settings.write_gerber_value(self.y2, self.unit)
-        i = ctx.settings.write_gerber_value(self.cx, self.unit)
-        j = ctx.settings.write_gerber_value(self.cy, self.unit)
+        x = ctx.settings.write_excellon_value(self.x2, self.unit)
+        y = ctx.settings.write_excellon_value(self.y2, self.unit)
+        i = ctx.settings.write_excellon_value(self.cx, self.unit)
+        j = ctx.settings.write_excellon_value(self.cy, self.unit)
         yield f'{code}X{x}Y{y}I{i}J{j}'
 
         ctx.set_current_point(self.unit, self.x2, self.y2)

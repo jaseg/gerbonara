@@ -73,6 +73,7 @@ def gerbv_export(in_gbr, out_svg, export_format='svg', origin=(0, 0), size=(6, 6
     with tempfile.NamedTemporaryFile('w') as f:
         if override_unit_spec:
             units, zeros, digits = override_unit_spec
+            print(f'{Path(in_gbr).name}: overriding excellon unit spec to {units=} {zeros=} {digits=}')
             units = 0 if units == 'inch' else 1
             zeros = {None: 0, 'leading': 1, 'trailing': 2}[zeros]
             unit_spec = textwrap.dedent(f'''(cons 'attribs (list

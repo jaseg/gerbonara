@@ -275,6 +275,17 @@ def test_round_trip(reference, tmpfile):
     assert hist[9] == 0
     assert hist[3:].sum() < 5e-5*hist.size
 
+@filter_syntax_warnings
+@pytest.mark.parametrize('reference', REFERENCE_FILES, indirect=True)
+def test_idempotence(reference, tmpfile):
+    tmp_gbr_1 = tmpfile('First generation output', '.gbr')
+    tmp_gbr_2 = tmpfile('Second generation output', '.gbr')
+
+    GerberFile.open(reference).save(tmp_gbr_1)
+    GerberFile.open(tmp_gbr_1).save(tmp_gbr_2)
+    assert tmp_gbr_1.read_text() == tmp_gbr_2.read_text()
+
+
 TEST_ANGLES = [90, 180, 270, 30, 1.5, 10, 360, 1024, -30, -90]
 TEST_OFFSETS = [(0, 0), (100, 0), (0, 100), (2, 0), (10, 100)]
 

@@ -18,7 +18,7 @@ from ..utils import Inch, MM
 REFERENCE_FILES = {
         'easyeda/Gerber_Drill_NPTH.DRL': (None, None),
         'easyeda/Gerber_Drill_PTH.DRL': (None, 'easyeda/Gerber_TopLayer.GTL'),
-    # Altium uses an excellon format specification format that gerbv doesn't understand, so we have to fix that.
+        # Altium uses an excellon format specification format that gerbv doesn't understand, so we have to fix that.
         'altium-composite-drill/NC Drill/LimeSDR-QPCIe_1v2-SlotHoles.TXT': (('mm', 'leading', 4), None),
         'altium-composite-drill/NC Drill/LimeSDR-QPCIe_1v2-RoundHoles.TXT': (('mm', 'leading', 4), 'altium-composite-drill/Gerber/LimeSDR-QPCIe_1v2.GTL'),
         'pcb-rnd/power-art.xln': (None, 'pcb-rnd/power-art.gtl'),
@@ -40,6 +40,7 @@ REFERENCE_FILES = {
 def test_round_trip(reference, tmpfile):
     reference, (unit_spec, _) = reference
     tmp = tmpfile('Output excellon', '.drl')
+    print('unit spec', unit_spec)
 
     ExcellonFile.open(reference).save(tmp)
 
@@ -47,6 +48,25 @@ def test_round_trip(reference, tmpfile):
     assert mean < 5e-5
     assert hist[9] == 0
     assert hist[3:].sum() < 5e-5*hist.size
+
+@filter_syntax_warnings
+@pytest.mark.parametrize('reference', list(REFERENCE_FILES.items()), indirect=True)
+def test_idempotence(reference, tmpfile):
+    reference, (unit_spec, _) = reference
+
+    if reference.name == '80101_0125_F200_ContourPlated.ncd':
+        # this file contains a duplicate tool definition that we optimize out on our second pass.
+        # TODO see whether we can change things so we optimize this out on the first pass already. I'm not sure what
+        # went wrong there.
+        pytest.skip()
+
+    tmp_1 = tmpfile('First generation output', '.drl')
+    tmp_2 = tmpfile('Second generation output', '.drl')
+
+    ExcellonFile.open(reference).save(tmp_1)
+    ExcellonFile.open(tmp_1).save(tmp_2)
+
+    assert tmp_1.read_text() == tmp_2.read_text()
 
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', list(REFERENCE_FILES.items()), indirect=True)

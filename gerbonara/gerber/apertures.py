@@ -77,7 +77,10 @@ class Aperture:
         unit = settings.unit if settings else None
         actual_inst = self._rotated()
         params = 'X'.join(f'{float(par):.4}' for par in actual_inst.params(unit) if par is not None)
-        return ','.join((actual_inst.gerber_shape_code, params))
+        if params:
+            return f'{actual_inst.gerber_shape_code},{params}'
+        else:
+            return actual_inst.gerber_shape_code
 
     def __eq__(self, other):
         # We need to choose some unit here.

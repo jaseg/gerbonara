@@ -207,7 +207,10 @@ class GerberFile(CamFile):
 
             aperture_map[id(aperture)] = number
 
-        gs = GraphicsState(aperture_map=aperture_map, file_settings=settings)
+        def warn(msg, kls=SyntaxWarning):
+            warnings.warn(msg, kls)
+
+        gs = GraphicsState(warn=warn, aperture_map=aperture_map, file_settings=settings)
         for primitive in self.objects:
             yield from primitive.to_statements(gs)
 
@@ -216,18 +219,18 @@ class GerberFile(CamFile):
     def __str__(self):
         return f'<GerberFile with {len(self.apertures)} apertures, {len(self.objects)} objects>'
 
-    def save(self, filename, settings=None):
+    def save(self, filename, settings=None, drop_comments=True):
         with open(filename, 'w', encoding='utf-8') as f: # Encoding is specified as UTF-8 by spec.
-            f.write(self.to_gerber(settings))
+            f.write(self.to_gerber(settings, drop_comments=drop_comments))
 
-    def to_gerber(self, settings=None):
+    def to_gerber(self, settings=None, drop_comments=True):
         # Use given settings, or use same settings as original file if not given, or use defaults if not imported from a
         # file
         if settings is None:
             settings = self.import_settings.copy() or FileSettings()
             settings.zeros = None
             settings.number_format = (5,6)
-        return '\n'.join(self.generate_statements(settings))
+        return '\n'.join(self.generate_statements(settings, drop_comments=drop_comments))
 
     @property
     def is_empty(self):
@@ -271,7 +274,7 @@ class GerberFile(CamFile):
     
 
 class GraphicsState:
-    def __init__(self, file_settings=None, aperture_map=None):
+    def __init__(self, warn, file_settings=None, aperture_map=None):
         self.image_polarity = 'positive' # IP image polarity; deprecated
         self.polarity_dark = True
         self.point = None
@@ -291,6 +294,7 @@ class GraphicsState:
         self._mat = None
         self.file_settings = file_settings
         self.aperture_map = aperture_map or {}
+        self.warn = warn
 
     def __setattr__(self, name, value):
         # input validation
@@ -367,7 +371,7 @@ class GraphicsState:
 
     def interpolate(self, x, y, i=None, j=None, aperture=True, multi_quadrant=False, attrs=None):
         if self.point is None:
-            warnings.warn('D01 interpolation without preceding D02 move.', SyntaxWarning)
+            self.warn('D01 interpolation without preceding D02 move.')
             self.point = (0, 0)
         old_point = self.map_coord(*self.update_point(x, y))
 
@@ -376,9 +380,9 @@ class GraphicsState:
                 raise SyntaxError('Interpolation attempted without selecting aperture first')
 
             if math.isclose(self.aperture.equivalent_width(), 0):
-                warnings.warn('D01 interpolation with a zero-size aperture. This is invalid according to spec, '
+                self.warn('D01 interpolation with a zero-size aperture. This is invalid according to spec, '
                         'however, we pass through the created objects here. Note that these will not show up in e.g. '
-                        'SVG output since their line width is zero.', SyntaxWarning)
+                        'SVG output since their line width is zero.')
 
         if self.interpolation_mode == InterpMode.LINEAR:
             if i is not None or j is not None:
@@ -389,15 +393,15 @@ class GraphicsState:
         else:
 
             if i is None and j is None:
-                warnings.warn('Linear segment implied during arc interpolation mode through D01 w/o I, J values', SyntaxWarning)
+                self.warn('Linear segment implied during arc interpolation mode through D01 w/o I, J values')
                 return self._create_line(old_point, self.map_coord(*self.point), aperture, attrs)
 
             else:
                 if i is None:
-                    warnings.warn('Arc is missing I value', SyntaxWarning)
+                    self.warn('Arc is missing I value')
                     i = 0
                 if j is None:
-                    warnings.warn('Arc is missing J value', SyntaxWarning)
+                    self.warn('Arc is missing J value')
                     j = 0
                 return self._create_arc(old_point, self.map_coord(*self.point), (i, j), aperture, multi_quadrant, attrs)
 
@@ -416,6 +420,11 @@ class GraphicsState:
                     polarity_dark=self.polarity_dark, unit=self.file_settings.unit, attrs=attrs)
 
         else:
+            if math.isclose(old_point[0], new_point[0]) and math.isclose(old_point[1], new_point[1]):
+                # In multi-quadrant mode, an arc with identical start and end points is not rendered at all. Only in
+                # single-quadrant mode it is rendered as a full circle.
+                return None
+
             # Super-legacy. No one uses this EXCEPT everything that mentor graphics / siemens make uses this m(
             (cx, cy) = self.map_coord(*control_point, relative=True)
 
@@ -436,8 +445,8 @@ class GraphicsState:
         x, y = MM(x, unit), MM(y, unit)
 
         if (x is None or y is None) and self.point is None:
-            warnings.warn('Coordinate omitted from first coordinate statement in the file. This is likely a Siemens '
-                    'file. We pretend the omitted coordinate was 0.', SyntaxWarning)
+            self.warn('Coordinate omitted from first coordinate statement in the file. This is likely a Siemens '
+                    'file. We pretend the omitted coordinate was 0.')
             self.point = (0, 0)
 
         if x is None:
@@ -509,7 +518,7 @@ class GerberParser:
         'image_rotation': fr"^IR(?P<rotation>{NUMBER})",
         'mirror_image': r"^MI(A(?P<ma>0|1))?(B(?P<mb>0|1))?",
         'scale_factor': fr"^SF(A(?P<sa>{DECIMAL}))?(B(?P<sb>{DECIMAL}))?",
-        'aperture_definition': fr"ADD(?P<number>\d+)(?P<shape>C|R|O|P|{NAME})(?P<modifiers>,[^,%]*)?$",
+        'aperture_definition': fr"ADD(?P<number>\d+)(?P<shape>C|R|O|P|{NAME})(,(?P<modifiers>[^,%]*))?$",
         'aperture_macro': fr"AM(?P<name>{NAME})\*(?P<macro>[^%]*)",
         'siemens_garbage': r'^ICAS$',
         'old_unit':r'(?P<mode>G7[01])',
@@ -531,7 +540,7 @@ class GerberParser:
         self.include_dir = include_dir
         self.include_stack = []
         self.file_settings = FileSettings()
-        self.graphics_state = GraphicsState(file_settings=self.file_settings)
+        self.graphics_state = GraphicsState(warn=self.warn, file_settings=self.file_settings)
         self.aperture_map = {}
         self.aperture_macros = {}
         self.current_region = None
@@ -544,6 +553,12 @@ class GerberParser:
         self.file_attrs = {}
         self.object_attrs = {}
         self.aperture_attrs = {}
+        self.filename = None
+        self.lineno = None
+        self.line = None
+
+    def warn(self, msg, kls=SyntaxWarning):
+        warnings.warn('{self.filename}:{self.lineno} "{self.line.replace("\n", "\\n")}": {msg}', kls)
 
     @classmethod
     def _split_commands(kls, data):
@@ -580,16 +595,17 @@ class GerberParser:
 
     def parse(self, data, filename=None):
         # filename arg is for error messages
-        filename = filename or '<unknown>'
+        filename = self.filename = filename or '<unknown>'
 
         for lineno, line in self._split_commands(data):
             if not line.strip():
                 continue
             line = line.rstrip('*').strip()
+            self.lineno, self.line = lineno, line
             # We cannot assume input gerber to use well-formed statement delimiters. Thus, we may need to parse
             # multiple statements from one line.
             if line.strip() and self.eof_found:
-                warnings.warn('Data found in gerber file after EOF.', SyntaxWarning)
+                self.warn('Data found in gerber file after EOF.')
             #print(f'Line {lineno}: {line}')
 
             for name, le_regex in self.STATEMENT_REGEXES.items():
@@ -605,7 +621,7 @@ class GerberParser:
                     break
 
             else:
-                warnings.warn(f'Unknown statement found: "{line}", ignoring.', UnknownStatementWarning)
+                self.warn(f'Unknown statement found: "{line}", ignoring.', UnknownStatementWarning)
                 self.target.comments.append(f'Unknown statement found: "{line}", ignoring.')
         
         self.target.apertures = list(self.aperture_map.values())
@@ -614,7 +630,7 @@ class GerberParser:
         self.target.file_attrs = self.file_attrs
 
         if not self.eof_found:
-                    warnings.warn('File is missing mandatory M02 EOF marker. File may be truncated.', SyntaxWarning)
+                    self.warn('File is missing mandatory M02 EOF marker. File may be truncated.')
 
     def _parse_coord(self, match):
         if match['interpolation'] == 'G01':
@@ -639,15 +655,15 @@ class GerberParser:
 
         if not (op := match['operation']) and has_coord:
             if self.last_operation == 'D01':
-                warnings.warn('Coordinate statement without explicit operation code. This is forbidden by spec.', SyntaxWarning)
+                self.warn('Coordinate statement without explicit operation code. This is forbidden by spec.')
                 op = 'D01'
 
             else:
                 if 'siemens' in self.generator_hints:
-                    warnings.warn('Ambiguous coordinate statement. Coordinate statement does not have an operation '\
+                    self.warn('Ambiguous coordinate statement. Coordinate statement does not have an operation '\
                                   'mode and the last operation statement was not D01. This is garbage, and forbidden '\
                                   'by spec. but since this looks like a Siemens/Mentor Graphics file, we will let it '\
-                                  'slide and treat this as the same as the last operation.', SyntaxWarning)
+                                  'slide and treat this as the same as the last operation.')
                     # Yes, we repeat the last op, and don't do a D01. This is confirmed by
                     # resources/siemens/80101_0125_F200_L12_Bottom.gdo which contains an implicit-double-D02
                     op = self.last_operation
@@ -661,18 +677,21 @@ class GerberParser:
         if op in ('D1', 'D01'):
             if self.graphics_state.interpolation_mode != InterpMode.LINEAR:
                 if self.multi_quadrant_mode is None:
-                    warnings.warn('Circular arc interpolation without explicit G75 Single-Quadrant mode statement. '\
-                            'This can cause problems with older gerber interpreters.', SyntaxWarning)
+                    self.warn('Circular arc interpolation without explicit G75 Single-Quadrant mode statement. '\
+                            'This can cause problems with older gerber interpreters.')
 
                 elif self.multi_quadrant_mode:
-                    warnings.warn('Deprecated G74 multi-quadant mode arc found. G74 is bad and you should feel bad.', SyntaxWarning)
+                    self.warn('Deprecated G74 multi-quadant mode arc found. G74 is bad and you should feel bad.')
 
             if self.current_region is None:
-                self.target.objects.append(self.graphics_state.interpolate(x, y, i, j,
-                    multi_quadrant=bool(self.multi_quadrant_mode)))
+                # in multi-quadrant mode this may return None if start and end point of the arc are the same.
+                obj = self.graphics_state.interpolate(x, y, i, j, multi_quadrant=bool(self.multi_quadrant_mode))
+                if obj is not None:
+                    self.target.objects.append(obj)
             else:
-                self.current_region.append(self.graphics_state.interpolate(x, y, i, j, aperture=False,
-                    multi_quadrant=bool(self.multi_quadrant_mode)))
+                obj = self.graphics_state.interpolate(x, y, i, j, aperture=False, multi_quadrant=bool(self.multi_quadrant_mode))
+                if obj is not None:
+                    self.current_region.append(obj)
 
         elif op in ('D2', 'D02'):
             self.graphics_state.update_point(x, y)
@@ -717,10 +736,10 @@ class GerberParser:
 
         if (kls := aperture_classes.get(match['shape'])):
             if match['shape'] == 'P' and math.isclose(modifiers[0], 0):
-                warnings.warn('Definition of zero-size polygon aperture. This is invalid according to spec.' , SyntaxWarning)
+                self.warn('Definition of zero-size polygon aperture. This is invalid according to spec.' )
 
             if match['shape'] in 'RO' and (math.isclose(modifiers[0], 0) or math.isclose(modifiers[1], 0)):
-                warnings.warn('Definition of zero-width and/or zero-height rectangle or obround aperture. This is invalid according to spec.' , SyntaxWarning)
+                self.warn('Definition of zero-width and/or zero-height rectangle or obround aperture. This is invalid according to spec.' )
 
             new_aperture = kls(*modifiers, unit=self.file_settings.unit, attrs=self.aperture_attrs.copy())
 
@@ -773,9 +792,9 @@ class GerberParser:
 
     def _parse_include_file(self, match):
         if self.include_dir is None:
-            warnings.warn('IF include statement found, but includes are deactivated.', ResourceWarning)
+            self.warn('IF include statement found, but includes are deactivated.', ResourceWarning)
         else:
-            warnings.warn('IF include statement found. Includes are activated, but is this really a good idea?', ResourceWarning)
+            self.warn('IF include statement found. Includes are activated, but is this really a good idea?', ResourceWarning)
 
         include_file = self.include_dir / param["filename"]
         # Do not check if path exists to avoid leaking existence via error message
@@ -796,40 +815,40 @@ class GerberParser:
         self.include_stack.pop()
 
     def _parse_image_name(self, match):
-        warnings.warn('Deprecated IN (image name) statement found. This deprecated since rev. I4 (Oct 2013).', DeprecationWarning)
+        self.warn('Deprecated IN (image name) statement found. This deprecated since rev. I4 (Oct 2013).', DeprecationWarning)
         self.target.comments.append(f'Image name: {match["name"]}')
 
     def _parse_load_name(self, match):
-        warnings.warn('Deprecated LN (load name) statement found. This deprecated since rev. I4 (Oct 2013).', DeprecationWarning)
+        self.warn('Deprecated LN (load name) statement found. This deprecated since rev. I4 (Oct 2013).', DeprecationWarning)
 
     def _parse_axis_selection(self, match):
         if match['axes'] != 'AXBY':
-            warnings.warn('Deprecated AS (axis selection) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
+            self.warn('Deprecated AS (axis selection) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
         self.graphics_state.output_axes = match['axes']
 
     def _parse_image_polarity(self, match):
         polarity = dict(POS='positive', NEG='negative')[match['polarity']]
         if polarity != 'positive':
-            warnings.warn('Deprecated IP (image polarity) statement found. This deprecated since rev. I4 (Oct 2013).', DeprecationWarning)
+            self.warn('Deprecated IP (image polarity) statement found. This deprecated since rev. I4 (Oct 2013).', DeprecationWarning)
         self.graphics_state.image_polarity = polarity
     
     def _parse_image_rotation(self, match):
         rotation = int(match['rotation'])
         if rotation:
-            warnings.warn('Deprecated IR (image rotation) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
+            self.warn('Deprecated IR (image rotation) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
         self.graphics_state.image_rotation = rotation
 
     def _parse_mirror_image(self, match):
         mirror = bool(int(match['ma'] or '0')), bool(int(match['mb'] or '1'))
         if mirror != (False, False):
-            warnings.warn('Deprecated MI (mirror image) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
+            self.warn('Deprecated MI (mirror image) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
         self.graphics_state.image_mirror = mirror
 
     def _parse_scale_factor(self, match):
         a = float(match['sa']) if match['sa'] else 1.0
         b = float(match['sb']) if match['sb'] else 1.0
         if not math.isclose(math.dist((a, b), (1, 1)), 0):
-            warnings.warn('Deprecated SF (scale factor) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
+            self.warn('Deprecated SF (scale factor) statement found. This deprecated since rev. I1 (Dec 2012).', DeprecationWarning)
         self.graphics_state.scale_factor = a, b
 
     def _parse_siemens_garbage(self, match):
@@ -883,13 +902,13 @@ class GerberParser:
 
     def _parse_old_unit(self, match):
         self.file_settings.unit = Inch if match['mode'] == 'G70' else MM
-        warnings.warn(f'Deprecated {match["mode"]} unit mode statement found. This deprecated since 2012.', DeprecationWarning)
+        self.warn(f'Deprecated {match["mode"]} unit mode statement found. This deprecated since 2012.', DeprecationWarning)
         self.target.comments.append('Replaced deprecated {match["mode"]} unit mode statement with MO statement')
 
     def _parse_old_notation(self, match):
         # FIXME make sure we always have FS at end of processing.
         self.file_settings.notation = 'absolute' if match['mode'] == 'G90' else 'incremental'
-        warnings.warn(f'Deprecated {match["mode"]} notation mode statement found. This deprecated since 2012.', DeprecationWarning)
+        self.warn(f'Deprecated {match["mode"]} notation mode statement found. This deprecated since 2012.', DeprecationWarning)
         self.target.comments.append('Replaced deprecated {match["mode"]} notation mode statement with FS statement')
 
     def _parse_attribute(self, match):
