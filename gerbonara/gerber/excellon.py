@@ -175,7 +175,7 @@ class ExcellonFile(CamFile):
     @classmethod
     def from_string(kls, data, settings=None, filename=None, plated=None):
         parser = ExcellonParser(settings)
-        parser._do_parse(data)
+        parser.do_parse(data, filename=filename)
         return kls(objects=parser.objects, comments=parser.comments, import_settings=settings,
                 generator_hints=parser.generator_hints, filename=filename)
 
@@ -347,9 +347,12 @@ class ExcellonParser(object):
         self.comments = []
         self.generator_hints = []
 
-    def _do_parse(self, data):
+    def do_parse(self, data, filename=None):
+        # filename arg is for error messages
+        filename = filename or '<unknown>'
+
         leftover = None
-        for line in data.splitlines():
+        for lineno, line in enumerate(data.splitlines(), start=1):
             line = line.strip()
 
             if not line:
@@ -373,9 +376,8 @@ class ExcellonParser(object):
             try:
                 if not self.exprs.handle(self, line):
                     raise ValueError('Unknown excellon statement:', line)
-            except:
-                print('Original line was:', line)
-                raise
+            except Exception as e:
+                raise SyntaxError(f'{filename}:{lineno} "{line}": {e}') from e
 
     exprs = RegexMatcher()
 
@@ -661,7 +663,7 @@ class ExcellonParser(object):
     def handle_absolute_mode(self, match):
         if int(match['X'] or 0) != 0 or int(match['Y'] or 0) != 0:
             # Siemens tooling likes to include a meaningless G93X0Y0 after its header.
-            raise SyntaxError('G93 zero set command is not supported.')
+            raise NotImplementedError('G93 zero set command is not supported.')
         self.generator_hints.append('siemens')
 
     @exprs.match('ICI,?(ON|OFF)')

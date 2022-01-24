@@ -153,15 +153,17 @@ class GerberFile(CamFile):
 
     @classmethod
     def open(kls, filename, enable_includes=False, enable_include_dir=None):
+        filename = Path(filename)
         with open(filename, "r") as f:
             if enable_includes and enable_include_dir is None:
-                enable_include_dir = Path(filename).parent
-            return kls.from_string(f.read(), enable_include_dir)
+                enable_include_dir = filename.parent
+            return kls.from_string(f.read(), enable_include_dir, filename=filename.name)
 
     @classmethod
-    def from_string(kls, data, enable_include_dir=None):
+    def from_string(kls, data, enable_include_dir=None, filename=None):
+        # filename arg is for error messages
         obj = kls()
-        GerberParser(obj, include_dir=enable_include_dir).parse(data)
+        GerberParser(obj, include_dir=enable_include_dir).parse(data, filename=filename)
         return obj
 
     def generate_statements(self, settings, drop_comments=True):
@@ -576,7 +578,10 @@ class GerberParser:
                     yield lineno, word_command
                 start = pos + 1
 
-    def parse(self, data):
+    def parse(self, data, filename=None):
+        # filename arg is for error messages
+        filename = filename or '<unknown>'
+
         for lineno, line in self._split_commands(data):
             if not line.strip():
                 continue
@@ -595,7 +600,7 @@ class GerberParser:
                     except Exception as e:
                         #print(f'Line {lineno}: {line}')
                         #print(f'    match: {name} / {match}')
-                        raise SyntaxError(f'Syntax error in line {lineno} "{line}": {e}') from e
+                        raise SyntaxError(f'{filename}:{lineno} "{line}": {e}') from e
                     line = line[match.end(0):]
                     break
 
@@ -787,7 +792,7 @@ class GerberParser:
         self.include_stack.append(include_file)
 
         # Spec 2020-09 section 3.1: Gerber files must use UTF-8
-        self._parse(f.read_text(encoding='UTF-8'))
+        self._parse(f.read_text(encoding='UTF-8'), filename=include_file.name)
         self.include_stack.pop()
 
     def _parse_image_name(self, match):

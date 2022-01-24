@@ -501,3 +501,12 @@ def test_bounding_box(reference, tmpfile):
     assert margin_px-2 <= row_prefix <= margin_px+2
     assert margin_px-2 <= row_suffix <= margin_px+2
 
+@filter_syntax_warnings
+def test_syntax_error():
+    ref = reference_path('test_syntax_error.gbr')
+    with pytest.raises(SyntaxError) as exc_info:
+        GerberFile.open(ref)
+
+    assert 'test_syntax_error.gbr' in exc_info.value.msg
+    assert '7' in exc_info.value.msg # lineno
+

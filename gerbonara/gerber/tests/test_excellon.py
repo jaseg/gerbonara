@@ -94,4 +94,12 @@ def test_gerber_alignment(reference, tmpfile, print_on_error):
     assert matches > 10
     assert matches/total > 0.5
 
+@filter_syntax_warnings
+def test_syntax_error():
+    ref = reference_path('test_syntax_error.exc')
+    with pytest.raises(SyntaxError) as exc_info:
+        ExcellonFile.open(ref)
+
+    assert 'test_syntax_error.exc' in exc_info.value.msg
+    assert '12' in exc_info.value.msg # lineno
 
