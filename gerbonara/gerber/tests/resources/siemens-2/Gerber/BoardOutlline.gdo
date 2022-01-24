@@ -1,0 +1,19 @@
+*
+G04 Job   : Z:\LASMO\PCB\PCB\PCB.pcb*
+G04 User  : DESKTOP-D6MOGOB:alexis*
+G04 Layer : BoardOutlline.gdo*
+G04 Date  : Fri Jan 11 01:49:51 2019*
+%ICAS*%
+%MOIN*%
+%FSLAX24Y24*%
+%OFA0.0000B0.0000*%
+G90*
+G74*
+%ADD10C,0.00000*%
+G01*
+G54D10*
+X48425D01*
+Y27559*
+X0*
+Y0*
+M02*

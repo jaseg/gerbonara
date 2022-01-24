@@ -295,6 +295,7 @@ class GraphicsState:
         self.file_settings = file_settings
         self.aperture_map = aperture_map or {}
         self.warn = warn
+        self.unit_warning = False
 
     def __setattr__(self, name, value):
         # input validation
@@ -362,6 +363,9 @@ class GraphicsState:
             return rx, ry
 
     def flash(self, x, y, attrs=None):
+        if self.file_settings.unit is None and not self.unit_warning:
+            self.warn('Gerber file does not contain a unit definition.')
+            self.unit_warning = True
         attrs = attrs or {}
         self.update_point(x, y)
         return go.Flash(*self.map_coord(*self.point), self.aperture,
@@ -374,6 +378,10 @@ class GraphicsState:
             self.warn('D01 interpolation without preceding D02 move.')
             self.point = (0, 0)
         old_point = self.map_coord(*self.update_point(x, y))
+
+        if self.file_settings.unit is None and not self.unit_warning:
+            self.warn('Gerber file does not contain a unit definition.')
+            self.unit_warning = True
 
         if aperture:
             if not self.aperture:
