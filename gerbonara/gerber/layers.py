@@ -1,14 +1,15 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
-
-# copyright 2014 Hamilton Kibbe <ham@hamiltonkib.be>
+#
+# Copyright 2014 Hamilton Kibbe <ham@hamiltonkib.be>
+# Copyright 2021 Jan Götte <code@jaseg.de>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,9 +20,13 @@ import os
 import re
 import warnings
 from collections import namedtuple
+from pathlib import Path
 
 from .excellon import ExcellonFile
+from .rs274x import GerberFile
 from .ipc356 import IPCNetlist
+from .cam import FileSettings
+from .layer_rules import MATCH_RULES
 
 
 STANDARD_LAYERS = [
@@ -114,18 +119,18 @@ def layername_autoguesser(fn):
     elif re.match('(solder)?mask', fn):
         use = 'mask'
 
-    elif (m := re.match(f'(la?y?e?r?|in(ner)?)\W*(?P<num>[0-9]+)', fn)):
+    elif (m := re.match(r'(la?y?e?r?|in(ner)?)\W*(?P<num>[0-9]+)', fn)):
         use = 'copper'
         side = f'inner_{m["num"]:02d}'
 
     elif re.match('film', fn):
         use = 'copper'
 
-    elif re.match('out(line)?'):
+    elif re.match('out(line)?', fn):
         use = 'drill'
         side = 'outline'
 
-    elif re.match('drill|rout?e?'):
+    elif re.match('drill|rout?e?', fn):
         use = 'drill'
         side = 'unknown'
 
@@ -149,10 +154,11 @@ class LayerStack:
         generator, filemap = best_match(files)
 
         if len(filemap) < 6:
+            warnings.warn('Ambiguous gerber filenames. Trying last-resort autoguesser.')
             generator = None
             filemap = autoguess(files)
-            if len(filemap < 6):
-                raise ValueError('Cannot figure out gerber file mapping')
+            if len(filemap) < 6:
+                raise ValueError('Cannot figure out gerber file mapping. Partial map is: ', filemap)
 
         elif generator == 'geda':
             # geda is written by geniuses who waste no bytes of unnecessary output so it doesn't actually include the
@@ -210,7 +216,7 @@ class LayerStack:
                     side, _, use = key.partition(' ')
                     layers[(side, use)] = layer
 
-                hints = { layer.generator_hints } + { generator }
+                hints = set(layer.generator_hints) | { generator }
                 if len(hints) > 1:
                     warnings.warn('File identification returned ambiguous results. Please raise an issue on the gerbonara '
                             'tracker and if possible please provide these input files for reference.')
@@ -287,13 +293,29 @@ class LayerStack:
     def __len__(self):
         return len(self.layers)
 
+    def get(self, index, default=None):
+        if self.contains(key):
+            return self[key]
+        else:
+            return default
+
+    def __contains__(self, index):
+        if isinstance(index, str):
+            side, _, use = index.partition(' ')
+            return (side, use) in self.layers
+
+        elif isinstance(index, tuple):
+            return index in self.layers
+
+        return index < len(self.copper_layers)
+
     def __getitem__(self, index):
         if isinstance(index, str):
             side, _, use = index.partition(' ')
-            return self.layers.get((side, use))
+            return self.layers[(side, use)]
 
         elif isinstance(index, tuple):
-            return self.layers.get(index)
+            return self.layers[index]
 
         return self.copper_layers[index]
 

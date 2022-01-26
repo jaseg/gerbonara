@@ -1,17 +1,17 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
-
+#
+# Modified from parser.py by Paulo Henrique Silva <ph.silva@gmail.com>
 # Copyright 2014 Hamilton Kibbe <ham@hamiltonkib.be>
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
 # Copyright 2021 Jan Götte <code@jaseg.de>
-# Modified from parser.py by Paulo Henrique Silva <ph.silva@gmail.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -566,7 +566,8 @@ class GerberParser:
         self.line = None
 
     def warn(self, msg, kls=SyntaxWarning):
-        warnings.warn('{self.filename}:{self.lineno} "{self.line.replace("\n", "\\n")}": {msg}', kls)
+        line_joined = self.line.replace('\n', '\\n')
+        warnings.warn(f'{self.filename}:{self.lineno} "{line_joined}": {msg}', kls)
 
     @classmethod
     def _split_commands(kls, data):
@@ -950,23 +951,6 @@ class GerberParser:
 
     def _parse_ignored(self, match):
         pass
-
-
-def _match_one(expr, data):
-    match = expr.match(data)
-    if match is None:
-        return ({}, None)
-    else:
-        return (match.groupdict(), data[match.end(0):])
-
-
-def _match_one_from_many(exprs, data):
-    for expr in exprs:
-        match = expr.match(data)
-        if match:
-            return (match.groupdict(), data[match.end(0):])
-
-    return ({}, None)
 
 if __name__ == '__main__':
     import argparse

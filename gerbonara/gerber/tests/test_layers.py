@@ -1,158 +1,321 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
-
-# copyright 2016 Hamilton Kibbe <ham@hamiltonkib.be>
+#
+# Copyright 2021 Jan Götte <code@jaseg.de>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 
-import os
+import pytest
 
-from ..layers import *
-from ..common import read
+from .utils import *
+from ..layers import LayerStack
+from ..rs274x import GerberFile
+from ..excellon import ExcellonFile
 
-NCDRILL_FILE = os.path.join(os.path.dirname(__file__), "resources/ncdrill.DRD")
-NETLIST_FILE = os.path.join(os.path.dirname(__file__), "resources/ipc-d-356.ipc")
-COPPER_FILE = os.path.join(os.path.dirname(__file__), "resources/top_copper.GTL")
+# hand-classified
+REFERENCE_DIRS = {
+    'Target3001': {
+        'IRNASIoTbank1.2.Apr': None,
+        'IRNASIoTbank1.2.Bot': 'bottom copper',
+        'IRNASIoTbank1.2.Drill': 'drill plated',
+        'IRNASIoTbank1.2.Info': None,
+        'IRNASIoTbank1.2.Outline': 'drill outline',
+        'IRNASIoTbank1.2.PasteBot': 'bottom paste',
+        'IRNASIoTbank1.2.PasteTop': 'top paste',
+        'IRNASIoTbank1.2.PosiBot': 'bottom silkscreen',
+        'IRNASIoTbank1.2.PosiTop': 'top silkscreen',
+        'IRNASIoTbank1.2.StopBot': 'bottom mask',
+        'IRNASIoTbank1.2.StopTop': 'top mask',
+        'IRNASIoTbank1.2.Tool': None,
+        'IRNASIoTbank1.2.Top': 'top copper',
+        'IRNASIoTbank1.2.Whl': None,
+        },
 
+    'allegro': {
+        '08_057494d-ipc356.ipc': None,
+        '08_057494d.rou': 'drill outline',
+        'Read_Me.1': None,
+        'art_param.txt': None,
+        'assy1.art': None,
+        'assy2.art': None,
+        'fab1.art': None,
+        'l1_primary.art': 'top copper',
+        'l2_gnd.art': 'inner_2 copper',
+        'l3_vcc.art': 'inner_3 copper',
+        'l4_secondary.art': 'bottom copper',
+        'mask_prm.art': 'top mask',
+        'mask_sec.art': 'bottom mask',
+        'nc_param.txt': None,
+        'ncdrill-1-4.drl': 'drill unknown',
+        'ncdrill.log': None,
+        'netlist.err': None,
+        'paste_prm.art': 'top paste',
+        'paste_sec.art': 'bottom paste',
+        'photo.log': None,
+        'silk_prm.art': 'top silk',
+        'silk_sec.art': 'bottom silk',
+        },
 
-def test_guess_layer_class():
-    """ Test layer type inferred correctly from filename
-    """
+    'allegro-2': {
+        'MINNOWMAX_REVA2_PUBLIC_BOTTOMSIDE.pdf': None,
+        'MINNOWMAX_REVA2_PUBLIC_TOPSIDE.pdf': None,
+        'MinnowMax_RevA1_IPC356A.ipc': None,
+        'MinnowMax_RevA1_DRILL/MinnowMax_RevA1_NCDRILL.drl': 'drill unknown',
+        'MinnowMax_RevA1_DRILL/MinnowMax_RevA1_NCROUTE.rou': 'drill outline',
+        'MinnowMax_RevA1_DRILL/nc_param.txt': None,
+        'MinnowMax_RevA1_DRILL/ncdrill.log': None,
+        'MinnowMax_RevA1_DRILL/ncroute.log': None,
+        'MinnowMax_assy.art': None,
+        'MinnowMax_bslk.art': 'bottom silk',
+        'MinnowMax_fab.art': None,
+        'MinnowMax_lyr10_GAF.art': 'bottom copper',
+        'MinnowMax_lyr1_GAF.art': 'top copper',
+        'MinnowMax_lyr2.art': 'inner_2 copper',
+        'MinnowMax_lyr3.art': 'inner_3 copper',
+        'MinnowMax_lyr4.art': 'inner_4 copper',
+        'MinnowMax_lyr5.art': 'inner_5 copper',
+        'MinnowMax_lyr6.art': 'inner_6 copper',
+        'MinnowMax_lyr7.art': 'inner_7 copper',
+        'MinnowMax_lyr8.art': 'inner_8 copper',
+        'MinnowMax_lyr9.art': 'inner_9 copper',
+        'MinnowMax_smc_GAF.art': 'top mask',
+        'MinnowMax_sms_GAF.art': 'bottom mask',
+        'MinnowMax_spc.art': 'top paste',
+        'MinnowMax_sps.art': 'bottom paste',
+        'MinnowMax_tslk_GAF.art': 'top silk',
+        },
 
-    # Add any specific test cases here (filename, layer_class)
-    test_vectors = [
-        (None, "unknown"),
-        ("NCDRILL.TXT", "unknown"),
-        ("example_board.gtl", "top"),
-        ("exampmle_board.sst", "topsilk"),
-        ("ipc-d-356.ipc", "ipc_netlist"),
-    ]
+    'altium-composite-drill': {
+        'Gerber/LimeSDR-QPCIe_1v2-macro.APR_LIB': None,
+        'Gerber/LimeSDR-QPCIe_1v2.EXTREP': None,
+        'Gerber/LimeSDR-QPCIe_1v2.G1': 'inner_1 copper',
+        'Gerber/LimeSDR-QPCIe_1v2.G10': 'inner_10 copper',
+        'Gerber/LimeSDR-QPCIe_1v2.G11': 'inner_11 copper',
+        'Gerber/LimeSDR-QPCIe_1v2.G12': 'inner_12 copper',
+        'Gerber/LimeSDR-QPCIe_1v2.G2': 'inner_2 copper',
+        'Gerber/LimeSDR-QPCIe_1v2.G3': 'inner_3 copper',
+        'Gerber/LimeSDR-QPCIe_1v2.G4': 'inner_4 copper',
+        'Gerber/LimeSDR-QPCIe_1v2.G5': 'inner_5 copper',
+        'Gerber/LimeSDR-QPCIe_1v2.G6': 'inner_6 copper',
+        'Gerber/LimeSDR-QPCIe_1v2.G7': 'inner_7 copper',
+        'Gerber/LimeSDR-QPCIe_1v2.G8': 'inner_8 copper',
+        'Gerber/LimeSDR-QPCIe_1v2.G9': 'inner_9 copper',
+        'Gerber/LimeSDR-QPCIe_1v2.GBL': 'bottom copper',
+        'Gerber/LimeSDR-QPCIe_1v2.GBO': 'bottom silk',
+        'Gerber/LimeSDR-QPCIe_1v2.GBP': 'bottom paste',
+        'Gerber/LimeSDR-QPCIe_1v2.GBS': 'bottom mask',
+        'Gerber/LimeSDR-QPCIe_1v2.GM1': 'dirll outlinej',
+        'Gerber/LimeSDR-QPCIe_1v2.GM14': None,
+        'Gerber/LimeSDR-QPCIe_1v2.GM15': None,
+        'Gerber/LimeSDR-QPCIe_1v2.GPB': None,
+        'Gerber/LimeSDR-QPCIe_1v2.GPT': None,
+        'Gerber/LimeSDR-QPCIe_1v2.GTL': 'bottom copper',
+        'Gerber/LimeSDR-QPCIe_1v2.GTO': 'bottom silk',
+        'Gerber/LimeSDR-QPCIe_1v2.GTP': 'bottom paste',
+        'Gerber/LimeSDR-QPCIe_1v2.GTS': 'bottom mask',
+        'Gerber/LimeSDR-QPCIe_1v2.REP': None,
+        'Gerber/LimeSDR-QPCIe_1v2.RUL': None,
+        'Gerber/LimeSDR-QPCIe_1v2.apr': None,
+        'NC Drill/LimeSDR-QPCIe_1v2-RoundHoles.TXT': 'drill unknown',
+        'NC Drill/LimeSDR-QPCIe_1v2-SlotHoles.TXT': 'drill unknown',
+        'NC Drill/LimeSDR-QPCIe_1v2.DRR': None,
+        'NC Drill/LimeSDR-QPCIe_1v2.LDP': None,
+        },
 
-    for hint in hints:
-        for ext in hint.ext:
-            assert hint.layer == guess_layer_class("board.{}".format(ext))
-        for name in hint.name:
-            assert hint.layer == guess_layer_class("{}.pho".format(name))
+    'diptrace': {
+        'mainboard.drl': 'drill plated',
+        'mainboard_BoardOutline.gbr': 'drill outline',
+        'mainboard_Bottom.gbr': 'bottom copper',
+        'mainboard_BottomMask.gbr': 'bottom mask',
+        'mainboard_Top.gbr': 'top copper',
+        'mainboard_TopMask.gbr': 'top mask',
+        'mainboard_TopSilk.gbr': 'top silk',
+        },
 
-    for filename, layer_class in test_vectors:
-        assert layer_class == guess_layer_class(filename)
+    'eagle-newer': {
+        'copper_bottom.gbr': 'bottom copper',
+        'copper_top.gbr': 'top copper',
+        'drills.xln': 'drill unknown',
+        'gerber_job.gbrjob': None,
+        'profile.gbr': 'drill outline',
+        'silkscreen_bottom.gbr': 'bottom silk',
+        'silkscreen_top.gbr': 'top silk',
+        'soldermask_bottom.gbr': 'bottom mask',
+        'soldermask_top.gbr': 'top mask',
+        'solderpaste_bottom.gbr': 'bottom paste',
+        'solderpaste_top.gbr': 'top paste',
+        },
 
+    'eagle_files': {
+        'copper_bottom_l4.gbr': 'bottom copper',
+        'copper_inner_l2.gbr': 'inner_2 copper',
+        'copper_inner_l3.gbr': 'inner_3 copper',
+        'copper_top_l1.gbr': 'top copper',
+        'profile.gbr': 'drill outline',
+        'silkscreen_bottom.gbr': 'bottom silk',
+        'silkscreen_top.gbr': 'top silk',
+        'soldermask_bottom.gbr': 'bottom mask',
+        'soldermask_top.gbr': 'top mask',
+        'solderpaste_bottom.gbr': 'bottom paste',
+        'solderpaste_top.gbr': 'top paste',
+        },
 
-def test_guess_layer_class_regex():
-    """ Test regular expressions for layer matching
-    """
+    'easyeda': {
+        'Gerber_BoardOutline.GKO': 'drill outline',
+        'Gerber_BottomLayer.GBL': 'bottom copper',
+        'Gerber_BottomSolderMaskLayer.GBS': 'bottom mask',
+        'Gerber_Drill_NPTH.DRL': 'drill nonplated',
+        'Gerber_Drill_PTH.DRL': 'drill plated',
+        'Gerber_TopLayer.GTL': 'top copper',
+        'Gerber_TopPasteMaskLayer.GTP': 'top mask',
+        'Gerber_TopPasteMaskLayer.bottom.svg': None,
+        'Gerber_TopPasteMaskLayer.gtp.top.solderpaste.svg': None,
+        'Gerber_TopPasteMaskLayer.gtp.top.solderpaste_2.svg': None,
+        'Gerber_TopPasteMaskLayer.top.svg': None,
+        'Gerber_TopSilkLayer.GTO': 'top silk',
+        'Gerber_TopSolderMaskLayer.GTS': 'top mask',
+        'How-to-order-PCB.txt': None,
+        },
 
-    # Add any specific test case (filename, layer_class)
-    test_vectors = [("test - top copper.gbr", "top"), ("test - copper top.gbr", "top")]
+    'fritzing': {
+        'combined.GKO': 'drill outline',
+        'combined.gbl': 'bottom copper',
+        'combined.gbo': 'bottom silk',
+        'combined.gbs': 'bottom mask',
+        'combined.gm1': None,
+        'combined.gtl': 'top copper',
+        'combined.gto': 'top silk',
+        'combined.gts': 'top mask',
+        'combined.txt': 'drill unknown',
+        'gyro_328p_6050_2021_panelize.gerberset': None,
+        },
 
-    # Add custom regular expressions
-    layer_hints = [
-        Hint(
-            layer="top",
-            ext=[],
-            name=[],
-            regex=r"(.*)(\scopper top|\stop copper).gbr",
-            content=[],
-        )
-    ]
-    hints.extend(layer_hints)
+    'geda': {
+        'controller.bottom.gbr': 'bottom copper',
+        'controller.bottommask.gbr': 'bottom mask',
+        'controller.fab.gbr': None,
+        'controller.group3.gbr': None,
+        'controller.plated-drill.cnc': 'drill plated',
+        'controller.top.gbr': 'top copper',
+        'controller.topmask.gbr': 'top mask',
+        'controller.topsilk.gbr': 'top silk',
+        'controller.unplated-drill.cnc': 'drill nonplated',
+        },
 
-    for filename, layer_class in test_vectors:
-        assert layer_class == guess_layer_class(filename)
+    'pcb-rnd': {
+        'power-art.asb': None,
+        'power-art.ast': None,
+        'power-art.fab': None,
+        'power-art.gbl': 'bottom ccopper',
+        'power-art.gbo': 'bottom silk',
+        'power-art.gbp': 'bottom paste',
+        'power-art.gbs': 'bottom mask',
+        'power-art.gko': 'drill outline',
+        'power-art.gtl': 'top copper',
+        'power-art.gto': 'top silk',
+        'power-art.gtp': 'top paste',
+        'power-art.gts': 'top mask',
+        'power-art.lht': None,
+        'power-art.xln': 'drill unknown',
+        },
 
+    'siemens': {
+        '80101_0125_F200_ContourPlated.ncd': 'drill outline',
+        '80101_0125_F200_DrillDrawingThrough.gdo': None,
+        '80101_0125_F200_L01_Top.gdo': 'top copper',
+        '80101_0125_F200_L02.gdo': 'inner_2 copper',
+        '80101_0125_F200_L03.gdo': 'inner_3 copper',
+        '80101_0125_F200_L04.gdo': 'inner_4 copper',
+        '80101_0125_F200_L05.gdo': 'inner_5 copper',
+        '80101_0125_F200_L06.gdo': 'inner_6 copper',
+        '80101_0125_F200_L07.gdo': 'inner_7 copper',
+        '80101_0125_F200_L08.gdo': 'inner_8 copper',
+        '80101_0125_F200_L09.gdo': 'inner_9 copper',
+        '80101_0125_F200_L10.gdo': 'inner_10 copper',
+        '80101_0125_F200_L11.gdo': 'inner_11 copper',
+        '80101_0125_F200_L12_Bottom.gdo': 'bottom copper',
+        '80101_0125_F200_SilkscreenBottom.gdo': 'bottom silk',
+        '80101_0125_F200_SilkscreenTop.gdo': 'top silk',
+        '80101_0125_F200_SolderPasteBottom.gdo': 'bottom paste',
+        '80101_0125_F200_SolderPasteTop.gdo': 'top paste',
+        '80101_0125_F200_SoldermaskBottom.gdo': 'bottom mask',
+        '80101_0125_F200_SoldermaskTop.gdo': 'top mask',
+        '80101_0125_F200_ThruHoleNonPlated.ncd': 'drill nonplated',
+        '80101_0125_F200_ThruHolePlated.ncd': 'drill plated',
+        },
 
-def test_guess_layer_class_by_content():
-    """ Test layer class by checking content
-    """
+    'siemens-2': {
+        'Gerber/BoardOutlline.gdo': 'drill outline',
+        'Gerber/DrillDrawingThrough.gdo': None,
+        'Gerber/EtchLayerBottom.gdo': 'bottom copper',
+        'Gerber/EtchLayerTop.gdo': 'top copper',
+        'Gerber/GerberPlot.gpf': None,
+        'Gerber/PCB.dsn': None,
+        'Gerber/SolderPasteBottom.gdo': 'bottom paste',
+        'Gerber/SolderPasteTop.gdo': 'top paste',
+        'Gerber/SoldermaskBottom.gdo': 'bottom mask',
+        'Gerber/SoldermaskTop.gdo': 'top mask',
+        'NCDrill/ContourPlated.ncd': 'drill outline',
+        'NCDrill/ThruHoleNonPlated.ncd': 'drill nonplated',
+        'NCDrill/ThruHolePlated.ncd': 'drill plated',
+        },
 
-    expected_layer_class = "bottom"
-    filename = os.path.join(
-        os.path.dirname(__file__), "resources/example_guess_by_content.g0"
-    )
+    'upverter': {
+        'design_export.drl': 'drill unknown',
+        'design_export.gbl': 'bottom copper',
+        'design_export.gbo': 'bottom silk',
+        'design_export.gbp': 'bottom paste',
+        'design_export.gbs': 'bottom mask',
+        'design_export.gko': 'drill outline',
+        'design_export.gtl': 'top copper',
+        'design_export.gto': 'top silk',
+        'design_export.gtp': 'top paste',
+        'design_export.gts': 'top mask',
+        'design_export.xln': 'drill unknown',
+        'layers.cfg': None,
+        },
+    }
 
-    layer_hints = [
-        Hint(
-            layer="bottom",
-            ext=[],
-            name=[],
-            regex="",
-            content=["G04 Layer name: Bottom"],
-        )
-    ]
-    hints.extend(layer_hints)
+@filter_syntax_warnings
+@pytest.mark.parametrize('ref_dir', list(REFERENCE_DIRS.items()))
+def test_layer_classifier(ref_dir):
+    ref_dir, file_map = ref_dir
+    path = reference_path(ref_dir)
+    print('Reference path is', path)
+    file_map = { filename: role for filename, role in file_map.items() if role is not None } 
+    rev_file_map = { value: key for key, value in file_map.items() }
+    drill_files = { filename: role for filename, role in file_map.items() if role.startswith('drill') }
 
-    assert expected_layer_class == guess_layer_class_by_content(filename)
+    stack = LayerStack.from_directory(path)
 
+    for side in 'top', 'bottom':
+        for layer in 'copper', 'silk', 'mask', 'paste':
 
-def test_sort_layers():
-    """ Test layer ordering
-    """
-    layers = [
-        PCBLayer(layer_class="drawing"),
-        PCBLayer(layer_class="drill"),
-        PCBLayer(layer_class="bottompaste"),
-        PCBLayer(layer_class="bottomsilk"),
-        PCBLayer(layer_class="bottommask"),
-        PCBLayer(layer_class="bottom"),
-        PCBLayer(layer_class="internal"),
-        PCBLayer(layer_class="top"),
-        PCBLayer(layer_class="topmask"),
-        PCBLayer(layer_class="topsilk"),
-        PCBLayer(layer_class="toppaste"),
-        PCBLayer(layer_class="outline"),
-    ]
+            if (side, layer) in rev_file_map:
+                assert (side, layer) in stack
+                found = stack[side, layer]
+                assert isinstance(found, GerberFile)
+                assert found.filename == Path(rev_file_map[side, layer]).name
 
-    layer_order = [
-        "outline",
-        "toppaste",
-        "topsilk",
-        "topmask",
-        "top",
-        "internal",
-        "bottom",
-        "bottommask",
-        "bottomsilk",
-        "bottompaste",
-        "drill",
-        "drawing",
-    ]
-    bottom_order = list(reversed(layer_order[:10])) + layer_order[10:]
-    assert [l.layer_class for l in sort_layers(layers)] == layer_order
-    assert [l.layer_class for l in sort_layers(layers, from_top=False)] == bottom_order
+            else: # not in file_map
+                assert (side, layer) not in stack
 
+    for filename, role in drill_files:
+        assert any(layer.filename == Path(filename).name for layer in stack.drill_layers) 
+        assert len(stack.drill_layers) == len(drill_files)
 
-def test_PCBLayer_from_file():
-    layer = PCBLayer.from_cam(read(COPPER_FILE))
-    assert isinstance(layer, PCBLayer)
-    layer = PCBLayer.from_cam(read(NCDRILL_FILE))
-    assert isinstance(layer, DrillLayer)
-    layer = PCBLayer.from_cam(read(NETLIST_FILE))
-    assert isinstance(layer, PCBLayer)
-    assert layer.layer_class == "ipc_netlist"
+    for layer in stack.drill_files:
+        assert isinstance(layer, ExcellonFile)
 
-
-def test_PCBLayer_bounds():
-    source = read(COPPER_FILE)
-    layer = PCBLayer.from_cam(source)
-    assert source.bounds == layer.bounds
-
-
-def test_DrillLayer_from_cam():
-    no_exceptions = True
-    try:
-        layer = DrillLayer.from_cam(read(NCDRILL_FILE))
-        assert isinstance(layer, DrillLayer)
-    except:
-        no_exceptions = False
-    assert no_exceptions

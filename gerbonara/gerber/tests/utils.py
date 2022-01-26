@@ -74,7 +74,7 @@ def reference(request, print_on_error):
     print_on_error(f'Reference file: {ref}')
 
 def filter_syntax_warnings(fun):
-    a = pytest.mark.filterwarnings('ignore:Deprecated.*statement found.*:DeprecationWarning')
+    a = pytest.mark.filterwarnings('ignore:.*Deprecated.*statement found.*:DeprecationWarning')
     b = pytest.mark.filterwarnings('ignore::SyntaxWarning')
     return a(b(fun))
 

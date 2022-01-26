@@ -124,9 +124,9 @@ MATCH_RULES = {
     'drill mech': r'.*\.rou',
     'drill mech': r'.*\.drl',
     'generic gerber': r'.*\.art',
-    'excellon params':  'nc_param\.txt',
+    'excellon params':  r'nc_param\.txt',
     # put .log file last to prefer .txt
-    'excellon params':  'ncdrill\.log',
-    'excellon params':  'ncroute\.log',
+    'excellon params':  r'ncdrill\.log',
+    'excellon params':  r'ncroute\.log',
     },
 }
