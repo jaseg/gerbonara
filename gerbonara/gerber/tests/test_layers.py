@@ -180,7 +180,7 @@ REFERENCE_DIRS = {
         'Gerber_Drill_NPTH.DRL': 'drill nonplated',
         'Gerber_Drill_PTH.DRL': 'drill plated',
         'Gerber_TopLayer.GTL': 'top copper',
-        'Gerber_TopPasteMaskLayer.GTP': 'top mask',
+        'Gerber_TopPasteMaskLayer.GTP': 'top paste',
         'Gerber_TopPasteMaskLayer.bottom.svg': None,
         'Gerber_TopPasteMaskLayer.gtp.top.solderpaste.svg': None,
         'Gerber_TopPasteMaskLayer.gtp.top.solderpaste_2.svg': None,
@@ -203,23 +203,24 @@ REFERENCE_DIRS = {
         'gyro_328p_6050_2021_panelize.gerberset': None,
         },
 
-    'geda': {
-        'controller.bottom.gbr': 'bottom copper',
-        'controller.bottommask.gbr': 'bottom mask',
-        'controller.fab.gbr': None,
-        'controller.group3.gbr': None,
-        'controller.plated-drill.cnc': 'drill plated',
-        'controller.top.gbr': 'top copper',
-        'controller.topmask.gbr': 'top mask',
-        'controller.topsilk.gbr': 'top silk',
-        'controller.unplated-drill.cnc': 'drill nonplated',
-        },
+# same as above, two designs in one folder
+#    'geda': {
+#        'controller.bottom.gbr': 'bottom copper',
+#        'controller.bottommask.gbr': 'bottom mask',
+#        'controller.fab.gbr': None,
+#        'controller.group3.gbr': None,
+#        'controller.plated-drill.cnc': 'drill plated',
+#        'controller.top.gbr': 'top copper',
+#        'controller.topmask.gbr': 'top mask',
+#        'controller.topsilk.gbr': 'top silk',
+#        'controller.unplated-drill.cnc': 'drill nonplated',
+#        },
 
     'pcb-rnd': {
         'power-art.asb': None,
         'power-art.ast': None,
         'power-art.fab': None,
-        'power-art.gbl': 'bottom ccopper',
+        'power-art.gbl': 'bottom copper',
         'power-art.gbo': 'bottom silk',
         'power-art.gbp': 'bottom paste',
         'power-art.gbs': 'bottom mask',
@@ -307,6 +308,8 @@ def test_layer_classifier(ref_dir):
             if 'allegro-2' in ref_dir and layer in ('silk', 'mask', 'paste'):
                 # This particular example has very poorly named files
                 continue
+            if 'easyeda' in ref_dir and layer == 'paste' and side == 'bottom':
+                continue
 
             if (side, layer) in rev_file_map:
                 assert (side, layer) in stack
@@ -325,5 +328,6 @@ def test_layer_classifier(ref_dir):
         assert any(layer.original_path.name == Path(filename).name for layer in stack.drill_layers) 
 
     for layer in stack.drill_layers:
-        assert isinstance(layer, ExcellonFile)
+        if 'upverter' not in ref_dir:
+            assert isinstance(layer, ExcellonFile)
 

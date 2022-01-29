@@ -12,7 +12,9 @@ MATCH_RULES = {
     'bottom paste':     r'.*\.gbp',
     'inner copper':     r'.*\.gp?([0-9]+)',
     'mechanical outline':    r'.*\.(gko|gm[0-9]+)',
-    'drill unknown':    r'.*\.(txt)',
+    # this rule is slightly generic to catch the drill files of things like geda and pcb-rnd that otherwise use altium's
+    # layer names.
+    'drill unknown':    r'.*\.(txt|drl|xln)',
     },
 
 'kicad': {
@@ -113,10 +115,10 @@ MATCH_RULES = {
     'drill nonplated':  r'.*ThruHoleNonPlated.ncd',
     'drill plated':     r'.*ThruHolePlated.ncd',
     # list this last to prefer the actual excellon files
-    'drill plated':     r'.*DrillDrawingThrough.gdo',
+    #'drill plated':     r'.*DrillDrawingThrough.gdo',
     # match these last to avoid shadowing other layers via substring match
-    'top copper':       r'.*Top.gdo',
-    'bottom copper':    r'.*Bottom.gdo',
+    'top copper':       r'.*[^enk]Top.gdo',
+    'bottom copper':    r'.*[^enk]Bottom.gdo',
     },
 
 'allegro': {

@@ -64,7 +64,9 @@ def best_match(filenames):
     return generator, files
 
 def identify_file(data):
-    if 'M48' in data or 'G90' in data:
+    if 'M48' in data:
+        return 'excellon'
+    if 'G90' in data and ';LEADER:' in data: # yet another allegro special case
         return 'excellon'
     if 'FSLAX' in data or 'FSTAX' in data:
         return 'gerber'
@@ -162,6 +164,7 @@ class LayerStack:
 
         files = [ path for path in directory.glob('**/*') if path.is_file() ]
         generator, filemap = best_match(files)
+        print('detected generator', generator)
 
         if len(filemap) < 6:
             warnings.warn('Ambiguous gerber filenames. Trying last-resort autoguesser.')
@@ -213,6 +216,9 @@ class LayerStack:
         else:
             excellon_settings = None
 
+        import pprint
+        pprint.pprint(filemap)
+
         ambiguous = [ key for key, value in filemap.items() if len(value) > 1 and not 'drill' in key ]
         if ambiguous:
             raise SystemError(f'Ambiguous layer names for {", ".join(ambiguous)}')
@@ -224,7 +230,14 @@ class LayerStack:
                 raise ValueError(f'Multiple matching files found for {key} layer: {", ".join(value)}')
 
             for path in paths:
-                if ('outline' in key or 'drill' in key) and identify_file(path.read_text()) != 'gerber':
+                id_result = identify_file(path.read_text())
+                print('id_result', id_result)
+                if ('outline' in key or 'drill' in key) and id_result != 'gerber':
+                    if id_result is None:
+                        # Since e.g. altium uses ".txt" as the extension for its drill files, we have to assume the
+                        # current file might not be a drill file after all.
+                        continue
+
                     if 'nonplated' in key:
                         plated = False
                     elif 'plated' in key:
