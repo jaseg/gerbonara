@@ -18,6 +18,8 @@
 import math
 from dataclasses import dataclass
 from copy import deepcopy
+from enum import Enum
+import string
 
 from .utils import LengthUnit, MM, Inch, Tag
 from . import graphic_primitives as gp
@@ -60,6 +62,45 @@ class FileSettings:
 
 
         super().__setattr__(name, value)
+
+    def to_radian(self, value):
+        value = float(value)
+        return math.radians(value) if self.angle_unit == 'degree' else value
+
+    def parse_ipc_length(self, value, default=None):
+        if value is None or not str(value).strip():
+            return default
+
+        if isinstance(value, str) and value[0].isalpha():
+            value = value[1:]
+
+        value = int(value)
+        value *= 0.0001 if self.is_inch else 0.001
+        return value
+
+    def format_ipc_number(self, value, digits, key='', sign=False):
+        if value is None:
+            return ' ' * (digits + 1 + len(key))
+
+        if isinstance(value, Enum):
+            value = value.value
+
+        return key + format(round(value), f'{"+" if sign else ""}0{digits+1}d')
+
+    def format_ipc_length(self, value, digits, key='', unit=None, sign=False):
+        if value is not None:
+            value = self.unit(value, unit)
+            value /= 0.0001 if self.is_inch else  0.001
+
+        return self.format_ipc_number(value, digits, key, sign=sign)
+
+    @property
+    def is_metric(self):
+        return self.unit == MM
+
+    @property
+    def is_inch(self):
+        return self.unit == Inch
 
     def copy(self):
         return deepcopy(self)
@@ -152,11 +193,10 @@ class FileSettings:
 
 
 class CamFile:
-    def __init__(self, original_path=None, layer_name=None):
+    def __init__(self, original_path=None, layer_name=None, import_settings=None):
         self.original_path = original_path
         self.layer_name = layer_name
-        self.import_settings = None
-        self.objects = []
+        self.import_settings = import_settings
 
     def to_svg(self, tag=Tag, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, fg='black', bg='white'):
 

@@ -1,15 +1,15 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
-
+#
 # copyright 2014 Hamilton Kibbe <ham@hamiltonkib.be>
 # Modified from parser.py by Paulo Henrique Silva <ph.silva@gmail.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,472 +19,509 @@
 from dataclasses import dataclass
 import math
 import re
+from enum import Enum
+import warnings
+from dataclasses import dataclass, KW_ONLY
+from pathlib import Path
+
 from .cam import CamFile, FileSettings
-
-# Net Name Variables
-_NNAME = re.compile(r'^NNAME\d+$')
-
-# Board Edge Coordinates
-_COORD = re.compile(r'X?(?P<x>[\d\s]*)?Y?(?P<y>[\d\s]*)?')
-
-_SM_FIELD = {
-    '0': 'none',
-    '1': 'primary side',
-    '2': 'secondary side',
-    '3': 'both'}
+from .utils import MM, Inch, LengthUnit
 
 
-def read(filename):
-    """ Read data from filename and return an IPCNetlist
-    Parameters
-        ----------
-    filename : string
-        Filename of file to parse
+class Netlist(CamFile):
+    def __init__(self, test_records=None, conductors=None, outlines=None, comments=None, adjacency=None,
+            params=None, import_settings=None, original_path=None):
+        super().__init__(original_path=original_path, layer_name='netlist', import_settings=import_settings)
+        self.test_records = test_records or []
+        self.conductors = conductors or []
+        self.outlines = outlines or []
+        self.comments = comments or []
+        self.adjacency = adjacency or {}
+        self.params = params or {}
 
-    Returns
-    -------
-    file : :class:`gerber.ipc356.IPCNetlist`
-        An IPCNetlist object created from the specified file.
+    def merge(self, other, our_net_prefix=None, their_net_prefix=None):
+        ''' Merge other netlist into this netlist. The respective net names are prefixed with the given prefixes
+        (default: None). Garbles other. '''
+        if not isinstance(other, Netlist):
+            raise TypeError(f'Can only merge Netlist with other Netlist, not {type(other)}')
 
-    """
-    # File object should use settings from source file by default.
-    return IPCNetlist.from_file(filename)
+        self.prefix_nets(our_net_prefix)
+        other.prefix_nets(our_net_prefix)
 
-@dataclass
-class TestRecord:
-    position : [float]
-    net_name : str
-    layer : str
+        self.test_records.extend(other.test_records)
+        self.conductors.extend(other.conductors)
+        self.outlines.extend(other.outlines)
+        self.comments.extend(other.comments)
+        self.adjacency.update(other.adjacency)
+        self.params.extend(other.params)
 
-def loads(data, filename=None):
-    """ Generate an IPCNetlist object from IPC-D-356 data in memory
+    def prefix_nets(self, prefix):
+        if not prefix:
+            return
 
-    Parameters
-    ----------
-    data : string
-        string containing netlist file contents
+        for record in self.test_records:
+            if record.net_name:
+                record.net_name = prefix + record.net_name
 
-    filename : string, optional
-        string containing the filename of the data source
+        for conductor in self.conductors:
+            if conductor.net_name:
+                conductor.net_name = prefix + conductor.net_name
 
-    Returns
-    -------
-    file : :class:`gerber.ipc356.IPCNetlist`
-        An IPCNetlist created from the specified file.
-    """
-    return IPCNetlistParser().parse_raw(data, filename)
+        new_adjacency = {}
+        for key in adjacency:
+            new_adjacency[prefix + key] = [ prefix + name for name in adjacency[key] ]
+        self.adjacency = new_adjacency
 
-
-class IPCNetlist(CamFile):
+    @property
+    def objects(self):
+        yield from self.test_records
+        yield from self.conductors
+        yield from self.outlines
 
     @classmethod
-    def from_file(cls, filename):
-        parser = IPCNetlistParser()
-        return parser.parse(filename)
+    def open(kls, filename):
+        path = Path(filename)
+        parser = NetlistParser()
+        return parser.parse(path.read_text(), path)
 
-    def __init__(self, statements, settings, primitives=None, filename=None):
-        self.statements = statements
-        self.units = settings.units
-        self.angle_units = settings.angle_units
-        self.primitives = [TestRecord((rec.x_coord, rec.y_coord), rec.net_name,
-                                      rec.access) for rec in self.test_records]
-        self.filename = filename
+    @classmethod
+    def from_string(kls, data, filename=None):
+        parser = NetlistParser()
+        return parser.parse(data, Path(filename))
 
-    @property
-    def settings(self):
-        return FileSettings(units=self.units, angle_units=self.angle_units)
+    def save(self, filename, settings=None, drop_comments=True):
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(self.to_ipc356(settings, drop_comments=drop_comments))
 
-    @property
-    def comments(self):
-        return [record for record in self.statements
-                if isinstance(record, IPC356_Comment)]
+    def to_ipc356(self, settings=None, drop_comments=True, job_name=None):
+        if settings is None:
+            settings = self.import_settings.copy() or FileSettings()
+            settings.zeros = None
+            settings.number_format = (5,6)
+        return '\n'.join(self._generate_lines(settings, drop_comments=drop_comments))
 
-    @property
-    def parameters(self):
-        return [record for record in self.statements
-                if isinstance(record, IPC356_Parameter)]
+    def _generate_lines(self, settings, drop_comments, job_name=None):
+        yield 'C  IPC-D-356 generated by Gerbonara'
+        yield 'C'
+        yield f'P  JOB {self.params.get("JOB", "Gerbonara netlist export")}'
+        yield 'P  UNITS CUST 0' if settings.unit == Inch else 'P  UNITS CUST 1' 
 
-    @property
-    def test_records(self):
-        return [record for record in self.statements
-                if isinstance(record, IPC356_TestRecord)]
+        if not drop_comments:
+            for comment in self.comments:
+                yield f'C  {comment}'
 
-    @property
-    def nets(self):
-        nets = []
-        for net in list(set([rec.net_name for rec in self.test_records
-                             if rec.net_name is not None])):
-            adjacent_nets = set()
-            for record in self.adjacency_records:
-                if record.net == net:
-                    adjacent_nets = adjacent_nets.update(record.adjacent_nets)
-                elif net in record.adjacent_nets:
-                    adjacent_nets.add(record.net)
-            nets.append(IPC356_Net(net, adjacent_nets))
+        for name, value in self.params.items():
+            if name == 'JOB':
+                continue
+
+            yield f'P  {name} {value!s}'
+
+        net_name_map = {
+                f'NNAME{i}': name for i, name in enumerate(
+                    name for name in self.net_names() if len(name) > 14
+                    ) }
+
+        yield 'C'
+        yield 'C  Net name mapping:'
+        yield 'C'
+        for name, value in net_name_map.items():
+            yield f'P  {name} {value!s}'
+
+        yield 'C'
+        yield 'C Test records:'
+        yield 'C'
+
+        for record in self.test_records:
+            yield from record.format(settings, net_name_map)
+
+        if self.conductors:
+            yield 'C'
+            yield 'C Conductors:'
+            yield 'C'
+            for conductor in self.conductors:
+                yield from conductor.format(settings, net_name_map)
+
+        if self.outlines:
+            yield 'C'
+            yield 'C Outlines:'
+            yield 'C'
+            for outline in self.outlines:
+                yield from outline.format(settings)
+
+        if self.adjacency:
+            yield 'C'
+            yield 'C Adjacency data:'
+            yield 'C'
+            done = set()
+            for net, others in self.adjacency.items():
+                others_filtered = [ other for other in others if (net, other) not in done and (other, net) not in done ]
+
+                line = '379'
+                for net in self.nets:
+                    if len(line) + 1 + len(net) > 80:
+                        yield line
+                        line = f'079 {net}'
+                    else:
+                        line += f' {net}'
+                yield line
+
+    def net_names(self):
+        nets = { record.net_name for record in self.test_records }
+        nets -= {None}
         return nets
 
-    @property
-    def components(self):
-        return list(set([rec.id for rec in self.test_records
-                         if rec.id is not None and rec.id != 'VIA']))
-
-    @property
     def vias(self):
-        return [rec.id for rec in self.test_records if rec.id == 'VIA']
+        for record in self.test_records:
+            if record.is_via:
+                yield record
 
-    @property
-    def outlines(self):
-        return [stmt for stmt in self.statements
-                if isinstance(stmt, IPC356_Outline)]
+    def reference_designators(self):
+        names = { record.ref_des for record in self.test_records }
+        names -= {None}
+        return names
 
-    @property
-    def adjacency_records(self):
-        return [record for record in self.statements
-                if isinstance(record, IPC356_Adjacency)]
+    def records_by_reference(self, reference_designator):
+        for record in self.test_records:
+            if record.ref_des == reference_designator:
+                yield record
 
-    def render(self, ctx, layer='both', filename=None):
-        for p in self.primitives:
-            if layer == 'both' and p.layer in ('top', 'bottom', 'both'):
-                ctx.render(p)
-            elif layer == 'top' and p.layer in ('top', 'both'):
-                ctx.render(p)
-            elif layer == 'bottom' and p.layer in ('bottom', 'both'):
-                ctx.render(p)
-        if filename is not None:
-            ctx.dump(filename)
+    def records_by_net_name(self, net_name):
+        for record in self.test_records:
+            if record.net_name == net_name:
+                yield record
+
+    def conductors_by_net_name(self, net_name):
+        for conductor in self.conductos:
+            if conductor.net_name == net_name:
+                yield conductor
+
+    def conductors_by_layer(self, layer : int):
+        for conductor in self.conductos:
+            if conductor.layer == layer:
+                yield conductor
 
 
-class IPCNetlistParser(object):
-    # TODO: Allow multi-line statements (e.g. Altium board edge)
+class NetlistParser(object):
+    # Good resources on IPC-356 syntax are:
+    # https://www.downstreamtech.com/downloads/IPCD356_Simplified.pdf
+    # https://web.pa.msu.edu/hep/atlas/l1calo/hub/hardware/components/circuit_board/ipc_356a_net_list.pdf
 
     def __init__(self):
-        self.units = 'inch'
-        self.angle_units = 'degrees'
-        self.statements = []
-        self.nnames = {}
+        self.has_unit = False
+        self.settings = FileSettings()
+        self.net_names = {}
+        self.params = {}
+        self.comments = []
+        self.test_records = []
+        self.conductors = []
+        self.adjacency = {}
+        self.outlines = []
+        self.eof = False
 
-    @property
-    def settings(self):
-        return FileSettings(units=self.units, angle_units=self.angle_units)
+    def warn(self, msg, kls=SyntaxWarning):
+        warnings.warn(f'{self.filename}:{self.start_line}: {msg}', kls)
 
-    def parse(self, filename):
-        with open(filename, 'r') as f:
-            data = f.read()
-        return self.parse_raw(data, filename)
+    def assert_unit(self):
+        if not self.has_unit:
+            raise SyntaxError('IPC-356 netlist file does not contain unit specification before first entry')
 
-    def parse_raw(self, data, filename=None):
-        oldline = ''
-        for line in data.splitlines():
-            # Check for existing multiline data...
-                if oldline != '':
-                    if len(line) and line[0] == '0':
+    def parse(self, data, path=None):
+        self.filename = path.name
+
+        try:
+            oldline = ''
+            for lineno, line in enumerate(data.splitlines()):
+                # Check for existing multiline data...
+                if oldline:
+                    if line and line[0] == '0':
                         oldline = oldline.rstrip('\r\n') + line[3:].rstrip()
                     else:
                         self._parse_line(oldline)
+                        self.start_line = lineno
                         oldline = line
                 else:
+                    self.start_line = lineno
                     oldline = line
-        self._parse_line(oldline)
 
-        return IPCNetlist(self.statements, self.settings, filename=filename)
+            self._parse_line(oldline)
+        except Exception as e:
+            raise SyntaxError(f'Error parsing {self.filename}:{lineno}: {e}') from e
+
+        return Netlist(self.test_records, self.conductors, self.outlines, self.comments, self.adjacency,
+                params=self.params, import_settings=self.settings, original_path=path)
 
     def _parse_line(self, line):
-        if not len(line):
+        if not line:
             return
+
+        if self.eof:
+            warnings.warn('Data following IPC-356 End Of File marker')
+
         if line[0] == 'C':
-            # Comment
-            self.statements.append(IPC356_Comment.from_line(line))
+            line = line[2:].strip()
+
+            if line.strip().startswith('NNAME'):
+                name, *value = line.strip().split()
+                value = ' '.join(value)
+                warnings.warn('File contains non-standard Allegro-style net name alias definitions in comments.')
+                self.net_names[name] = value
+
+            else:
+                self.comments.append(line)
 
         elif line[0] == 'P':
             # Parameter
-            p = IPC356_Parameter.from_line(line)
-            if p.parameter == 'UNITS':
-                if p.value in ('CUST', 'CUST 0'):
-                    self.units = 'inch'
-                    self.angle_units = 'degrees'
-                elif p.value == 'CUST 1':
-                    self.units = 'metric'
-                    self.angle_units = 'degrees'
-                elif p.value == 'CUST 2':
-                    self.units = 'inch'
-                    self.angle_units = 'radians'
-            self.statements.append(p)
-            if _NNAME.match(p.parameter):
-                # Add to list of net name variables
-                self.nnames[p.parameter] = p.value
+            name, *value = line[2:].split()
+            value = ' '.join(value)
+
+            if name == 'UNITS':
+                if value in ('CUST', 'CUST 0'):
+                    self.settings.units = Inch
+                    self.settings.angle_unit = 'degree'
+                    self.has_unit = True
+
+                elif value == 'CUST 1':
+                    self.settings.units = MM
+                    self.settings.angle_unit = 'degree'
+                    self.has_unit = True
+
+                elif value == 'CUST 2':
+                    self.settings.units = Inch
+                    self.settings.angle_unit = 'radian'
+                    self.has_unit = True
+
+                else:
+                    raise SyntaxError(f'Unsupported IPC-356 netlist unit specification "{line}"')
+
+            elif name.startswith('NNAME'):
+                self.net_names[name] = value
+
+            else:
+                self.params[name] = value
 
         elif line[0] == '9':
-            self.statements.append(IPC356_EndOfFile())
+            self.eof = True
 
         elif line[0:3] in ('317', '327', '367'):
-            # Test Record
-            record = IPC356_TestRecord.from_line(line, self.settings)
-
-            # Substitute net name variables
-            net = record.net_name
-            if (_NNAME.match(net) and net in self.nnames.keys()):
-                record.net_name = self.nnames[record.net_name]
-            self.statements.append(record)
+            self.assert_unit()
+            self.test_records.append(TestRecord.parse(line, self.settings, self.net_names))
 
         elif line[0:3] == '378':
-            # Conductor
-            self.statements.append(
-                IPC356_Conductor.from_line(
-                    line, self.settings))
+            self.assert_unit()
+            self.conductors.append(Conductor.parse(line, self.settings, self.net_names))
 
         elif line[0:3] == '379':
-            # Net Adjacency
-            self.statements.append(IPC356_Adjacency.from_line(line))
+            net, *adjacent = line[3:].strip().split()
+
+            for other in adjacent:
+                self.adjacency[net] = self.adjacency.get(net, set()) | {other}
+                self.adjacency[other] = self.adjacency.get(other, set()) | {net}
 
         elif line[0:3] == '389':
-            # Outline
-            self.statements.append(
-                IPC356_Outline.from_line(
-                    line, self.settings))
+            self.assert_unit()
+            self.outlines.append(Outline.parse(line, self.settings))
+
+        else:
+            warnings.warn(f'Unknown IPC-356 record type {line[0:3]}')
 
 
-class IPC356_Comment(object):
-
-    @classmethod
-    def from_line(cls, line):
-        if line[0] != 'C':
-            raise ValueError('Not a valid comment statment')
-        comment = line[2:].strip()
-        return cls(comment)
-
-    def __init__(self, comment):
-        self.comment = comment
-
-    def __repr__(self):
-        return '<IPC-D-356 Comment: %s>' % self.comment
+class PadType(Enum):
+    THROUGH_HOLE = 1
+    SMD_PAD = 2
+    TOOLING_FEATURE = 3
+    TOOLING_HOLE = 4
+    NONPLATED_HOLE = 6
 
 
-class IPC356_Parameter(object):
-
-    @classmethod
-    def from_line(cls, line):
-        if line[0] != 'P':
-            raise ValueError('Not a valid parameter statment')
-        splitline = line[2:].split()
-        parameter = splitline[0].strip()
-        value = ' '.join(splitline[1:]).strip()
-        return cls(parameter, value)
-
-    def __init__(self, parameter, value):
-        self.parameter = parameter
-        self.value = value
-
-    def __repr__(self):
-        return '<IPC-D-356 Parameter: %s=%s>' % (self.parameter, self.value)
+class SoldermaskInfo(Enum):
+    NONE = 0
+    PRIMARY = 1
+    SECONDARY = 2
+    BOTH = 3
 
 
-class IPC356_TestRecord(object):
+@dataclass
+class TestRecord:
+    __test__ = False # tell pytest to ignore this class
+    pad_type : PadType = None
+    net_name : str = None
+    ref_des : str = None # part reference designator, e.g. "C1" or "U69"
+    is_via : bool = False
+    pin_num : int = None
+    is_middle : bool = False # is this a point in the middle or at the end of a trace/net?
+    hole_dia : float = None
+    is_plated : bool = None # None, True, or False.
+    access_layer : int = None
+    x : float = None
+    y : float = None
+    w : float = None
+    h : float = None
+    rotation : float = None
+    solder_mask : SoldermaskInfo = None
+    lefover : str = None
+    unit: KW_ONLY = None
 
-    @classmethod
-    def from_line(cls, line, settings):
-        offset = 0
-        units = settings.units
-        angle = settings.angle_units
-        feature_types = {'1': 'through-hole', '2': 'smt',
-                         '3': 'tooling-feature', '4': 'tooling-hole',
-                         '6': 'non-plated-tooling-hole'}
-        access = ['both', 'top', 'layer2', 'layer3', 'layer4', 'layer5',
-                  'layer6', 'layer7', 'bottom']
-        record = {}
-        line = line.strip()
-        if line[0] != '3':
-            raise ValueError('Not a valid test record statment')
-        record['feature_type'] = feature_types[line[1]]
-
-        end = len(line) - 1 if len(line) < 18 else 17
-        record['net_name'] = line[3:end].strip()
-
-        if len(line) >= 27 and line[26] != '-':
-            offset = line[26:].find('-')
-            offset = 0 if offset == -1 else offset
-        end = len(line) - 1 if len(line) < (27 + offset) else (26 + offset)
-        record['id'] = line[20:end].strip()
-
-        end = len(line) - 1 if len(line) < (32 + offset) else (31 + offset)
-        record['pin'] = (line[27 + offset:end].strip() if line[27 + offset:end].strip() != ''
-                         else None)
-
-        record['location'] = 'middle' if line[31 + offset] == 'M' else 'end'
-        if line[32 + offset] == 'D':
-            end = len(line) - 1 if len(line) < (38 + offset) else (37 + offset)
-            dia = int(line[33 + offset:end].strip())
-            record['hole_diameter'] = (dia * 0.0001 if units == 'inch'
-                                       else dia * 0.001)
-        if len(line) >= (38 + offset):
-            record['plated'] = (line[37 + offset] == 'P')
-
-        if len(line) >= (40 + offset):
-            end = len(line) - 1 if len(line) < (42 + offset) else (41 + offset)
-            record['access'] = access[int(line[39 + offset:end])]
-
-        if len(line) >= (43 + offset):
-            end = len(line) - 1 if len(line) < (50 + offset) else (49 + offset)
-            coord = int(line[42 + offset:end].strip())
-            record['x_coord'] = (coord * 0.0001 if units == 'inch'
-                                 else coord * 0.001)
-
-        if len(line) >= (51 + offset):
-            end = len(line) - 1 if len(line) < (58 + offset) else (57 + offset)
-            coord = int(line[50 + offset:end].strip())
-            record['y_coord'] = (coord * 0.0001 if units == 'inch'
-                                 else coord * 0.001)
-
-        if len(line) >= (59 + offset):
-            end = len(line) - 1 if len(line) < (63 + offset) else (62 + offset)
-            dim = line[58 + offset:end].strip()
-            if dim != '':
-                record['rect_x'] = (int(dim) * 0.0001 if units == 'inch'
-                                    else int(dim) * 0.001)
-
-        if len(line) >= (64 + offset):
-            end = len(line) - 1 if len(line) < (68 + offset) else (67 + offset)
-            dim = line[63 + offset:end].strip()
-            if dim != '':
-                record['rect_y'] = (int(dim) * 0.0001 if units == 'inch'
-                                    else int(dim) * 0.001)
-
-        if len(line) >= (69 + offset):
-            end = len(line) - 1 if len(line) < (72 + offset) else (71 + offset)
-            rot = line[68 + offset:end].strip()
-            if rot != '':
-                record['rect_rotation'] = (int(rot) if angle == 'degrees'
-                                           else math.degrees(rot))
-
-        if len(line) >= (74 + offset):
-            end = 74 + offset
-            sm_info = line[73 + offset:end].strip()
-            record['soldermask_info'] = _SM_FIELD.get(sm_info)
-
-        if len(line) >= (76 + offset):
-            end = len(line) - 1 if len(line) < (80 + offset) else 79 + offset
-            record['optional_info'] = line[75 + offset:end]
-
-        return cls(**record)
-
-    def __init__(self, **kwargs):
-        for key in kwargs:
-            setattr(self, key, kwargs[key])
-
-    def __repr__(self):
-        return '<IPC-D-356 %s Test Record: %s>' % (self.net_name,
-                                                   self.feature_type)
-
-
-class IPC356_Outline(object):
+    def __str__(self):
+        x = self.unit.format(self.x)
+        y = self.unit.format(self.y)
+        return f'<IPC-356 test record @ {x},{y} {self.net_name} {self.pad_type.name} at {self.ref_des}, pin {self.pin_num}>'
 
     @classmethod
-    def from_line(cls, line, settings):
-        type = line[3:17].strip()
-        scale = 0.0001 if settings.units == 'inch' else 0.001
-        points = []
-        x = 0
-        y = 0
-        coord_strings = line.strip().split()[1:]
-        for coord in coord_strings:
-            coord_dict = _COORD.match(coord).groupdict()
-            x = int(coord_dict['x']) if coord_dict['x'] != '' else x
-            y = int(coord_dict['y']) if coord_dict['y'] != '' else y
-            points.append((x * scale, y * scale))
-        return cls(type, points)
+    def parse(kls, line, settings, net_name_map={}):
+        obj = kls()
+        line = f'{line:<80}'
 
-    def __init__(self, type, points):
-        self.type = type
-        self.points = points
+        obj.unit = settings.unit
+        obj.pad_type = PadType(int(line[1]))
+        net_name = line[3:17].strip() or None
+        obj.net_name = net_name_map.get(net_name, net_name)
+        obj.ref_des = line[20:26].strip() or None
+        obj.pin = line[27:31].strip() or None
 
-    def __repr__(self):
-        return '<IPC-D-356 %s Outline Definition>' % self.type
+        if line[31] == 'M':
+            obj.is_middle = True
+        if line[32] == 'D':
+            obj.hole_dia = settings.parse_ipc_length(line[33:37])
+        if line[37] in ('P', 'U'):
+            obj.is_plated = (line[37] == 'P')
+        if line[38] == 'A':
+            obj.access_layer = int(line[39:41])
+        if line[41] == 'X':
+            obj.x = settings.parse_ipc_length(line[42:49])
+        if line[49] == 'Y':
+            obj.y = settings.parse_ipc_length(line[50:57])
+        if line[57] == 'X':
+            obj.w = settings.parse_ipc_length(line[58:62])
+        if line[62] == 'Y':
+            obj.h = settings.parse_ipc_length(line[63:67])
+        if line[67] == 'R':
+            obj.h = math.radians(int(line[68:71]))
+        if line[72] == 'S':
+            obj.solder_mask = SoldermaskInfo(int(line[73]))
+        obj.leftover = line[74:].strip() or None
+
+        return obj
+
+    def format(self, settings, net_name_map):
+        x = settings.unit(self.x, self.unit)
+        y = settings.unit(self.y, self.unit)
+        w = settings.unit(self.w, self.unit)
+        h = settings.unit(self.h, self.unit)
+        # TODO: raise warning if any string is too long
+        ref_des = 'VIA' if self.is_via else (self.ref_des or '')
+        net_name = net_name_map.get(self.net_name, self.net_name)
+
+        yield ''.join((
+            '3',
+            str(self.pad_type.value),
+            '7',
+            f'{net_name or "":<14}'[:14],
+            '   ',
+            f'{ref_des or "":<6}'[:6],
+            '-',
+            f'{self.pin_num or "":<4}'[:4],
+            'M' if self.is_middle else ' ',
+            settings.format_ipc_length(self.hole_dia, 4, 'D', self.unit),
+            {True: 'P', False: 'U', None: ' '}[self.is_plated],
+            settings.format_ipc_number(self.access_layer, 2, 'A'),
+            settings.format_ipc_length(self.x, 6, 'X', self.unit, sign=True),
+            settings.format_ipc_length(self.y, 6, 'Y', self.unit, sign=True),
+            settings.format_ipc_length(self.w, 4, 'X', self.unit),
+            settings.format_ipc_length(self.y, 4, 'Y', self.unit),
+            settings.format_ipc_number(math.degrees(self.rotation) if self.rotation is not None else None, 3, 'R'),
+            ' ',
+            settings.format_ipc_number(self.solder_mask, 1, 'S'),
+            f'{self.leftover or "":<6}'))
+
+class OutlineType(Enum):
+    BOARD_EDGE = 0
+    PANEL_EDGE = 1
+    SCORE_LINE = 2
+    OTHER_FAB = 3
 
 
-class IPC356_Conductor(object):
+def parse_coord_chain(line, settings):
+    x, y = None, None
+    for segment in line.split('*'):
+        coords = []
+        for coord in segment.strip().split():
+            if not (m := re.match(r'(X[+-]?[0-9]+)?(Y[+-]?[0-9]+)?', coord)):
+                raise SyntaxError(f'Invalid IPC-356 coordinate {coord}')
+
+            x = settings.parse_ipc_length(match[1], x)
+            y = settings.parse_ipc_length(match[2], y)
+
+            if x is None or y is None:
+                raise SyntaxError('Outline or conductor coordinate chain is missing one coordinate in the beginning')
+
+            coords.append((x, y))
+        yield coords
+
+def format_coord_chain(line, settings, coords, cont):
+    for x, y in coords:
+        coord = settings.format_ipc_length(x, 6, 'X', unit=self.unit, sign=True)
+        coord += settings.format_ipc_length(y, 6, 'Y', unit=self.unit, sign=True)
+
+        if len(line) + len(coord) <= 80:
+            line += coord
+
+        else:
+            yield line
+            line = f'{cont} {coord}'
+    yield line
+
+
+@dataclass
+class Outline:
+    outline_type : OutlineType
+    outline : [(float,)]
+    unit : KW_ONLY
 
     @classmethod
-    def from_line(cls, line, settings):
-        if line[0:3] != '378':
-            raise ValueError('Not a valid IPC-D-356 Conductor statement')
+    def parse(kls, line, settings):
+        outline_type = OutlineType[line[3:17].strip()]
+        for outline in parse_coord_chain(line[22:], settings):
+            yield kls(outline_type, outline, unit=settings.unit)
 
-        scale = 0.0001 if settings.units == 'inch' else 0.001
-        net_name = line[3:17].strip()
+    def format(self, settings):
+        line = f'389{self.outline_type.name:<14}     '
+        yield from format_coord_chain(line, settings, self.outline, '089')
+
+    def __str__(self):
+        return f'<IPC-356 {self.outline_type.name} outline with {len(self.outline)} points>'
+
+
+@dataclass
+class Conductor:
+    net_name : str
+    layer : int
+    aperture : (float,)
+    coords : [(float,)]
+    unit : KW_ONLY
+
+    @classmethod
+    def parse(kls, line, settings, net_name_map={}):
+        net_name = line[3:17].strip() or None
+        net_name = net_name_map.get(net_name, net_name)
+
+        if line[18] != 'L':
+            raise SytaxError(f'Invalid IPC-356 layer number specification for conductor in line "{line}"')
         layer = int(line[19:21])
 
-        # Parse out aperture definiting
-        raw_aperture = line[22:].split()[0]
-        aperture_dict = _COORD.match(raw_aperture).groupdict()
-        x = 0
-        y = 0
-        x = int(aperture_dict['x']) * \
-            scale if aperture_dict['x'] != '' else None
-        y = int(aperture_dict['y']) * \
-            scale if aperture_dict['y'] != '' else None
-        aperture = (x, y)
+        aperture_def, _, coords = line[22:].partition(' ')
+        if not (m := re.match(r'(X[+-]?[0-9]+)(Y[+-]?[0-9]+)?', coord)):
+            raise SyntaxError('Invalid IPC-356 aperture specification "{aperture_def"}')
+        aperture = settings.parse_ipc_length(m[1]), settings.parse_ipc_length(m[2])
 
-        # Parse out conductor shapes
-        shapes = []
-        coord_list = ' '.join(line[22:].split()[1:])
-        raw_shapes = coord_list.split('*')
-        for rshape in raw_shapes:
-            x = 0
-            y = 0
-            shape = []
-            coords = rshape.split()
-            for coord in coords:
-                coord_dict = _COORD.match(coord).groupdict()
-                x = int(coord_dict['x']) if coord_dict['x'] != '' else x
-                y = int(coord_dict['y']) if coord_dict['y'] != '' else y
-                shape.append((x * scale, y * scale))
-            shapes.append(tuple(shape))
-        return cls(net_name, layer, aperture, tuple(shapes))
+        for chain in parse_coord_chain(coords, settings):
+            yield kls(net_name, layer, aperture, chain, unit=settings.unit)
 
-    def __init__(self, net_name, layer, aperture, shapes):
-        self.net_name = net_name
-        self.layer = layer
-        self.aperture = aperture
-        self.shapes = shapes
+    def format(self, settings, net_name_map):
+        net_name = net_name_map.get(self.net_name, self.net_name)
+        net_name = f'{net_name:<14}[:14]'
+        line = f'378{net_name} L{self.layer:02d} '
+        yield from format_coord_chain(line, settings, self.outline, '078')
 
-    def __repr__(self):
-        return '<IPC-D-356 %s Conductor Record>' % self.net_name
+    def __str__(self):
+        return f'<IPC-356 conductor {self.net_name} with {len(self.coords)} points>'
 
-
-class IPC356_Adjacency(object):
-
-    @classmethod
-    def from_line(cls, line):
-        if line[0:3] != '379':
-            raise ValueError('Not a valid IPC-D-356 Conductor statement')
-        nets = line[3:].strip().split()
-
-        return cls(nets[0], nets[1:])
-
-    def __init__(self, net, adjacent_nets):
-        self.net = net
-        self.adjacent_nets = adjacent_nets
-
-    def __repr__(self):
-        return '<IPC-D-356 %s Adjacency Record>' % self.net
-
-
-class IPC356_EndOfFile(object):
-
-    def __init__(self):
-        pass
-
-    def to_netlist(self):
-        return '999'
-
-    def __repr__(self):
-        return '<IPC-D-356 EOF>'
-
-
-class IPC356_Net(object):
-
-    def __init__(self, name, adjacent_nets):
-        self.name = name
-        self.adjacent_nets = set(
-            adjacent_nets) if adjacent_nets is not None else set()
-
-    def __repr__(self):
-        return '<IPC-D-356 Net %s>' % self.name

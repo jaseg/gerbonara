@@ -75,6 +75,9 @@ class LengthUnit:
 
         return unit.convert_from(self, value)
 
+    def format(self, value):
+        return f'{value:.3f}{self.shorthand}'
+
     def __call__(self, value, unit):
         return self.convert_from(unit, value)
 

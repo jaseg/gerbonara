@@ -24,7 +24,7 @@ from pathlib import Path
 
 from .excellon import ExcellonFile
 from .rs274x import GerberFile
-from .ipc356 import IPCNetlist
+from .ipc356 import Netlist
 from .cam import FileSettings
 from .layer_rules import MATCH_RULES
 
