@@ -80,12 +80,16 @@ class FileSettings:
 
     def format_ipc_number(self, value, digits, key='', sign=False):
         if value is None:
-            return ' ' * (digits + 1 + len(key))
+            return ' ' * (digits + int(bool(sign)) + len(key))
 
         if isinstance(value, Enum):
             value = value.value
+        num = format(round(value), f'{"+" if sign else ""}0{digits+int(bool(sign))}d')
 
-        return key + format(round(value), f'{"+" if sign else ""}0{digits+1}d')
+        if len(num) > digits + int(bool(sign)):
+            raise ValueError('Error: Number {num} to wide for IPC-356 field of width {digits}')
+
+        return key + num
 
     def format_ipc_length(self, value, digits, key='', unit=None, sign=False):
         if value is not None:

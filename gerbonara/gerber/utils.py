@@ -76,7 +76,7 @@ class LengthUnit:
         return unit.convert_from(self, value)
 
     def format(self, value):
-        return f'{value:.3f}{self.shorthand}'
+        return f'{value:.3f}{self.shorthand}' if value is not None else ''
 
     def __call__(self, value, unit):
         return self.convert_from(unit, value)
