@@ -46,7 +46,6 @@ class RegexMatcher:
     def handle(self, inst, line):
         for regex, handler in self.mapping.items():
             if (match := re.fullmatch(regex, line)):
-                #print('  handler', handler.__name__)
                 handler(inst, match)
                 return True
         else:

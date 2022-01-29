@@ -152,8 +152,8 @@ class FileSettings:
 
 
 class CamFile:
-    def __init__(self, filename=None, layer_name=None):
-        self.filename = filename
+    def __init__(self, original_path=None, layer_name=None):
+        self.original_path = original_path
         self.layer_name = layer_name
         self.import_settings = None
         self.objects = []

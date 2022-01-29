@@ -71,15 +71,22 @@ def parse_allegro_ncparam(data, settings=None):
     # still be able to extract the same information from the human-readable ncdrill.log.
 
     if settings is None:
-        self.settings = FileSettings(number_format=(None, None))
+        settings = FileSettings(number_format=(None, None))
 
     lz_supp, tz_supp = False, False
+    nf_int, nf_frac = settings.number_format
     for line in data.splitlines():
         line = re.sub(r'\s+', ' ', line.strip())
 
         if (match := re.fullmatch(r'FORMAT ([0-9]+\.[0-9]+)', line)):
             x, _, y = match[1].partition('.')
-            settings.number_format = int(x), int(y)
+            nf_int, nf_frac = int(x), int(y)
+
+        elif (match := re.fullmatch(r'INTEGER-PLACES ([0-9]+)', line)):
+            nf_int = int(match[1])
+
+        elif (match := re.fullmatch(r'DECIMAL-PLACES ([0-9]+)', line)):
+            nf_frac = int(match[1])
 
         elif (match := re.fullmatch(r'COORDINATES (ABSOLUTE|.*)', line)):
             # I have not been able to find a single incremental-notation allegro file. Probably that is for the better.
@@ -100,16 +107,58 @@ def parse_allegro_ncparam(data, settings=None):
         raise SyntaxError('Allegro Excellon parameters specify both leading and trailing zero suppression. We do not '
                 'know how to parse this. Please raise an issue on our issue tracker and provide an example file.')
 
+    settings.number_format = nf_int, nf_frac
     settings.zeros = 'leading' if lz_supp else 'trailing'
+    return settings
 
+
+def parse_allegro_logfile(data):
+    found_tools = {}
+    unit = None
+
+    for line in data.splitlines():
+        line = line.strip()
+        line = re.sub('\s+', ' ', line)
+
+        if (m := re.match(r'OUTPUT-UNITS (METRIC|ENGLISH|INCHES)', line)):
+            # I have no idea wth is the difference between "ENGLISH" and "INCHES". I think one might just be the one
+            # Allegro uses in footprint files, with the other one being used in gerber exports.
+            unit = MM if m[1] == 'METRIC' else Inch
+
+        elif (m := re.match(r'T(?P<index1>[0-9]+) (?P<index2>[0-9]+)\. (?P<diameter>[0-9/.]+) [0-9. /+-]* (?P<plated>PLATED|NON_PLATED|OPTIONAL) [0-9]+', line)):
+            index1, index2 = int(m['index1']), int(m['index2'])
+            if index1 != index2:
+                return {}
+
+            diameter = float(m['diameter'])
+            if unit == Inch:
+                diameter /= 1000
+            is_plated = None if m['plated'] is None else (m['plated'] in ('PLATED', 'OPTIONAL'))
+            found_tools[index1] = ExcellonTool(diameter=diameter, plated=is_plated, unit=unit)
+    return found_tools
 
 class ExcellonFile(CamFile):
-    def __init__(self, objects=None, comments=None, import_settings=None, filename=None, generator_hints=None):
-        super().__init__(filename=filename)
+    def __init__(self, objects=None, comments=None, import_settings=None, original_path=None, generator_hints=None):
+        super().__init__(original_path=original_path)
         self.objects = objects or []
         self.comments = comments or []
         self.import_settings = import_settings
         self.generator_hints = generator_hints or [] # This is a purely informational goodie from the parser. Use it as you wish.
+
+    def __str__(self):
+        name = f'{self.original_path.name} ' if self.original_path else ''
+        if self.is_plated:
+            plating = 'plated'
+        elif self.is_nonplated:
+            plating = 'nonplated'
+        elif self.is_mixed_plating:
+            plating = 'mixed plating'
+        else:
+            plating = 'unknown plating'
+        return f'<ExcellonFile {name}{plating} with {len(list(self.drills()))} drills, {len(list(self.slots()))} slots using {len(self.drill_sizes())} tools>'
+
+    def __repr__(self):
+        return str(self)
 
     def __bool__(self):
         return not self.is_empty
@@ -165,6 +214,7 @@ class ExcellonFile(CamFile):
     @classmethod
     def open(kls, filename, plated=None, settings=None):
         filename = Path(filename)
+        logfile_tools = None
     
         # Parse allegro parameter files.
         # Prefer nc_param.txt over ncparam.log since the txt is the machine-readable one.
@@ -172,16 +222,23 @@ class ExcellonFile(CamFile):
             for fn in 'nc_param.txt', 'ncdrill.log':
                 if (param_file := filename.parent / fn).is_file():
                     settings =  parse_allegro_ncparam(param_file.read_text())
+                    warnings.warn(f'Loaded allegro-style excellon settings file {param_file}')
                     break
 
-        return kls.from_string(filename.read_text(), settings=settings, filename=filename, plated=plated)
+            # TODO add try/except aronud this
+            log_file = filename.parent / 'ncdrill.log'
+            if log_file.is_file():
+                logfile_tools = parse_allegro_logfile(log_file.read_text())
+
+        return kls.from_string(filename.read_text(), settings=settings,
+                filename=filename, plated=plated, logfile_tools=logfile_tools)
 
     @classmethod
-    def from_string(kls, data, settings=None, filename=None, plated=None):
-        parser = ExcellonParser(settings)
+    def from_string(kls, data, settings=None, filename=None, plated=None, logfile_tools=None):
+        parser = ExcellonParser(settings, logfile_tools=logfile_tools)
         parser.do_parse(data, filename=filename)
         return kls(objects=parser.objects, comments=parser.comments, import_settings=settings,
-                generator_hints=parser.generator_hints, filename=filename)
+                generator_hints=parser.generator_hints, original_path=filename)
 
     def _generate_statements(self, settings, drop_comments=True):
 
@@ -309,6 +366,12 @@ class ExcellonFile(CamFile):
     def drill_sizes(self):
         return sorted({ obj.tool.diameter for obj in self.objects })
 
+    def drills(self):
+        return (obj for obj in self.objects if isinstance(obj, Flash))
+
+    def slots(self):
+        return (obj for obj in self.objects if not isinstance(obj, Flash))
+
     @property
     def bounds(self):
         if not self.objects:
@@ -330,7 +393,7 @@ class ProgramState(Enum):
 
 
 class ExcellonParser(object):
-    def __init__(self, settings=None):
+    def __init__(self, settings=None, logfile_tools=None):
         # NOTE XNC files do not contain an explicit number format specification, but all values have decimal points.
         # Thus, we set the default number format to (None, None). If the file does not contain an explicit specification
         # and FileSettings.parse_gerber_value encounters a number without an explicit decimal point, it will throw a
@@ -352,6 +415,7 @@ class ExcellonParser(object):
         self.generator_hints = []
         self.lineno = None
         self.filename = None
+        self.logfile_tools = logfile_tools or {}
 
     def warn(self, msg):
         warnings.warn(f'{self.filename}:{self.lineno} "{self.line}": {msg}', SyntaxWarning)
@@ -462,9 +526,17 @@ class ExcellonParser(object):
         if index == 0: # T0 is used as END marker, just ignore
             return
         elif index not in self.tools:
-            raise SyntaxError(f'Undefined tool index {index} selected.')
+            if not self.tools and index in self.logfile_tools:
+                # allegro is just wonderful.
+                self.warn(f'Undefined tool index {index} selected. We found an allegro drill log file next to this, so '
+                            'we will use tool definitions from there.')
+                self.active_tool = self.logfile_tools[index]
 
-        self.active_tool = self.tools[index]
+            else:
+                raise SyntaxError(f'Undefined tool index {index} selected.')
+
+        else:
+            self.active_tool = self.tools[index]
 
     coord = lambda name, key=None: fr'({name}(?P<{key or name}>[+-]?[0-9]*\.?[0-9]*))?'
     xy_coord = coord('X') + coord('Y')
@@ -478,8 +550,7 @@ class ExcellonParser(object):
         dy = int(match['Y'] or '0')
 
         for i in range(int(match['count'])):
-            self.pos[0] += dx
-            self.pos[1] += dy
+            self.pos = (self.pos[0] + dx, self.pos[1] + dy)
             # FIXME fix API below
             if not self.ensure_active_tool():
                 return
@@ -689,7 +760,7 @@ class ExcellonParser(object):
         if match[2] not in ('', '2'):
             raise SyntaxError(f'Unsupported FMAT format version {match["version"]}')
 
-    @exprs.match('G40|G41|G42|{coord("F")}')
+    @exprs.match(r'G40|G41|G42|F[0-9]+')
     def handle_unhandled(self, match):
         self.warn(f'{match[0]} excellon command intended for CAM tools found in EDA file.')
 

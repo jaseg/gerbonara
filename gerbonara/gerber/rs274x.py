@@ -53,9 +53,9 @@ class GerberFile(CamFile):
     The GerberFile class represents a single gerber file.
     """
 
-    def __init__(self, objects=None, comments=None, import_settings=None, filename=None, generator_hints=None,
+    def __init__(self, objects=None, comments=None, import_settings=None, original_path=None, generator_hints=None,
             layer_hints=None, file_attrs=None):
-        super().__init__(filename=filename)
+        super().__init__(original_path=original_path)
         self.objects = objects or []
         self.comments = comments or []
         self.generator_hints = generator_hints or []
@@ -157,7 +157,7 @@ class GerberFile(CamFile):
         with open(filename, "r") as f:
             if enable_includes and enable_include_dir is None:
                 enable_include_dir = filename.parent
-            return kls.from_string(f.read(), enable_include_dir, filename=filename.name)
+            return kls.from_string(f.read(), enable_include_dir, filename=filename)
 
     @classmethod
     def from_string(kls, data, enable_include_dir=None, filename=None):
@@ -217,7 +217,8 @@ class GerberFile(CamFile):
         yield 'M02*'
 
     def __str__(self):
-        return f'<GerberFile with {len(self.apertures)} apertures, {len(self.objects)} objects>'
+        name = f'{self.original_path.name} ' if self.original_path else ''
+        return f'<GerberFile {name}with {len(self.apertures)} apertures, {len(self.objects)} objects>'
 
     def save(self, filename, settings=None, drop_comments=True):
         with open(filename, 'w', encoding='utf-8') as f: # Encoding is specified as UTF-8 by spec.
@@ -637,6 +638,7 @@ class GerberParser:
         self.target.import_settings = self.file_settings
         self.target.unit = self.file_settings.unit
         self.target.file_attrs = self.file_attrs
+        self.target.original_path = filename
 
         if not self.eof_found:
                     self.warn('File is missing mandatory M02 EOF marker. File may be truncated.')
