@@ -150,6 +150,7 @@ class FileSettings:
             return float(sign + value[:-decimal_digits] + '.' + value[-decimal_digits:])
 
         else: # no or trailing zero suppression
+            value = value + '0'*integer_digits
             return float(sign + value[:integer_digits] + '.' + value[integer_digits:])
 
     def write_gerber_value(self, value, unit=None):
