@@ -152,7 +152,6 @@ class FileSettings:
         else: # no or trailing zero suppression
             value = value + '0'*integer_digits
             out = float(sign + value[:integer_digits] + '.' + value[integer_digits:])
-        print(self.zeros, self.number_format, value, out)
         return out
 
     def write_gerber_value(self, value, unit=None):

@@ -43,6 +43,7 @@ class Aperture:
     _ : KW_ONLY
     unit : str = None
     attrs : dict = field(default_factory=dict)
+    original_number : str = None
 
     @property
     def hole_shape(self):
@@ -329,9 +330,10 @@ class ApertureMacroInstance(Aperture):
         return self.macro.name
 
     def primitives(self, x, y, unit=None, polarity_dark=True):
-        return self.macro.to_graphic_primitives(
+        out = list(self.macro.to_graphic_primitives(
                 offset=(x, y), rotation=self.rotation,
-                parameters=self.parameters, unit=unit, polarity_dark=polarity_dark)
+                parameters=self.parameters, unit=unit, polarity_dark=polarity_dark))
+        return out
 
     def dilated(self, offset, unit=MM):
         return replace(self, macro=self.macro.dilated(offset, unit))

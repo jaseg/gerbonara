@@ -91,7 +91,10 @@ class ApertureMacro:
         self._name = name
 
     def __str__(self):
-        return f'<Aperture macro, variables {str(self.variables)}, primitives {self.primitives}>'
+        return f'<Aperture macro {self.name}, variables {str(self.variables)}, primitives {self.primitives}>'
+
+    def __repr__(self):
+        return str(self)
 
     def __eq__(self, other):
         return hasattr(other, 'to_gerber') and self.to_gerber() == other.to_gerber()

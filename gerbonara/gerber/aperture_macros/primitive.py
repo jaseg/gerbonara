@@ -48,6 +48,9 @@ class Primitive:
         attrs = ','.join(str(getattr(self, name)).strip('<>') for name in type(self).__annotations__)
         return f'<{type(self).__name__} {attrs}>'
 
+    def __repr__(self):
+        return str(self)
+
     class Calculator:
         def __init__(self, instance, variable_binding={}, unit=None):
             self.instance = instance
@@ -222,18 +225,19 @@ class Outline(Primitive):
 
         self.coords = [(UnitExpression(x, unit), UnitExpression(y, unit)) for x, y in zip(args[0::2], args[1::2])]
 
+    def __str__(self):
+        return f'<Outline {len(self.coords)} points>'
+
     def to_gerber(self, unit=None):
         coords = ','.join(coord.to_gerber(unit) for xy in self.coords for coord in xy)
         return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)-1},{coords},{self.rotation.to_gerber()}'
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
-            bound_coords = [ (calc(x)+offset[0], calc(y)+offset[1]) for x, y in self.coords ]
-            bound_radii = [None] * len(bound_coords)
-
             rotation += deg_to_rad(calc.rotation)
-            bound_coords = [ gp.rotate_point(*p, rotation, 0, 0) for p in bound_coords ]
-
+            bound_coords = [ gp.rotate_point(calc(x), calc(y), rotation, 0, 0) for x, y in self.coords ]
+            bound_coords = [ (x+offset[0], y+offset[1]) for x, y in bound_coords ]
+            bound_radii = [None] * len(bound_coords)
             return [gp.ArcPoly(bound_coords, bound_radii, polarity_dark=(bool(calc.exposure) == polarity_dark))]
 
     def dilate(self, offset, unit):

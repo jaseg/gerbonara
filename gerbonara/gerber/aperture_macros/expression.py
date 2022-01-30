@@ -21,6 +21,9 @@ class Expression:
     def __str__(self):
         return f'<{self.to_gerber()}>'
 
+    def __repr__(self):
+        return f'<E {self.to_gerber()}>'
+
     def converted(self, unit):
         return self
 
@@ -75,6 +78,9 @@ class UnitExpression(Expression):
 
     def __str__(self):
         return f'<{self._expr.to_gerber()} {self.unit}>'
+
+    def __repr__(self):
+        return f'<UE {self._expr.to_gerber()} {self.unit}>'
 
     def converted(self, unit):
         if self.unit is None or unit is None or self.unit == unit:

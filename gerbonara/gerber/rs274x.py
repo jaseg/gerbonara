@@ -369,10 +369,11 @@ class GraphicsState:
             self.unit_warning = True
         attrs = attrs or {}
         self.update_point(x, y)
-        return go.Flash(*self.map_coord(*self.point), self.aperture,
+        obj = go.Flash(*self.map_coord(*self.point), self.aperture,
                 polarity_dark=self.polarity_dark,
                 unit=self.file_settings.unit,
                 attrs=attrs)
+        return obj
 
     def interpolate(self, x, y, i=None, j=None, aperture=True, multi_quadrant=False, attrs=None):
         if self.point is None:
@@ -737,6 +738,7 @@ class GerberParser:
     def _parse_aperture_definition(self, match):
         # number, shape, modifiers
         modifiers = [ float(val) for val in match['modifiers'].strip(' ,').split('X') ] if match['modifiers'] else []
+        number = int(match['number'])
 
         aperture_classes = {
                 'C': apertures.CircleAperture,
@@ -752,15 +754,17 @@ class GerberParser:
             if match['shape'] in 'RO' and (math.isclose(modifiers[0], 0) or math.isclose(modifiers[1], 0)):
                 self.warn('Definition of zero-width and/or zero-height rectangle or obround aperture. This is invalid according to spec.' )
 
-            new_aperture = kls(*modifiers, unit=self.file_settings.unit, attrs=self.aperture_attrs.copy())
+            new_aperture = kls(*modifiers, unit=self.file_settings.unit, attrs=self.aperture_attrs.copy(),
+                    original_number=number)
 
         elif (macro := self.aperture_macros.get(match['shape'])):
-            new_aperture = apertures.ApertureMacroInstance(macro, modifiers, unit=self.file_settings.unit, attrs=self.aperture_attrs.copy())
+            new_aperture = apertures.ApertureMacroInstance(macro, modifiers, unit=self.file_settings.unit,
+                    attrs=self.aperture_attrs.copy(), original_number=number)
 
         else:
             raise ValueError(f'Aperture shape "{match["shape"]}" is unknown')
 
-        self.aperture_map[int(match['number'])] = new_aperture
+        self.aperture_map[number] = new_aperture
 
     def _parse_aperture_macro(self, match):
         self.aperture_macros[match['name']] = ApertureMacro.parse_macro(
