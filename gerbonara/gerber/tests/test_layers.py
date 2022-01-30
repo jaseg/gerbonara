@@ -44,7 +44,7 @@ REFERENCE_DIRS = {
         },
 
     'allegro': {
-        '08_057494d-ipc356.ipc': None,
+        '08_057494d-ipc356.ipc': 'other netlist',
         '08_057494d.rou': 'mechanical outline',
         'Read_Me.1': None,
         'art_param.txt': None,
@@ -71,7 +71,7 @@ REFERENCE_DIRS = {
     'allegro-2': {
         'MINNOWMAX_REVA2_PUBLIC_BOTTOMSIDE.pdf': None,
         'MINNOWMAX_REVA2_PUBLIC_TOPSIDE.pdf': None,
-        'MinnowMax_RevA1_IPC356A.ipc': None,
+        'MinnowMax_RevA1_IPC356A.ipc': 'other netlist',
         'MinnowMax_RevA1_DRILL/MinnowMax_RevA1_NCDRILL.drl': 'drill unknown',
         'MinnowMax_RevA1_DRILL/MinnowMax_RevA1_NCROUTE.rou': 'drill unknown',
         'MinnowMax_RevA1_DRILL/nc_param.txt': None,

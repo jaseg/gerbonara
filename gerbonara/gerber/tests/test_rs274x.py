@@ -116,19 +116,6 @@ REFERENCE_FILES = [ l.strip() for l in '''
     altium-composite-drill/Gerber/LimeSDR-QPCIe_1v2.GBO
     altium-composite-drill/Gerber/LimeSDR-QPCIe_1v2.G8
     altium-composite-drill/Gerber/LimeSDR-QPCIe_1v2.GPT
-    allegro/mask_prm.art
-    allegro/paste_sec.art
-    allegro/assy2.art
-    allegro/l3_vcc.art
-    allegro/l1_primary.art
-    allegro/silk_prm.art
-    allegro/l2_gnd.art
-    allegro/assy1.art
-    allegro/fab1.art
-    allegro/l4_secondary.art
-    allegro/mask_sec.art
-    allegro/paste_prm.art
-    allegro/silk_sec.art
     geda/driver.topmask.gbr
     geda/controller.top.gbr
     geda/controller.bottom.gbr
@@ -456,10 +443,10 @@ def test_svg_export(reference, tmpfile):
     ref_svg = tmpfile('Reference export', '.svg')
     ref_png = tmpfile('Reference render', '.png')
     gerbv_export(reference, ref_svg, origin=bounds[0], size=bounds[1], fg='#000000', bg='#ffffff')
-    svg_to_png(ref_svg, ref_png, dpi=72) # make dpi match Cairo's default
+    svg_to_png(ref_svg, ref_png, dpi=72, bg='white') # make dpi match Cairo's default
 
     out_png = tmpfile('Output render', '.png')
-    svg_to_png(out_svg, out_png, dpi=72) # make dpi match Cairo's default
+    svg_to_png(out_svg, out_png, dpi=72, bg='white') # make dpi match Cairo's default
 
     mean, _max, hist = image_difference(ref_png, out_png, diff_out=tmpfile('Difference', '.png'))
     assert mean < 1.2e-3

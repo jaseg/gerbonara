@@ -15,6 +15,7 @@ MATCH_RULES = {
     # this rule is slightly generic to catch the drill files of things like geda and pcb-rnd that otherwise use altium's
     # layer names.
     'drill unknown':    r'.*\.(txt|drl|xln)',
+    'other netlist':    r'.*\.ipc',
     },
 
 'kicad': {
@@ -29,6 +30,7 @@ MATCH_RULES = {
     'inner copper':     r'.*\.gp?([0-9]+)|.*inn?e?r?([0-9]+).cu.*',
     'mechanical outline':    r'.*\.(gm[0-9]+)|.*edge.cuts.*',
     'drill plated':     r'.*\.(drl)',
+    'other netlist':    r'.*\.d356',
     },
 
 'geda': {
@@ -44,6 +46,7 @@ MATCH_RULES = {
     'mechanical outline':    r'.*\.outline\.gbr',
     'drill plated':     r'.*\.plated-drill.cnc',
     'drill nonplated':  r'.*\.unplated-drill.cnc',
+    'other netlist':    r'.*\.ipc', # default rule due to lack of tool-specific examples
     },
 
 'diptrace': {
@@ -58,6 +61,7 @@ MATCH_RULES = {
     'inner copper':     r'.*_inner_l([0-9]+).*',
     'bottom paste':     r'.*_boardoutline\.\w+', # FIXME verify this
     'drill plated':     r'.*\.(drl)', # diptrace has unplated drills on the outline layer
+    'other netlist':    r'.*\.ipc', # default rule due to lack of tool-specific examples
     },
 
 'target': {
@@ -71,6 +75,7 @@ MATCH_RULES = {
     'bottom paste':     r'.*\.PasteBot',
     'mechanical outline':    r'.*\.Outline',
     'drill plated':     r'.*\.Drill',
+    'other netlist':    r'.*\.ipc', # default rule due to lack of tool-specific examples
     },
 
 'orcad': {
@@ -86,6 +91,7 @@ MATCH_RULES = {
     'mechanical outline':    r'.*\.(fab|drd)',
     'drill plated':     r'.*\.tap',
     'drill nonplated':  r'.*\.npt',
+    'other netlist':    r'.*\.ipc', # default rule due to lack of tool-specific examples
     },
 
 'eagle': {
@@ -101,6 +107,7 @@ MATCH_RULES = {
     'inner copper':     r'.*\.ly([0-9]+)|.*\.internalplane([0-9]+)\.ger',
     'mechanical outline':    r'.*(\.dim|\.mil|\.gml)|.*\.(?:board)?outline\.ger|profile\.gbr',
     'drill plated':     r'.*\.(txt|exc|drd|xln)',
+    'other netlist':    r'.*\.ipc',
     },
 
 'siemens': {
@@ -119,6 +126,7 @@ MATCH_RULES = {
     # match these last to avoid shadowing other layers via substring match
     'top copper':       r'.*[^enk]Top.gdo',
     'bottom copper':    r'.*[^enk]Bottom.gdo',
+    'other netlist':    r'.*\.ipc', # default rule due to lack of tool-specific examples
     },
 
 'allegro': {
@@ -130,5 +138,13 @@ MATCH_RULES = {
     # put .log file last to prefer .txt
     'excellon params':  r'ncdrill\.log',
     'excellon params':  r'ncroute\.log',
+    'other netlist':    r'.*\.ipc', # default rule due to lack of tool-specific examples
     },
+
+'pads': {
+        # Pads also does not seem to have a factory-default naming schema. Or it has one but everyone ignores it.
+    'generic gerber':   r'.*\.pho',
+    'drill mech':       r'.*\.drl',
+    },
+
 }

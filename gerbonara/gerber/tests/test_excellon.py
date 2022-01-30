@@ -19,8 +19,8 @@ REFERENCE_FILES = {
         'easyeda/Gerber_Drill_NPTH.DRL': (None, None),
         'easyeda/Gerber_Drill_PTH.DRL': (None, 'easyeda/Gerber_TopLayer.GTL'),
         # Altium uses an excellon format specification format that gerbv doesn't understand, so we have to fix that.
-        'altium-composite-drill/NC Drill/LimeSDR-QPCIe_1v2-SlotHoles.TXT': (('mm', 'leading', 4), None),
-        'altium-composite-drill/NC Drill/LimeSDR-QPCIe_1v2-RoundHoles.TXT': (('mm', 'leading', 4), 'altium-composite-drill/Gerber/LimeSDR-QPCIe_1v2.GTL'),
+        'altium-composite-drill/NC Drill/LimeSDR-QPCIe_1v2-SlotHoles.TXT': (('mm', 'trailing', 4), None),
+        'altium-composite-drill/NC Drill/LimeSDR-QPCIe_1v2-RoundHoles.TXT': (('mm', 'trailing', 4), 'altium-composite-drill/Gerber/LimeSDR-QPCIe_1v2.GTL'),
         'pcb-rnd/power-art.xln': (None, 'pcb-rnd/power-art.gtl'),
         'siemens/80101_0125_F200_ThruHoleNonPlated.ncd': (None, None),
         'siemens/80101_0125_F200_ThruHolePlated.ncd': (None, 'siemens/80101_0125_F200_L01_Top.gdo'),
@@ -42,9 +42,36 @@ def test_round_trip(reference, tmpfile):
     tmp = tmpfile('Output excellon', '.drl')
     print('unit spec', unit_spec)
 
-    ExcellonFile.open(reference).save(tmp)
+    f = ExcellonFile.open(reference)
+    f.save(tmp)
+
+    if reference.name == '80101_0125_F200_ContourPlated.ncd':
+        # gerbv does not support routed slots in excellon files at all and renders garbage for the reference file here
+        # due to its use of bare coordinates for routed slots. Thus, we skip this test (for now).
+        return
 
     mean, _max, hist = gerber_difference(reference, tmp, diff_out=tmpfile('Difference', '.png'), ref_unit_spec=unit_spec)
+    assert mean < 5e-5
+    assert hist[9] == 0
+    assert hist[3:].sum() < 5e-5*hist.size
+
+@filter_syntax_warnings
+@pytest.mark.parametrize('reference', list(REFERENCE_FILES.items()), indirect=True)
+def test_first_level_idempotence_svg(reference, tmpfile):
+    reference, (unit_spec, _) = reference
+    tmp = tmpfile('Output excellon', '.drl')
+    ref_svg = tmpfile('Reference SVG render', '.svg')
+    out_svg = tmpfile('Output SVG render', '.svg')
+    print('unit spec', unit_spec)
+
+    a = ExcellonFile.open(reference)
+    a.save(tmp)
+    b = ExcellonFile.open(tmp)
+
+    ref_svg.write_text(str(a.to_svg(fg='black', bg='white')))
+    out_svg.write_text(str(b.to_svg(fg='black', bg='white')))
+
+    mean, _max, hist = svg_difference(ref_svg, out_svg, diff_out=tmpfile('Difference', '.png'), background='white')
     assert mean < 5e-5
     assert hist[9] == 0
     assert hist[3:].sum() < 5e-5*hist.size

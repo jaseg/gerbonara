@@ -97,6 +97,9 @@ class LengthUnit:
     def __str__(self):
         return self.shorthand
 
+    def __repr__(self):
+        return f'<LengthUnit {self.name}>'
+
 
 MILLIMETERS_PER_INCH = 25.4
 Inch = LengthUnit('inch', 'in', MILLIMETERS_PER_INCH)

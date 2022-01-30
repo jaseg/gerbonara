@@ -66,10 +66,16 @@ def best_match(filenames):
 def identify_file(data):
     if 'M48' in data:
         return 'excellon'
+
     if 'G90' in data and ';LEADER:' in data: # yet another allegro special case
         return 'excellon'
+
     if 'FSLAX' in data or 'FSTAX' in data:
         return 'gerber'
+
+    if 'UNITS CUST' in data:
+        return 'ipc356'
+
     return None
 
 def common_prefix(l):
@@ -111,7 +117,7 @@ def autoguess(filenames):
 def layername_autoguesser(fn):
     fn, _, ext = fn.lower().rpartition('.')
     
-    if ext == 'log':
+    if ext in ('log', 'err'):
         return 'unknown unknown'
 
     side, use = 'unknown', 'unknown'
@@ -149,8 +155,16 @@ def layername_autoguesser(fn):
         use = 'copper'
 
     elif re.search('out(line)?', fn):
-        use = 'mechanical'
-        side = 'outline'
+        use = 'outline'
+        side = 'mechanical'
+
+    elif 'ipc' in fn and '356' in fn:
+        use = 'netlist'
+        side = 'other'
+
+    elif 'netlist' in fn:
+        use = 'netlist'
+        side = 'other'
 
     return f'{side} {use}'
 
@@ -224,6 +238,7 @@ class LayerStack:
             raise SystemError(f'Ambiguous layer names for {", ".join(ambiguous)}')
 
         drill_layers = []
+        netlist = None
         layers = {} # { tuple(key.split()): None for key in STANDARD_LAYERS }
         for key, paths in filemap.items():
             if len(paths) > 1 and not 'drill' in key:
@@ -232,7 +247,11 @@ class LayerStack:
             for path in paths:
                 id_result = identify_file(path.read_text())
                 print('id_result', id_result)
-                if ('outline' in key or 'drill' in key) and id_result != 'gerber':
+
+                if 'netlist' in key:
+                    layer = Netlist.open(path)
+
+                elif ('outline' in key or 'drill' in key) and id_result != 'gerber':
                     if id_result is None:
                         # Since e.g. altium uses ".txt" as the extension for its drill files, we have to assume the
                         # current file might not be a drill file after all.
@@ -246,6 +265,7 @@ class LayerStack:
                         plated = None
                     layer = ExcellonFile.open(path, plated=plated, settings=excellon_settings)
                 else:
+
                     layer = GerberFile.open(path)
 
                 if key == 'mechanical outline':
@@ -253,6 +273,12 @@ class LayerStack:
 
                 elif 'drill' in key:
                     drill_layers.append(layer)
+
+                elif 'netlist' in key:
+                    if netlist:
+                        warnings.warn(f'Found multiple netlist files, using only first one. Have: {netlist.original_path.name}, got {path.name}')
+                    else:
+                        netlist = layer
 
                 else:
                     side, _, use = key.partition(' ')
@@ -266,12 +292,13 @@ class LayerStack:
         board_name = common_prefix([l.original_path.name for l in layers.values() if l is not None])
         board_name = re.sub(r'^\W+', '', board_name)
         board_name = re.sub(r'\W+$', '', board_name)
-        return kls(layers, drill_layers, board_name=board_name)
+        return kls(layers, drill_layers, netlist, board_name=board_name)
 
-    def __init__(self, graphic_layers, drill_layers, board_name=None):
+    def __init__(self, graphic_layers, drill_layers, netlist=None, board_name=None):
         self.graphic_layers = graphic_layers
         self.drill_layers = drill_layers
         self.board_name = board_name
+        self.netlist = netlist
 
     def __str__(self):
         names = [ f'{side} {use}' for side, use in self.graphic_layers ]
@@ -451,4 +478,5 @@ class LayerStack:
         self.drill_pth.merge(other.drill_pth)
         self.drill_npth.merge(other.drill_npth)
         self.drill_unknown.merge(other.drill_unknown)
+        self.netlist.merge(other.netlist)
 

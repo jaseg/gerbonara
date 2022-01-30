@@ -38,31 +38,43 @@ class ExcellonContext:
         self.mode = None
         self.current_tool = None
         self.x, self.y = None, None
+        self.drill_down = False
 
     def select_tool(self, tool):
         if self.current_tool != tool:
+            if self.drill_down:
+                yield 'M16' # drill up
+                self.drill_down = False
+
             self.current_tool = tool
             yield f'T{self.tools[id(tool)]:02d}'
 
     def drill_mode(self):
         if self.mode != ProgramState.DRILLING:
             self.mode = ProgramState.DRILLING
-            yield 'G05'
+            if self.drill_down:
+                yield 'M16' # drill up
+                self.drill_down = False
+            yield 'G05' # drill mode
 
     def route_mode(self, unit, x, y):
         x, y = self.settings.unit(x, unit), self.settings.unit(y, unit)
 
-        if self.mode == ProgramState.ROUTING:
-            if (self.x, self.y) == (x, y):
-                return # nothing to do
-            else:
-                yield 'M16' # drill up
+        if self.mode == ProgramState.ROUTING and (self.x, self.y) == (x, y):
+            return # nothing to do
 
+        if self.drill_down:
+            yield 'M16' # drill up
+
+        # route mode
         yield 'G00' + 'X' + self.settings.write_excellon_value(x) + 'Y' + self.settings.write_excellon_value(y)
         yield 'M15' # drill down
+        self.drill_down = True
+        self.mode = ProgramState.ROUTING
+        self.x, self.y = x, y
 
     def set_current_point(self, unit, x, y):
-        self.current_point = self.settings.unit(x, unit), self.settings.unit(y, unit)
+        self.x, self.y = self.settings.unit(x, unit), self.settings.unit(y, unit)
 
 def parse_allegro_ncparam(data, settings=None):
     # This function parses data from allegro's nc_param.txt and ncdrill.log files. We have to parse these files because
@@ -71,7 +83,7 @@ def parse_allegro_ncparam(data, settings=None):
     # still be able to extract the same information from the human-readable ncdrill.log.
 
     if settings is None:
-        settings = FileSettings(number_format=(None, None))
+        settings = FileSettings(number_format=(None, None), zeros='leading')
 
     lz_supp, tz_supp = False, False
     nf_int, nf_frac = settings.number_format
@@ -118,7 +130,7 @@ def parse_allegro_logfile(data):
 
     for line in data.splitlines():
         line = line.strip()
-        line = re.sub('\s+', ' ', line)
+        line = re.sub(r'\s+', ' ', line)
 
         if (m := re.match(r'OUTPUT-UNITS (METRIC|ENGLISH|INCHES)', line)):
             # I have no idea wth is the difference between "ENGLISH" and "INCHES". I think one might just be the one
@@ -400,7 +412,7 @@ class ExcellonParser(object):
         # SyntaxError. In case of e.g. Allegro files where the number format and other options are specified separately
         # from the excellon file, the caller must pass in an already filled-out FileSettings object.
         if settings is None:
-            self.settings = FileSettings(number_format=(None, None))
+            self.settings = FileSettings(number_format=(None, None), zeros='leading')
         else:
             self.settings = settings
         self.program_state = None
@@ -448,7 +460,7 @@ class ExcellonParser(object):
             # TODO check first command in file is "start of header" command.
 
             try:
-                #print(f'{lineno} "{line}"', end=' ')
+                print(f'{self.settings.number_format} {lineno} "{line}"')
                 if not self.exprs.handle(self, line):
                     raise ValueError('Unknown excellon statement:', line)
             except Exception as e:
@@ -540,6 +552,7 @@ class ExcellonParser(object):
 
     coord = lambda name, key=None: fr'({name}(?P<{key or name}>[+-]?[0-9]*\.?[0-9]*))?'
     xy_coord = coord('X') + coord('Y')
+    xyaij_coord = xy_coord + coord('A') + coord('I') + coord('J')
 
     @exprs.match(r'R(?P<count>[0-9]+)' + xy_coord)
     def handle_repeat_hole(self, match):
@@ -657,7 +670,7 @@ class ExcellonParser(object):
         self.warn('Routing command found before first tool definition.')
         return None
 
-    @exprs.match('(?P<mode>G01|G02|G03)' + xy_coord + coord('A') + coord('I') + coord('J'))
+    @exprs.match('(?P<mode>G01|G02|G03)' + xyaij_coord)
     def handle_linear_mode(self, match):
         if match['mode'] == 'G01':
             self.interpolation_mode = InterpMode.LINEAR
@@ -733,7 +746,7 @@ class ExcellonParser(object):
             self.settings.number_format = len(integer), len(fractional)
 
         elif self.settings.number_format == (None, None) and not metric:
-            self.warn('Using implicit number format from naked "INCH" statement. This is normal for Fritzing, Diptrace, Geda and pcb-rnd.')
+            self.warn('Using implicit number format from bare "INCH" statement. This is normal for Fritzing, Diptrace, Geda and pcb-rnd.')
             self.settings.number_format = (2,4)
     
     @exprs.match('G90')
@@ -776,18 +789,24 @@ class ExcellonParser(object):
                 # slots.
                 self.objects.append(Line(*start, *end, self.active_tool, unit=self.settings.unit))
 
-    @exprs.match(xy_coord)
-    def handle_naked_coordinate(self, match):
-        _start, end = self.do_move(match)
+    @exprs.match(xyaij_coord)
+    def handle_bare_coordinate(self, match):
+        # Yes, drills in the header doesn't follow the specification, but it there are many files like this.
+        if self.program_state in (ProgramState.DRILLING, ProgramState.HEADER):
+            _start, end = self.do_move(match)
 
-        if not self.ensure_active_tool():
-            return
+            if not self.ensure_active_tool():
+                return
 
-        # Yes, drills in the header doesn't follow the specification, but it there are many files like this
-        if self.program_state not in (ProgramState.DRILLING, ProgramState.HEADER):
-            return
+            self.objects.append(Flash(*end, self.active_tool, unit=self.settings.unit))
 
-        self.objects.append(Flash(*end, self.active_tool, unit=self.settings.unit))
+        elif self.program_state == ProgramState.ROUTING:
+            # Bare coordinates for routing also seem illegal, but Siemens actually uses these.
+            # Example file: siemens/80101_0125_F200_ContourPlated.ncd
+            self.do_interpolation(match)
+
+        else:
+            self.warn('Bare coordinate after end of file')
 
     @exprs.match(r'; Format\s*: ([0-9]+\.[0-9]+) / (Absolute|Incremental) / (Inch|MM) / (Leading|Trailing)')
     def parse_siemens_format(self, match):

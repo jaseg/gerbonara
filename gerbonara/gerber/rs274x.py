@@ -873,6 +873,9 @@ class GerberParser:
         if cmt.startswith('File Origin:') and 'Allegro' in cmt:
             self.generator_hints.append('allegro')
 
+        elif cmt.startswith('PADS') and 'generated Gerber' in cmt:
+            self.generator_hints.append('pads')
+
         elif cmt.startswith('Layer:'):
             if 'BOARD GEOMETRY' in cmt:
                 if 'SOLDERMASK_TOP' in cmt:

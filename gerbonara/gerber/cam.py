@@ -147,11 +147,13 @@ class FileSettings:
 
         if self.zeros == 'leading':
             value = '0'*decimal_digits + value # pad with zeros to ensure we have enough decimals
-            return float(sign + value[:-decimal_digits] + '.' + value[-decimal_digits:])
+            out = float(sign + value[:-decimal_digits] + '.' + value[-decimal_digits:])
 
         else: # no or trailing zero suppression
             value = value + '0'*integer_digits
-            return float(sign + value[:integer_digits] + '.' + value[integer_digits:])
+            out = float(sign + value[:integer_digits] + '.' + value[integer_digits:])
+        print(self.zeros, self.number_format, value, out)
+        return out
 
     def write_gerber_value(self, value, unit=None):
         """ Convert a floating point number to a Gerber/Excellon-formatted string.  """

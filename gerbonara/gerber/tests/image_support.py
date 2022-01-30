@@ -61,7 +61,8 @@ def run_cargo_cmd(cmd, args, **kwargs):
     except FileNotFoundError:
         return subprocess.run([str(Path.home() / '.cargo' / 'bin' / cmd), *args], **kwargs)
 
-def svg_to_png(in_svg, out_png, dpi=100, bg='black'):
+def svg_to_png(in_svg, out_png, dpi=100, bg=None):
+    bg = 'black' if bg is None else bg
     run_cargo_cmd('resvg', ['--background', bg, '--dpi', str(dpi), in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
 
 to_gerbv_svg_units = lambda val, unit='mm': val*72 if unit == 'inch' else val/25.4*72
@@ -89,6 +90,9 @@ def gerbv_export(in_gbr, out_svg, export_format='svg', origin=(0, 0), size=(6, 6
         color = f"(cons 'color #({r*257} {g*257} {b*257}))"
         f.write(f'''(gerbv-file-version! "2.0A")(define-layer! 0 (cons 'filename "{in_gbr}"){unit_spec}{color})''')
         f.flush()
+        if override_unit_spec:
+            import shutil
+            shutil.copy(f.name, '/tmp/foo.gbv')
 
         x, y = origin
         w, h = size
@@ -194,12 +198,12 @@ def gerber_difference_merge(ref1, ref2, actual, diff_out=None, composite_out=Non
 
         return svg_difference(ref1_svg.name, act_svg.name, diff_out=diff_out)
 
-def svg_difference(reference, actual, diff_out=None):
+def svg_difference(reference, actual, diff_out=None, background=None):
     with tempfile.NamedTemporaryFile(suffix='-ref.png') as ref_png,\
         tempfile.NamedTemporaryFile(suffix='-act.png') as act_png:
 
-        svg_to_png(reference, ref_png.name)
-        svg_to_png(actual, act_png.name)
+        svg_to_png(reference, ref_png.name, bg=background)
+        svg_to_png(actual, act_png.name, bg=background)
 
         return image_difference(ref_png.name, act_png.name, diff_out=diff_out)
 
