@@ -29,12 +29,12 @@ def version():
 setup(
     name='gerbonara',
     version=version(),
-    author='XenGi, jaseg',
+    author='jaseg, XenGi',
     author_email='contact@gerbonara.jaseg.de',
     description='Tools to handle Gerber and Excellon files in Python',
     long_description=long_description(),
     long_description_content_type='text/markdown',
-    url='https://gitlab.com/gerbonara/gerbonara',
+    url='https://gitlab.com/gerbolyze/gerbonara',
     project_urls={
         # 'Documentation': 'https://packaging.python.org/tutorials/distributing-packages/',
         # 'Funding': 'https://donate.pypi.org',
@@ -50,9 +50,9 @@ setup(
         ],
     },
     classifiers=[
-        'Development Status :: 1 - Planning',
+        #'Development Status :: 1 - Planning',
         #'Development Status :: 3 - Alpha',
-        #'Development Status :: 4 - Beta',
+        'Development Status :: 4 - Beta',
         #'Development Status :: 5 - Production/Stable',
         'Environment :: Console',
         'Intended Audience :: Developers',
@@ -64,8 +64,6 @@ setup(
         'Operating System :: POSIX :: Linux',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3 :: Only',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
@@ -79,5 +77,5 @@ setup(
         'Typing :: Typed',
     ],
     keywords='gerber excellon pcb',
-    python_requires='>=3.6',
+    python_requires='>=3.8',
 )
