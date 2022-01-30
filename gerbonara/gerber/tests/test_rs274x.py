@@ -246,7 +246,12 @@ HAS_ZERO_SIZE_APERTURES = [
     'top_copper.GTL',
     'top_silk.GTO',
     'board_outline.GKO',
-    'eagle_files/silkscreen_top.gbr',
+    'silkscreen_top.gbr',
+    'combined.GKO',
+    'combined.gto',
+    'EtchLayerTop.gdo',
+    'EtchLayerBottom.gdo',
+    'BoardOutlline.gdo',
     ]
 
 
@@ -443,19 +448,24 @@ def test_svg_export(reference, tmpfile):
     ref_svg = tmpfile('Reference export', '.svg')
     ref_png = tmpfile('Reference render', '.png')
     gerbv_export(reference, ref_svg, origin=bounds[0], size=bounds[1], fg='#000000', bg='#ffffff')
-    svg_to_png(ref_svg, ref_png, dpi=72, bg='white') # make dpi match Cairo's default
+    svg_to_png(ref_svg, ref_png, dpi=300, bg='white')
 
     out_png = tmpfile('Output render', '.png')
-    svg_to_png(out_svg, out_png, dpi=72, bg='white') # make dpi match Cairo's default
+    svg_to_png(out_svg, out_png, dpi=300, bg='white')
+
+    if reference.name in HAS_ZERO_SIZE_APERTURES:
+        # gerbv does not render these correctly.
+        return
 
     mean, _max, hist = image_difference(ref_png, out_png, diff_out=tmpfile('Difference', '.png'))
-    if 'Minnow' in reference.name:
+    assert hist[9] < 1
+    if 'Minnow' in reference.name or 'LimeSDR' in reference.name or '80101_0125_F200' in reference.name:
         # This is a dense design with lots of traces, leading to lots of aliasing artifacts.
         assert mean < 10e-3
+        assert hist[4:].sum() < 1e-2*hist.size
     else:
         assert mean < 1.2e-3
-    assert hist[9] < 1
-    assert hist[3:].sum() < 1e-3*hist.size
+        assert hist[3:].sum() < 1e-3*hist.size
 
 # FIXME test svg margin, bounding box computation
 

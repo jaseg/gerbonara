@@ -7,9 +7,13 @@ from functools import total_ordering
 import shutil
 import bs4
 from contextlib import contextmanager
+import hashlib
 
 import numpy as np
 from PIL import Image
+
+cachedir = Path(__file__).parent / 'image_cache'
+cachedir.mkdir(exist_ok=True)
 
 @total_ordering
 class ImageDifference:
@@ -62,47 +66,59 @@ def run_cargo_cmd(cmd, args, **kwargs):
         return subprocess.run([str(Path.home() / '.cargo' / 'bin' / cmd), *args], **kwargs)
 
 def svg_to_png(in_svg, out_png, dpi=100, bg=None):
-    bg = 'black' if bg is None else bg
-    run_cargo_cmd('resvg', ['--background', bg, '--dpi', str(dpi), in_svg, out_png], check=True, stdout=subprocess.DEVNULL)
+    params = f'{dpi}{bg}'.encode()
+    digest = hashlib.blake2b(Path(in_svg).read_bytes() + params).hexdigest()
+    cachefile = cachedir / f'{digest}.png'
+
+    if not cachefile.is_file():
+        bg = 'black' if bg is None else bg
+        run_cargo_cmd('resvg', ['--background', bg, '--dpi', str(dpi), in_svg, cachefile], check=True, stdout=subprocess.DEVNULL)
+
+    shutil.copy(cachefile, out_png)
 
 to_gerbv_svg_units = lambda val, unit='mm': val*72 if unit == 'inch' else val/25.4*72
 
 def gerbv_export(in_gbr, out_svg, export_format='svg', origin=(0, 0), size=(6, 6), fg='#ffffff', bg='#000000', override_unit_spec=None):
-    # NOTE: gerbv seems to always export 'clear' polarity apertures as white, irrespective of --foreground, --background
-    # and project file color settings.
-    # TODO: File issue upstream.
-    with tempfile.NamedTemporaryFile('w') as f:
-        if override_unit_spec:
-            units, zeros, digits = override_unit_spec
-            print(f'{Path(in_gbr).name}: overriding excellon unit spec to {units=} {zeros=} {digits=}')
-            units = 0 if units == 'inch' else 1
-            zeros = {None: 0, 'leading': 1, 'trailing': 2}[zeros]
-            unit_spec = textwrap.dedent(f'''(cons 'attribs (list
-                    (list 'autodetect 'Boolean 0)
-                    (list 'zero_suppression 'Enum {zeros})
-                    (list 'units 'Enum {units})
-                    (list 'digits 'Integer {digits})
-                ))''')
-        else:
-            unit_spec = ''
+    params = f'{origin}{size}{fg}{bg}'.encode()
+    digest = hashlib.blake2b(Path(in_gbr).read_bytes() + params).hexdigest()
+    cachefile = cachedir / f'{digest}.svg'
 
-        r, g, b = int(fg[1:3], 16), int(fg[3:5], 16), int(fg[5:], 16)
-        color = f"(cons 'color #({r*257} {g*257} {b*257}))"
-        f.write(f'''(gerbv-file-version! "2.0A")(define-layer! 0 (cons 'filename "{in_gbr}"){unit_spec}{color})''')
-        f.flush()
-        if override_unit_spec:
-            import shutil
-            shutil.copy(f.name, '/tmp/foo.gbv')
+    if not cachefile.is_file():
+        # NOTE: gerbv seems to always export 'clear' polarity apertures as white, irrespective of --foreground, --background
+        # and project file color settings.
+        # TODO: File issue upstream.
+        with tempfile.NamedTemporaryFile('w') as f:
+            if override_unit_spec:
+                units, zeros, digits = override_unit_spec
+                print(f'{Path(in_gbr).name}: overriding excellon unit spec to {units=} {zeros=} {digits=}')
+                units = 0 if units == 'inch' else 1
+                zeros = {None: 0, 'leading': 1, 'trailing': 2}[zeros]
+                unit_spec = textwrap.dedent(f'''(cons 'attribs (list
+                        (list 'autodetect 'Boolean 0)
+                        (list 'zero_suppression 'Enum {zeros})
+                        (list 'units 'Enum {units})
+                        (list 'digits 'Integer {digits})
+                    ))''')
+            else:
+                unit_spec = ''
 
-        x, y = origin
-        w, h = size
-        cmd = ['gerbv', '-x', export_format,
-            '--border=0',
-            f'--origin={x:.6f}x{y:.6f}', f'--window_inch={w:.6f}x{h:.6f}',
-            f'--background={bg}',
-            f'--foreground={fg}',
-            '-o', str(out_svg), '-p', f.name]
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            r, g, b = int(fg[1:3], 16), int(fg[3:5], 16), int(fg[5:], 16)
+            color = f"(cons 'color #({r*257} {g*257} {b*257}))"
+            f.write(f'''(gerbv-file-version! "2.0A")(define-layer! 0 (cons 'filename "{in_gbr}"){unit_spec}{color})''')
+            f.flush()
+            if override_unit_spec:
+                shutil.copy(f.name, '/tmp/foo.gbv')
+
+            x, y = origin
+            w, h = size
+            cmd = ['gerbv', '-x', export_format,
+                '--border=0',
+                f'--origin={x:.6f}x{y:.6f}', f'--window_inch={w:.6f}x{h:.6f}',
+                f'--background={bg}',
+                f'--foreground={fg}',
+                '-o', str(cachefile), '-p', f.name]
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    shutil.copy(cachefile, out_svg)
 
 @contextmanager
 def svg_soup(filename):
@@ -114,7 +130,7 @@ def svg_soup(filename):
     with open(filename, 'w') as f:
         f.write(str(soup))
 
-def cleanup_clips(soup):
+def cleanup_gerbv_svg(soup):
     for group in soup.find_all('g'):
         # gerbv uses Cairo's SVG canvas. Cairo's SVG canvas is kind of broken. It has no support for unit
         # handling at all, which means the output files just end up being in pixels at 72 dpi. Further, it
@@ -124,10 +140,6 @@ def cleanup_clips(soup):
         #
         # Apart from being graphically broken, this additionally causes very bad rendering performance.
         del group['clip-path']
-
-def cleanup_gerbv_svg(filename):
-    with svg_soup(filename) as soup:
-        cleanup_clips(soup)
 
 def gerber_difference(reference, actual, diff_out=None, svg_transform=None, size=(10,10), ref_unit_spec=None):
     with tempfile.NamedTemporaryFile(suffix='.svg') as act_svg,\
@@ -139,10 +151,10 @@ def gerber_difference(reference, actual, diff_out=None, svg_transform=None, size
         with svg_soup(ref_svg.name) as soup:
             if svg_transform is not None:
                 soup.find('g', attrs={'id': 'surface1'})['transform'] = svg_transform
-            cleanup_clips(soup)
+            cleanup_gerbv_svg(soup)
 
         with svg_soup(act_svg.name) as soup:
-            cleanup_clips(soup)
+            cleanup_gerbv_svg(soup)
 
         return svg_difference(ref_svg.name, act_svg.name, diff_out=diff_out)
 
@@ -158,12 +170,12 @@ def gerber_difference_merge(ref1, ref2, actual, diff_out=None, composite_out=Non
         with svg_soup(ref1_svg.name) as soup1:
             if svg_transform1 is not None:
                 soup1.find('g', attrs={'id': 'surface1'})['transform'] = svg_transform1
-            cleanup_clips(soup1)
+            cleanup_gerbv_svg(soup1)
 
             with svg_soup(ref2_svg.name) as soup2:
                 if svg_transform2 is not None:
                     soup2.find('g', attrs={'id': 'surface1'})['transform'] = svg_transform2
-                cleanup_clips(soup2)
+                cleanup_gerbv_svg(soup2)
 
                 defs1 = soup1.find('defs')
                 if not defs1:
@@ -194,7 +206,7 @@ def gerber_difference_merge(ref1, ref2, actual, diff_out=None, composite_out=Non
             shutil.copyfile(ref1_svg.name, composite_out)
 
         with svg_soup(act_svg.name) as soup:
-            cleanup_clips(soup)
+            cleanup_gerbv_svg(soup)
 
         return svg_difference(ref1_svg.name, act_svg.name, diff_out=diff_out)
 

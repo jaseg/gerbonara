@@ -282,7 +282,7 @@ class Polyline:
         (x0, y0), *rest = self.coords
         d = f'M {x0:.6} {y0:.6} ' + ' '.join(f'L {x:.6} {y:.6}' for x, y in rest)
         width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
-        return tag('path', d=d, style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linecap: round')
+        return tag('path', d=d, style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linejoin: round; stroke-linecap: round')
 
 @dataclass
 class Line(GraphicPrimitive):
