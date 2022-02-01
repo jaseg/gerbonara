@@ -197,6 +197,9 @@ class ExcellonFile(CamFile):
         else:
             self.objects.append(obj_or_comment)
 
+    def to_excellon(self):
+        return self
+
     def to_gerber(self):
         apertures = {}
         out = GerberFile()
@@ -292,7 +295,7 @@ class ExcellonFile(CamFile):
 
         yield 'M30'
 
-    def to_excellon(self, settings=None, drop_comments=True):
+    def generate_excellon(self, settings=None, drop_comments=True):
         ''' Export to Excellon format. This function always generates XNC, which is a well-defined subset of Excellon.
         '''
         if settings is None:
@@ -306,10 +309,11 @@ class ExcellonFile(CamFile):
 
     def save(self, filename, settings=None, drop_comments=True):
         with open(filename, 'w') as f:
-            f.write(self.to_excellon(settings, drop_comments=drop_comments))
+            f.write(self.generate_excellon(settings, drop_comments=drop_comments))
 
     def offset(self, x=0, y=0, unit=MM):
-        self.objects = [ obj.with_offset(x, y, unit) for obj in self.objects ]
+        for obj in self.objects:
+            obj.offset(x, y, unit)
 
     def rotate(self, angle, cx=0, cy=0, unit=MM):
         if math.isclose(angle % (2*math.pi), 0):

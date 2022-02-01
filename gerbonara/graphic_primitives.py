@@ -201,10 +201,10 @@ class ArcPoly(GraphicPrimitive):
 
     # list of (x : float, y : float) tuples. Describes closed outline, i.e. first and last point are considered
     # connected.
-    outline : [(float,)]
+    outline : list
     # must be either None (all segments are straight lines) or same length as outline.
     # Straight line segments have None entry.
-    arc_centers : [(float,)] = None
+    arc_centers : list = None
 
     @property
     def segments(self):

@@ -95,6 +95,7 @@ class Aperture:
 
 @dataclass(unsafe_hash=True)
 class ExcellonTool(Aperture):
+    gerber_shape_code = 'C'
     human_readable_shape = 'drill'
     diameter : Length(float)
     plated : bool = None

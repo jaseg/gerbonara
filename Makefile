@@ -1,13 +1,21 @@
 
-PYTHON ?= python
-PYTEST ?= pytest
+PYTHON 			?= python
+PYTEST 			?= pytest
+SPHINX_BUILD	?= sphinx-build
+
+all: docs sdist bdist_wheel
 
 .PHONY: clean
-clean: doc-clean
+clean:
 	find . -name '*.pyc' -delete
 	rm -rf *.egg-info
 	rm -f .coverage
 	rm -f coverage.xml
+	rm -rf docs/_build
+
+.PHONY: docs
+docs:
+	sphinx-build -E docs docs/_build
 
 .PHONY: test
 test:
@@ -30,7 +38,7 @@ bdist_wheel:
 	python3 setup.py bdist_wheel
 
 upload: sdist bdist_wheel
-	twine upload -s -i contact@gerbonara.io --config-file ~/.pypirc --skip-existing --repository pypi dist/*
+	twine upload -s -i gerbonara@jaseg.de --config-file ~/.pypirc --skip-existing --repository pypi dist/*
 
 testupload: sdist bdist_wheel
 	twine upload --config-file ~/.pypirc --skip-existing --repository testpypi dist/*

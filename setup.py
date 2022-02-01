@@ -30,7 +30,7 @@ setup(
     name='gerbonara',
     version=version(),
     author='jaseg, XenGi',
-    author_email='contact@gerbonara.jaseg.de',
+    author_email='gerbonara@jaseg.de',
     description='Tools to handle Gerber and Excellon files in Python',
     long_description=long_description(),
     long_description_content_type='text/markdown',

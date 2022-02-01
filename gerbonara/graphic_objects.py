@@ -1,8 +1,9 @@
 
 import math
+import copy
 from dataclasses import dataclass, KW_ONLY, astuple, replace, field, fields
 
-from .utils import MM, InterpMode
+from .utils import MM, InterpMode, to_unit
 from . import graphic_primitives as gp
 
 
@@ -18,27 +19,94 @@ class Length:
     def __init__(self, obj_type):
         self.type = obj_type
 
+    def __repr__(self):
+        # This makes the automatically generated method signatures in the Sphinx docs look nice
+        return 'float'
+
 @dataclass
-class GerberObject:
+class GraphicObject:
+    """ Base class for the graphic objects that make up a :py:class:`gerbonara.rs274x.GerberFile` or
+    :py:class:`gerbonara.excellon.ExcellonFile`. """
     _ : KW_ONLY
+
+    #: bool representing the *color* of this feature: whether this is a *dark* or *clear* feature. Clear and dark are
+    #: meant in the sense that they are used in the Gerber spec and refer to whether the transparency film that this
+    #: file describes ends up black or clear at this spot. In a standard green PCB, a *polarity_dark=True* line will
+    #: show up as copper on the copper layer, white ink on the silkscreen layer, or an opening on the soldermask layer.
+    #: Clear features erase dark features, they are not transparent in the colloquial meaning. This property is ignored
+    #: for features of an :py:class:`gerbonara.excellon.ExcellonFile`.
     polarity_dark : bool = True
+
+    #: :py:class:`gerbonara.utils.LengthUnit` used for all coordinate fields of this feature (such as `x` or `y`).
     unit : str = None
+
+
+    #: `dict` containing GerberX2 attributes attached to this feature. Note that this does not include file attributes,
+    #: which are stored in the :py:class:`gerbonara.rs274x.GerberFile` object instead.
     attrs : dict = field(default_factory=dict)
 
     def converted(self, unit):
-        return replace(self, 
-                **{ f.name: self.unit.convert_to(unit, getattr(self, f.name))
-                    for f in fields(self) if type(f.type) is Length })
+        """ Convert this gerber object to another :py:class:`gerbonara.utils.LengthUnit`.
 
-    def with_offset(self, dx, dy, unit=MM):
+        :param unit: Either a :py:class:`gerbonara.utils.LengthUnit` instance or one of the strings ``'mm'`` or ``'inch'``.
+
+        :returns: A copy of this object using the new unit. 
+        """
+        copy = copy.copy(self)
+        copy.convert_to(unit)
+
+    def convert_to(self, unit):
+        """ Convert this gerber object to another :py:class:`gerbonara.utils.LengthUnit` in-place.
+
+        :param unit: Either a :py:class:`gerbonara.utils.LengthUnit` instance or one of the strings ``'mm'`` or ``'inch'``.
+        """
+
+        for f in fields(self):
+            if type(f.type) is Length:
+                setattr(self, f.name, self.unit.convert_to(unit, getattr(self, f.name)))
+
+        self.unit = to_unit(unit)
+
+    def offset(self, dx, dy, unit=MM):
+        """ Add an offset to the location of this feature. The location can be given in either unit, and is
+        automatically converted into this object's local unit.
+        
+        :param float dx: X offset, positive values move the object right.
+        :param float dy: Y offset, positive values move the object up. This is the opposite of the normal screen
+                         coordinate system used in SVG and other computer graphics APIs.
+        """
+
         dx, dy = self.unit(dx, unit), self.unit(dy, unit)
-        return self._with_offset(dx, dy)
+        self._offset(dx, dy)
 
     def rotate(self, rotation, cx=0, cy=0, unit=MM):
+        """ Rotate this object. The center of rotation can be given in either unit, and is automatically converted into
+        this object's local unit.
+
+        .. note:: The center's Y coordinate as well as the angle's polarity are flipped compared to computer graphics
+                  convention since Gerber uses a bottom-to-top Y axis.
+
+        :param float rotation: rotation in radians clockwise.
+        :param float cx: X coordinate of center of rotation in *unit* units.
+        :param float cy: Y coordinate of center of rotation. (0,0) is at the bottom left of the image.
+        :param unit: :py:class:`gerbonara.utils.LengthUnit` or str with unit for *cx* and *cy*
+        """
+
         cx, cy = self.unit(cx, unit), self.unit(cy, unit)
         self._rotate(rotation, cx, cy)
 
     def bounding_box(self, unit=None):
+        """ Return axis-aligned bounding box of this object in given unit. If no unit is given, return the bounding box
+        in the object's local unit (``self.unit``).
+
+        .. note:: This method returns bounding boxes in a different format than legacy pcb-tools_, which used
+                  ``(min_x, max_x), (min_y, max_y)``
+
+        :param unit: :py:class:`gerbonara.utils.LengthUnit` or str with unit for return value.
+
+        :returns: tuple of tuples of floats: ``(min_x, min_y), (max_x, max_y)``
+        """
+
         bboxes = [ p.bounding_box() for p in self.to_primitives(unit) ]
         min_x = min(min_x for (min_x, _min_y), _ in bboxes)
         min_y = min(min_y for (_min_x, min_y), _ in bboxes)
@@ -47,16 +115,62 @@ class GerberObject:
         return ((min_x, min_y), (max_x, max_y))
 
     def to_primitives(self, unit=None):
-        raise NotImplementedError()
+        """ Render this object into low-level graphical primitives (subclasses of :py:class:`GraphicPrimitive`). This
+        computes out all coordinates in case aperture macros are involved, and resolves units. The output primitives are
+        converted into the given unit, and will be stripped of unit information. If no unit is given, use this object's
+        native unit (``self.unit``).
+
+        :param unit: :py:class:`gerbonara.utils.LengthUnit` or str with unit for return value.
+
+        :rtype: Iterator[:py:class:`GraphicPrimitive`]
+        """
+        return self._to_primitives(unit)
+
+    def _to_statements(self, gs):
+        """ Serialize this object into Gerber statements.
+
+        :param gs: :py:class:`rs274x.GraphicsState` object containing current Gerber state (polarity, selected aperture,
+        interpolation mode etc.).
+
+        :returns: Iterator yielding one string per line of output Gerber
+        :rtype: Iterator[str]
+        """
+        self._to_statements(gs)
+
+    def _to_xnc(self, ctx):
+        """ Serialize this object into XNC Excellon statements.
+
+        :param ctx: :py:class:`excellon.ExcellonContext` object containing current Excellon state (selected tool,
+        interpolation mode etc.).
+
+        :returns: Iterator yielding one string per line of output XNC code
+        :rtype: Iterator[str]
+        """
+        self._to_xnc(ctx)
+
 
 @dataclass
-class Flash(GerberObject):
+class Flash(GraphicObject):
+    """ A flash is what happens when you "stamp" a Gerber aperture at some location. The :py:attr:`polarity_dark`
+    attribute that Flash inherits from :py:class:`GraphicObject` is ``True`` for normal flashes. If you set a Flash's
+    ``polarity_dark`` to ``False``, you invert the polarity of all of its features.
+
+    Flashes are also used to represent drilled holes in an :py:class:`gerbonara.excellon.ExcellonFile`. In this case,
+    :py:attr:`aperture` should be an instance of :py:class:`ExcellonTool`.
+    """
+
+    #: float with X coordinate of the center of this flash.
     x : Length(float)
+
+    #: float with Y coordinate of the center of this flash.
     y : Length(float)
+
+    #: Flashed Aperture. must be a subclass of :py:class:`Aperture`.
     aperture : object
 
     @property
     def tool(self):
+        """ Alias for :py:attr:`aperture` for use inside an :py:class:`gerbonara.excellon.ExcellonFile`. """
         return self.aperture
 
     @tool.setter
@@ -65,19 +179,23 @@ class Flash(GerberObject):
 
     @property
     def plated(self):
-        return self.tool.plated
+        """ (Excellon only) Returns if this is a plated hole. ``True`` (plated), ``False`` (non-plated) or ``None``
+        (plating undefined)
+        """
+        return getattr(self.tool, 'plated', None)
 
-    def _with_offset(self, dx, dy):
-        return replace(self, x=self.x+dx, y=self.y+dy)
+    def __offset(self, dx, dy):
+        self.x += dx
+        self.y += dy
 
     def _rotate(self, rotation, cx=0, cy=0):
         self.x, self.y = gp.rotate_point(self.x, self.y, rotation, cx, cy)
 
-    def to_primitives(self, unit=None):
+    def _to_primitives(self, unit=None):
         conv = self.converted(unit)
         yield from self.aperture.flash(conv.x, conv.y, unit, self.polarity_dark)
 
-    def to_statements(self, gs):
+    def _to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
 
@@ -87,7 +205,7 @@ class Flash(GerberObject):
 
         gs.update_point(self.x, self.y, unit=self.unit)
 
-    def to_xnc(self, ctx):
+    def _to_xnc(self, ctx):
         yield from ctx.select_tool(self.tool)
         yield from ctx.drill_mode()
 
@@ -97,11 +215,31 @@ class Flash(GerberObject):
 
         ctx.set_current_point(self.unit, self.x, self.y)
 
+    # internally used to compute Excellon file path length
     def curve_length(self, unit=MM):
         return 0
 
 
-class Region(GerberObject):
+class Region(GraphicObject):
+    """ Gerber "region", roughly equivalent to what in computer graphics you would call a polygon. A region is a single
+    filled area defined by a list of coordinates on its contour. A region's polarity is its "fill". A region does not
+    have a "stroke", and thus does not have an `aperture` field. Note that regions are a strict subset of what modern
+    computer graphics considers a polygon or path. Be careful when converting shapes from somewhere else into Gerber
+    regions. For arbitrary shapes (e.g. SVG paths) this is non-trivial, and I recommend you hava look at Gerbolyze_ /
+    svg-flatten_. Here's a list of special features of Gerber regions:
+
+     * A region's outline consists of straigt line segments and circular arcs and must always be closed.
+     * A region is always exactly one connected component.
+     * A region must not overlap itself anywhere.
+     * A region cannot have holes.
+
+    There is one exception from the last two rules: To emulate a region with a hole in it, *cut-ins* are allowed. At a
+    cut-in, the region is allowed to touch (but never overlap!) itself.
+
+    :attr poly: :py:class:`graphic_primitives.ArcPoly` describing the actual outline of this Region. The coordinates of
+                this poly are in the unit of this instance's :py:attr:`unit` field.
+    """
+
     def __init__(self, outline=None, arc_centers=None, *, unit, polarity_dark):
         super().__init__(unit=unit, polarity_dark=polarity_dark)
         outline = [] if outline is None else outline
@@ -114,11 +252,8 @@ class Region(GerberObject):
     def __bool__(self):
         return bool(self.poly)
 
-    def _with_offset(self, dx, dy):
-        return Region([ (x+dx, y+dy) for x, y in self.poly.outline ],
-                self.poly.arc_centers,
-                polarity_dark=self.polarity_dark,
-                unit=self.unit)
+    def _offset(self, dx, dy):
+        self.poly.outline = [ (x+dx, y+dy) for x, y in self.poly.outline ]
 
     def _rotate(self, angle, cx=0, cy=0):
         self.poly.outline = [ gp.rotate_point(x, y, angle, cx, cy) for x, y in self.poly.outline ]
@@ -138,7 +273,7 @@ class Region(GerberObject):
         else:
             self.poly.arc_centers.append(None)
 
-    def to_primitives(self, unit=None):
+    def _to_primitives(self, unit=None):
         self.poly.polarity_dark = self.polarity_dark # FIXME: is this the right spot to do this?
         if unit == self.unit:
             yield self.poly
@@ -188,17 +323,37 @@ class Region(GerberObject):
         yield 'G37*'
 
 @dataclass
-class Line(GerberObject):
-    # Line with *round* end caps.
+class Line(GraphicObject):
+    """ A line is what happens when you "drag" a Gerber :py:class:`Aperture` from one point to another. Note that Gerber
+    lines are substantially funkier than normal lines as we know them from modern computer graphics such as SVG. A
+    Gerber line is defined as the area that is covered when you drag its aperture along. This means that for a
+    rectangular aperture, a horizontal line and a vertical line using the same aperture will have different widths.
 
+    .. warning:: Try to only ever use :py:class:`CircleAperture` with :py:class:`Line` and :py:class:`Arc` since other
+                 aperture types are not widely supported by renderers / photoplotters even though they are part of the
+                 spec.
+
+    .. note:: If you manipulate a :py:class:`Line`, it is okay to assume that it has round end caps and a defined width
+              as exceptions are really rare.
+    """
+
+    #: X coordinate of start point
     x1 : Length(float)
+    #: Y coordinate of start point
     y1 : Length(float)
+    #: X coordinate of end point
     x2 : Length(float)
+    #: Y coordinate of end point
     y2 : Length(float)
+    #: Aperture for this line. Should be a subclass of :py:class:`CircleAperture`, whose diameter determines the line
+    #: width.
     aperture : object
 
-    def _with_offset(self, dx, dy):
-        return replace(self, x1=self.x1+dx, y1=self.y1+dy, x2=self.x2+dx, y2=self.y2+dy)
+    def _offset(self, dx, dy):
+        self.x1 += dx
+        self.y1 += dy
+        self.x2 += dx
+        self.y2 += dy
 
     def _rotate(self, rotation, cx=0, cy=0):
         self.x1, self.y1 = gp.rotate_point(self.x1, self.y1, rotation, cx, cy)
@@ -206,18 +361,17 @@ class Line(GerberObject):
 
     @property
     def p1(self):
+        """ Convenience alias for ``(self.x1, self.y1)`` returning start point of the line. """
         return self.x1, self.y1
 
     @property
     def p2(self):
+        """ Convenience alias for ``(self.x2, self.y2)`` returning end point of the line. """
         return self.x2, self.y2
 
     @property
-    def end_point(self):
-        return self.p2
-
-    @property
     def tool(self):
+        """ Alias for :py:attr:`aperture` for use inside an :py:class:`gerbonara.excellon.ExcellonFile`. """
         return self.aperture
 
     @tool.setter
@@ -226,14 +380,17 @@ class Line(GerberObject):
 
     @property
     def plated(self):
+        """ (Excellon only) Returns if this is a plated hole. ``True`` (plated), ``False`` (non-plated) or ``None``
+        (plating undefined)
+        """
         return self.tool.plated
 
-    def to_primitives(self, unit=None):
+    def _to_primitives(self, unit=None):
         conv = self.converted(unit)
         w = self.aperture.equivalent_width(unit) if self.aperture else 0.1 # for debugging
         yield gp.Line(*conv.p1, *conv.p2, w, polarity_dark=self.polarity_dark)
 
-    def to_statements(self, gs):
+    def _to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
         yield from gs.set_interpolation_mode(InterpMode.LINEAR)
@@ -245,7 +402,7 @@ class Line(GerberObject):
 
         gs.update_point(*self.p2, unit=self.unit)
 
-    def to_xnc(self, ctx):
+    def _to_xnc(self, ctx):
         yield from ctx.select_tool(self.tool)
         yield from ctx.route_mode(self.unit, *self.p1)
 
@@ -255,26 +412,61 @@ class Line(GerberObject):
 
         ctx.set_current_point(self.unit, *self.p2)
 
+    # internally used to compute Excellon file path length
     def curve_length(self, unit=MM):
         return self.unit.convert_to(unit, math.dist(self.p1, self.p2))
 
 
 @dataclass
-class Arc(GerberObject):
+class Arc(GraphicObject):
+    """ Like :py:class:`Line`, but a circular arc. Has start ``(x1, y1)`` and end ``(x2, y2)`` attributes like a
+    :py:class:`Line`, but additionally has a center ``(cx, cy)`` specified relative to the start point ``(x1, y1)``, as
+    well as a ``clockwise`` attribute indicating the arc's direction.
+
+    .. note:: The same warning on apertures that applies to :py:class:`Line` applies to :py:class:`Arc`, too.
+    
+    .. warning:: When creating your own circles, you have to take care yourself that the center is actually the center
+                 of a circle that goes through both (x1,y1) and (x2,y2). Elliptical arcs are *not* supported by either
+                 us or the Gerber standard.
+    """
+    #: X coordinate of start point
     x1 : Length(float)
+    #: Y coordinate of start point
     y1 : Length(float)
+    #: X coordinate of end point
     x2 : Length(float)
+    #: Y coordinate of end point
     y2 : Length(float)
-    # relative to (x1, x2)
+    #: X coordinate of arc center relative to ``x1``
     cx : Length(float)
+    #: Y coordinate of arc center relative to ``x1``
     cy : Length(float)
+    #: Direction of arc. ``True`` means clockwise. For a given center coordinate and endpoints there are always two
+    #: possible arcs, the large one and the small one. Flipping this switches between them.
     clockwise : bool
+    #: Aperture for this arc. Should be a subclass of :py:class:`CircleAperture`, whose diameter determines the line
+    #: width.
     aperture : object
     
-    def _with_offset(self, dx, dy):
-        return replace(self, x1=self.x1+dx, y1=self.y1+dy, x2=self.x2+dx, y2=self.y2+dy)
+    def _offset(self, dx, dy):
+        self.x1 += dx
+        self.y1 += dy
+        self.x2 += dx
+        self.y2 += dy
 
     def numeric_error(self, unit=None):
+        """ Gerber arcs are sligtly over-determined. Since we have not just a radius, but center X and Y coordinates, an
+        "impossible" arc can be specified, where the start and end points do not lie on a circle around its center. This
+        function returns the absolute difference between the two radii (start - center) and (end - center) as an
+        indication on how bad this arc is.
+
+        .. note:: For arcs read from a Gerber file, this value can easily be in the order of magnitude of 1e-4. Gerber
+                  files have very limited numerical resolution, and rounding errors will necessarily lead to numerical
+                  accuracy issues with arcs.
+
+        :rtype: float
+        """
+        # This function is used internally to determine the right arc in multi-quadrant mode
         conv = self.converted(unit)
         cx, cy = conv.cx + conv.x1, conv.cy + conv.y1
         r1 = math.dist((cx, cy), conv.p1)
@@ -282,6 +474,11 @@ class Arc(GerberObject):
         return abs(r1 - r2)
 
     def sweep_angle(self):
+        """ Calculate absolute sweep angle of arc. This is always a positive number.
+
+        :returns: Angle in clockwise radian between ``0`` and ``2*math.pi``
+        :rtype: float
+        """
         cx, cy = self.cx + self.x1, self.cy + self.y1
         x1, y1 = self.x1 - cx, self.y1 - cy
         x2, y2 = self.x2 - cx, self.y2 - cy
@@ -301,26 +498,35 @@ class Arc(GerberObject):
 
     @property
     def p1(self):
+        """ Convenience alias for ``(self.x1, self.y1)`` returning start point of the arc. """
         return self.x1, self.y1
 
     @property
     def p2(self):
+        """ Convenience alias for ``(self.x2, self.y2)`` returning end point of the arc. """
         return self.x2, self.y2
 
     @property
     def center(self):
+        """ Returns the center of the arc in **absolute** coordinates.
+
+        :returns: ``(self.x1 + self.cx, self.y1 + self.cy)``
+        :rtype: tuple(float)
+        """
         return self.cx + self.x1, self.cy + self.y1
 
     @property
     def center_relative(self):
+        """ Returns the center of the arc in relative coordinates.
+
+        :returns: ``(self.cx, self.cy)``
+        :rtype: tuple(float)
+        """
         return self.cx, self.cy
 
     @property
-    def end_point(self):
-        return self.p2
-
-    @property
     def tool(self):
+        """ Alias for :py:attr:`aperture` for use inside an :py:class:`gerbonara.excellon.ExcellonFile`. """
         return self.aperture
 
     @tool.setter
@@ -329,6 +535,9 @@ class Arc(GerberObject):
 
     @property
     def plated(self):
+        """ (Excellon only) Returns if this is a plated hole. ``True`` (plated), ``False`` (non-plated) or ``None``
+        (plating undefined)
+        """
         return self.tool.plated
 
     def _rotate(self, rotation, cx=0, cy=0):
@@ -338,7 +547,7 @@ class Arc(GerberObject):
         self.x2, self.y2 = gp.rotate_point(self.x2, self.y2, rotation, cx, cy)
         self.cx, self.cy = new_cx - self.x1, new_cy - self.y1
 
-    def to_primitives(self, unit=None):
+    def _to_primitives(self, unit=None):
         conv = self.converted(unit)
         w = self.aperture.equivalent_width(unit) if self.aperture else 0.1 # for debugging
         yield gp.Arc(x1=conv.x1, y1=conv.y1,
@@ -348,7 +557,7 @@ class Arc(GerberObject):
                 width=w,
                 polarity_dark=self.polarity_dark)
 
-    def to_statements(self, gs):
+    def _to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
         # TODO is the following line correct?
@@ -363,7 +572,7 @@ class Arc(GerberObject):
 
         gs.update_point(*self.p2, unit=self.unit)
 
-    def to_xnc(self, ctx):
+    def _to_xnc(self, ctx):
         yield from ctx.select_tool(self.tool)
         yield from ctx.route_mode(self.unit, self.x1, self.y1)
         code = 'G02' if self.clockwise else 'G03'
@@ -376,6 +585,7 @@ class Arc(GerberObject):
 
         ctx.set_current_point(self.unit, self.x2, self.y2)
 
+    # internally used to compute Excellon file path length
     def curve_length(self, unit=MM):
         return self.unit.convert_to(unit, math.hypot(self.cx, self.cy) * self.sweep_angle)
 

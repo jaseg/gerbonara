@@ -79,6 +79,9 @@ class GerberFile(CamFile):
             
         return ExcellonFile(objects=new_objs, comments=self.comments)
 
+    def to_gerber(self):
+        return
+
     def merge(self, other):
         """ Merge other GerberFile into this one """
         if other is None:
@@ -222,9 +225,9 @@ class GerberFile(CamFile):
 
     def save(self, filename, settings=None, drop_comments=True):
         with open(filename, 'w', encoding='utf-8') as f: # Encoding is specified as UTF-8 by spec.
-            f.write(self.to_gerber(settings, drop_comments=drop_comments))
+            f.write(self.generate_gerber(settings, drop_comments=drop_comments))
 
-    def to_gerber(self, settings=None, drop_comments=True):
+    def generate_gerber(self, settings=None, drop_comments=True):
         # Use given settings, or use same settings as original file if not given, or use defaults if not imported from a
         # file
         if settings is None:
@@ -245,8 +248,8 @@ class GerberFile(CamFile):
 
     def offset(self, dx=0,  dy=0, unit=MM):
         # TODO round offset to file resolution
-    
-        self.objects = [ obj.with_offset(dx, dy, unit) for obj in self.objects ]
+        for obj in self.objects:
+            obj.with_offset(dx, dy, unit)
 
     def rotate(self, angle:'radian', center=(0,0), unit=MM):
         """ Rotate file contents around given point.

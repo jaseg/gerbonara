@@ -2,3 +2,4 @@ gerbonara_test_failures
 *.egg-info
 __pycache__
 .tox
+docs/_build/
