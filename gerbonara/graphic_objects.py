@@ -25,8 +25,7 @@ class Length:
 
 @dataclass
 class GraphicObject:
-    """ Base class for the graphic objects that make up a :py:class:`gerbonara.rs274x.GerberFile` or
-    :py:class:`gerbonara.excellon.ExcellonFile`. """
+    """ Base class for the graphic objects that make up a :py:class:`.GerberFile` or :py:class:`.ExcellonFile`. """
     _ : KW_ONLY
 
     #: bool representing the *color* of this feature: whether this is a *dark* or *clear* feature. Clear and dark are
@@ -34,21 +33,21 @@ class GraphicObject:
     #: file describes ends up black or clear at this spot. In a standard green PCB, a *polarity_dark=True* line will
     #: show up as copper on the copper layer, white ink on the silkscreen layer, or an opening on the soldermask layer.
     #: Clear features erase dark features, they are not transparent in the colloquial meaning. This property is ignored
-    #: for features of an :py:class:`gerbonara.excellon.ExcellonFile`.
+    #: for features of an :py:class:`.ExcellonFile`.
     polarity_dark : bool = True
 
-    #: :py:class:`gerbonara.utils.LengthUnit` used for all coordinate fields of this object (such as ``x`` or ``y``).
+    #: :py:class:`.LengthUnit` used for all coordinate fields of this object (such as ``x`` or ``y``).
     unit : str = None
 
 
     #: `dict` containing GerberX2 attributes attached to this feature. Note that this does not include file attributes,
-    #: which are stored in the :py:class:`gerbonara.rs274x.GerberFile` object instead.
+    #: which are stored in the :py:class:`.GerberFile` object instead.
     attrs : dict = field(default_factory=dict)
 
     def converted(self, unit):
-        """ Convert this gerber object to another :py:class:`gerbonara.utils.LengthUnit`.
+        """ Convert this gerber object to another :py:class:`.LengthUnit`.
 
-        :param unit: Either a :py:class:`gerbonara.utils.LengthUnit` instance or one of the strings ``'mm'`` or ``'inch'``.
+        :param unit: Either a :py:class:`.LengthUnit` instance or one of the strings ``'mm'`` or ``'inch'``.
 
         :returns: A copy of this object using the new unit. 
         """
@@ -56,9 +55,9 @@ class GraphicObject:
         copy.convert_to(unit)
 
     def convert_to(self, unit):
-        """ Convert this gerber object to another :py:class:`gerbonara.utils.LengthUnit` in-place.
+        """ Convert this gerber object to another :py:class:`.LengthUnit` in-place.
 
-        :param unit: Either a :py:class:`gerbonara.utils.LengthUnit` instance or one of the strings ``'mm'`` or ``'inch'``.
+        :param unit: Either a :py:class:`.LengthUnit` instance or one of the strings ``'mm'`` or ``'inch'``.
         """
 
         for f in fields(self):
@@ -89,7 +88,7 @@ class GraphicObject:
         :param float rotation: rotation in radians clockwise.
         :param float cx: X coordinate of center of rotation in *unit* units.
         :param float cy: Y coordinate of center of rotation. (0,0) is at the bottom left of the image.
-        :param unit: :py:class:`gerbonara.utils.LengthUnit` or str with unit for *cx* and *cy*
+        :param unit: :py:class:`.LengthUnit` or str with unit for *cx* and *cy*
         """
 
         cx, cy = self.unit(cx, unit), self.unit(cy, unit)
@@ -102,7 +101,7 @@ class GraphicObject:
         .. note:: This method returns bounding boxes in a different format than legacy pcb-tools_, which used
                   ``(min_x, max_x), (min_y, max_y)``
 
-        :param unit: :py:class:`gerbonara.utils.LengthUnit` or str with unit for return value.
+        :param unit: :py:class:`.LengthUnit` or str with unit for return value.
 
         :returns: tuple of tuples of floats: ``(min_x, min_y), (max_x, max_y)``
         """
@@ -115,22 +114,22 @@ class GraphicObject:
         return ((min_x, min_y), (max_x, max_y))
 
     def to_primitives(self, unit=None):
-        """ Render this object into low-level graphical primitives (subclasses of :py:class:`GraphicPrimitive`). This
+        """ Render this object into low-level graphical primitives (subclasses of :py:class:`.GraphicPrimitive`). This
         computes out all coordinates in case aperture macros are involved, and resolves units. The output primitives are
         converted into the given unit, and will be stripped of unit information. If no unit is given, use this object's
         native unit (``self.unit``).
 
-        :param unit: :py:class:`gerbonara.utils.LengthUnit` or str with unit for return value.
+        :param unit: :py:class:`.LengthUnit` or str with unit for return value.
 
-        :rtype: Iterator[:py:class:`GraphicPrimitive`]
+        :rtype: Iterator[:py:class:`.GraphicPrimitive`]
         """
         return self._to_primitives(unit)
 
     def _to_statements(self, gs):
         """ Serialize this object into Gerber statements.
 
-        :param gs: :py:class:`rs274x.GraphicsState` object containing current Gerber state (polarity, selected aperture,
-        interpolation mode etc.).
+        :param gs: :py:class:`~.rs274x.GraphicsState` object containing current Gerber state (polarity, selected
+        aperture, interpolation mode etc.).
 
         :returns: Iterator yielding one string per line of output Gerber
         :rtype: Iterator[str]
@@ -140,7 +139,7 @@ class GraphicObject:
     def _to_xnc(self, ctx):
         """ Serialize this object into XNC Excellon statements.
 
-        :param ctx: :py:class:`excellon.ExcellonContext` object containing current Excellon state (selected tool,
+        :param ctx: :py:class:`.ExcellonContext` object containing current Excellon state (selected tool,
         interpolation mode etc.).
 
         :returns: Iterator yielding one string per line of output XNC code
@@ -152,11 +151,11 @@ class GraphicObject:
 @dataclass
 class Flash(GraphicObject):
     """ A flash is what happens when you "stamp" a Gerber aperture at some location. The :py:attr:`polarity_dark`
-    attribute that Flash inherits from :py:class:`GraphicObject` is ``True`` for normal flashes. If you set a Flash's
+    attribute that Flash inherits from :py:class:`.GraphicObject` is ``True`` for normal flashes. If you set a Flash's
     ``polarity_dark`` to ``False``, you invert the polarity of all of its features.
 
-    Flashes are also used to represent drilled holes in an :py:class:`gerbonara.excellon.ExcellonFile`. In this case,
-    :py:attr:`aperture` should be an instance of :py:class:`ExcellonTool`.
+    Flashes are also used to represent drilled holes in an :py:class:`.ExcellonFile`. In this case,
+    :py:attr:`aperture` should be an instance of :py:class:`.ExcellonTool`.
     """
 
     #: float with X coordinate of the center of this flash.
@@ -165,12 +164,12 @@ class Flash(GraphicObject):
     #: float with Y coordinate of the center of this flash.
     y : Length(float)
 
-    #: Flashed Aperture. must be a subclass of :py:class:`Aperture`.
+    #: Flashed Aperture. must be a subclass of :py:class:`.Aperture`.
     aperture : object
 
     @property
     def tool(self):
-        """ Alias for :py:attr:`aperture` for use inside an :py:class:`gerbonara.excellon.ExcellonFile`. """
+        """ Alias for :py:attr:`aperture` for use inside an :py:class:`.ExcellonFile`. """
         return self.aperture
 
     @tool.setter
@@ -236,7 +235,7 @@ class Region(GraphicObject):
     There is one exception from the last two rules: To emulate a region with a hole in it, *cut-ins* are allowed. At a
     cut-in, the region is allowed to touch (but never overlap!) itself.
 
-    :attr poly: :py:class:`graphic_primitives.ArcPoly` describing the actual outline of this Region. The coordinates of
+    :attr poly: :py:class:`~.graphic_primitives.ArcPoly` describing the actual outline of this Region. The coordinates of
                 this poly are in the unit of this instance's :py:attr:`unit` field.
     """
 
@@ -324,17 +323,17 @@ class Region(GraphicObject):
 
 @dataclass
 class Line(GraphicObject):
-    """ A line is what happens when you "drag" a Gerber :py:class:`Aperture` from one point to another. Note that Gerber
-    lines are substantially funkier than normal lines as we know them from modern computer graphics such as SVG. A
-    Gerber line is defined as the area that is covered when you drag its aperture along. This means that for a
+    """ A line is what happens when you "drag" a Gerber :py:class:`.Aperture` from one point to another. Note that
+    Gerber lines are substantially funkier than normal lines as we know them from modern computer graphics such as SVG.
+    A Gerber line is defined as the area that is covered when you drag its aperture along. This means that for a
     rectangular aperture, a horizontal line and a vertical line using the same aperture will have different widths.
 
-    .. warning:: Try to only ever use :py:class:`CircleAperture` with :py:class:`Line` and :py:class:`Arc` since other
-                 aperture types are not widely supported by renderers / photoplotters even though they are part of the
-                 spec.
+    .. warning:: Try to only ever use :py:class:`.CircleAperture` with :py:class:`~.graphic_objects.Line` and
+                 :py:class:`~.graphic_objects.Arc` since other aperture types are not widely supported by renderers /
+                 photoplotters even though they are part of the spec.
 
-    .. note:: If you manipulate a :py:class:`Line`, it is okay to assume that it has round end caps and a defined width
-              as exceptions are really rare.
+    .. note:: If you manipulate a :py:class:`~.graphic_objects.Line`, it is okay to assume that it has round end caps
+              and a defined width as exceptions are really rare.
     """
 
     #: X coordinate of start point
@@ -345,7 +344,7 @@ class Line(GraphicObject):
     x2 : Length(float)
     #: Y coordinate of end point
     y2 : Length(float)
-    #: Aperture for this line. Should be a subclass of :py:class:`CircleAperture`, whose diameter determines the line
+    #: Aperture for this line. Should be a subclass of :py:class:`.CircleAperture`, whose diameter determines the line
     #: width.
     aperture : object
 
@@ -371,7 +370,7 @@ class Line(GraphicObject):
 
     @property
     def tool(self):
-        """ Alias for :py:attr:`aperture` for use inside an :py:class:`gerbonara.excellon.ExcellonFile`. """
+        """ Alias for :py:attr:`aperture` for use inside an :py:class:`.ExcellonFile`. """
         return self.aperture
 
     @tool.setter
@@ -419,11 +418,12 @@ class Line(GraphicObject):
 
 @dataclass
 class Arc(GraphicObject):
-    """ Like :py:class:`Line`, but a circular arc. Has start ``(x1, y1)`` and end ``(x2, y2)`` attributes like a
-    :py:class:`Line`, but additionally has a center ``(cx, cy)`` specified relative to the start point ``(x1, y1)``, as
-    well as a ``clockwise`` attribute indicating the arc's direction.
+    """ Like :py:class:`~.graphic_objects.Line`, but a circular arc. Has start ``(x1, y1)`` and end ``(x2, y2)``
+    attributes like a :py:class:`~.graphic_objects.Line`, but additionally has a center ``(cx, cy)`` specified relative
+    to the start point ``(x1, y1)``, as well as a ``clockwise`` attribute indicating the arc's direction.
 
-    .. note:: The same warning on apertures that applies to :py:class:`Line` applies to :py:class:`Arc`, too.
+    .. note:: The same warning on apertures that applies to :py:class:`~.graphic_objects.Line` applies to
+              :py:class:`~.graphic_objects.Arc`, too.
     
     .. warning:: When creating your own circles, you have to take care yourself that the center is actually the center
                  of a circle that goes through both (x1,y1) and (x2,y2). Elliptical arcs are *not* supported by either
@@ -444,7 +444,7 @@ class Arc(GraphicObject):
     #: Direction of arc. ``True`` means clockwise. For a given center coordinate and endpoints there are always two
     #: possible arcs, the large one and the small one. Flipping this switches between them.
     clockwise : bool
-    #: Aperture for this arc. Should be a subclass of :py:class:`CircleAperture`, whose diameter determines the line
+    #: Aperture for this arc. Should be a subclass of :py:class:`.CircleAperture`, whose diameter determines the line
     #: width.
     aperture : object
     
@@ -526,7 +526,7 @@ class Arc(GraphicObject):
 
     @property
     def tool(self):
-        """ Alias for :py:attr:`aperture` for use inside an :py:class:`gerbonara.excellon.ExcellonFile`. """
+        """ Alias for :py:attr:`aperture` for use inside an :py:class:`.ExcellonFile`. """
         return self.aperture
 
     @tool.setter

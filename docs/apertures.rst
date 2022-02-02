@@ -17,7 +17,7 @@ Aperture generalization
 -----------------------
 
 Gerbonara supports rotating both individual graphic objects and whole files. Alas, this was not a use case that was
-intended when the Gerber format was developed. We can rotate lines, arcs, and regions alright by simply rotatint all of
+intended when the Gerber format was developed. We can rotate lines, arcs, and regions alright by simply rotating all of
 their points. Flashes are where things get tricky: Individual flashes cannot be rotated at all in any widely supported
 way. There are some newer additions to the standard, but I would be surprised if any of the cheap board houses
 understand those. The only way to rotate a flash is to rotate the aperture, not the flash. For cirlces, this is a no-op.

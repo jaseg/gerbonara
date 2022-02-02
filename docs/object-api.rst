@@ -1,14 +1,13 @@
 Graphic Objects
 ===============
 
-Graphic objects are the lego blocks a gerbonara :py:class:`gerbonara.rs274x.GerberFile` or
-:py:class:`gerbonara.excellon.ExcellonFile` is built from. They are stored in the file's
-:py:attr:`gerbonara.rs274x.GerberFile.objects` list. You can directly manipulate that list from code.
+Graphic objects are the lego blocks a gerbonara :py:class:`.GerberFile` or :py:class:`.ExcellonFile` is built from. They
+are stored in the file's :py:attr:`~.GerberFile.objects` attribute of a :py:class:`.GerberFile`. You can directly
+manipulate that list from code.
 
-There are four graphic object types: :py:class:`gerbonara.graphic_objects.Flash`,
-:py:class:`gerbonara.graphic_objects.Line`, :py:class:`gerbonara.graphic_objects.Arc`, and
-:py:class:`gerbonara.graphic_objects.Region` . All of them are derived from
-:py:class:`gerbonara.graphic_objects.GraphicObject`.
+There are four graphic object types: :py:class:`.Flash`, :py:class:`~.graphic_objects.Line`,
+:py:class:`~.graphic_objects.Arc`, and :py:class:`~.graphic_objects.Region` . All of them are derived from
+:py:class:`~.graphic_objects.GraphicObject`.
 
 .. autoclass:: gerbonara.graphic_objects.GraphicObject
    :members:
