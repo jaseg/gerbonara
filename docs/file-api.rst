@@ -7,9 +7,8 @@ Gerbonara currently supports three file types: RS-274-X Gerber as `specified by 
 
 Usually, a PCB is sent to a manufacturer as a bundle of several of these files. Such a bundle of files (each of which is
 either a :py:class:`.GerberFile` or an :py:class:`.ExcellonFile`) is represented by :py:class:`.LayerStack`.
-:py:class:`.LayerStack` contains logic to automatcally
-recognize a wide variety of CAD tools from file name and syntactic hints, and can automatically match all files in a
-folder to their appropriate layers.
+:py:class:`.LayerStack` contains logic to automatcally recognize a wide variety of CAD tools from file name and
+syntactic hints, and can automatically match all files in a folder to their appropriate layers.
 
 .. autoclass:: gerbonara.layers.LayerStack
    :members:

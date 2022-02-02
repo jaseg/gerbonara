@@ -268,7 +268,7 @@ class ExcellonFile(CamFile):
 
         # Build tool index
         tool_map = { id(obj.tool): obj.tool for obj in self.objects }
-        tools = sorted(tool_map.items(), key=lambda id_tool: (id_tool[1].plated, id_tool[1].diameter, id_tool[1].depth_offset))
+        tools = sorted(tool_map.items(), key=lambda id_tool: (id_tool[1].plated, id_tool[1].diameter))
         tools = { tool_id: index for index, (tool_id, _tool) in enumerate(tools, start=1) }
         # FIXME dedup tools
 
@@ -526,7 +526,7 @@ class ExcellonParser(object):
 
         params = { m[0]: self.settings.parse_gerber_value(m[1:]) for m in re.findall('[BCFHSTZ][.0-9]+', match[2]) }
 
-        self.tools[index] = ExcellonTool(diameter=params.get('C'), depth_offset=params.get('Z'), plated=self.is_plated,
+        self.tools[index] = ExcellonTool(diameter=params.get('C'), plated=self.is_plated,
                 unit=self.settings.unit)
 
         if set(params.keys()) == set('TFSC'):

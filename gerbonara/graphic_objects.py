@@ -37,7 +37,7 @@ class GraphicObject:
     #: for features of an :py:class:`gerbonara.excellon.ExcellonFile`.
     polarity_dark : bool = True
 
-    #: :py:class:`gerbonara.utils.LengthUnit` used for all coordinate fields of this feature (such as `x` or `y`).
+    #: :py:class:`gerbonara.utils.LengthUnit` used for all coordinate fields of this object (such as ``x`` or ``y``).
     unit : str = None
 
 
