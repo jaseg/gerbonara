@@ -4,9 +4,6 @@ Aperture Macros
 .. autoclass:: gerbonara.aperture_macros.parse.ApertureMacro
     :members:
 
-.. autoclass:: gerbonara.aperture_macros.parse.GenericMacros
-    :members:
-
 .. autoclass:: gerbonara.aperture_macros.expression.Expression
     :members:
 

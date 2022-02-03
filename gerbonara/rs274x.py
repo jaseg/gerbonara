@@ -24,12 +24,10 @@ import re
 import math
 import warnings
 from pathlib import Path
-from itertools import count, chain
-from io import StringIO
 import dataclasses
 
 from .cam import CamFile, FileSettings
-from .utils import sq_distance, rotate_point, MM, Inch, units, InterpMode, UnknownStatementWarning
+from .utils import MM, Inch, units, InterpMode, UnknownStatementWarning
 from .aperture_macros.parse import ApertureMacro, GenericMacros
 from . import graphic_primitives as gp
 from . import graphic_objects as go

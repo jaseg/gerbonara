@@ -262,7 +262,8 @@ class Region(GraphicObject):
 
     def append(self, obj):
         if obj.unit != self.unit:
-            raise ValueError('Cannot append Polyline with "{obj.unit}" coords to Region with "{self.unit}" coords.')
+            obj = obj.converted(self.unit)
+
         if not self.poly.outline:
             self.poly.outline.append(obj.p1)
         self.poly.outline.append(obj.p2)

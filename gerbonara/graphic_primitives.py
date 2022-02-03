@@ -4,210 +4,70 @@ import itertools
 
 from dataclasses import dataclass, KW_ONLY, replace
 
+from .utils import *
+
 
 @dataclass
 class GraphicPrimitive:
     _ : KW_ONLY
     polarity_dark : bool = True
 
+    def bounding_box(self):
+        """ Return the axis-aligned bounding box of this feature.
 
-def rotate_point(x, y, angle, cx=0, cy=0):
-    """ rotate point (x,y) around (cx,cy) clockwise angle radians """
+        :returns: ``((min_x, min_Y), (max_x, max_y))``
+        :rtype: tuple
+        """
 
-    return (cx + (x - cx) * math.cos(-angle) - (y - cy) * math.sin(-angle),
-            cy + (x - cx) * math.sin(-angle) + (y - cy) * math.cos(-angle))
+        raise NotImplementedError()
 
-def min_none(a, b):
-    if a is None:
-        return b
-    if b is None:
-        return a
-    return min(a, b)
+    def to_svg(self, fg='black', bg='white', tag=Tag):
+        """ Render this primitive into its SVG representation.
 
-def max_none(a, b):
-    if a is None:
-        return b
-    if b is None:
-        return a
-    return max(a, b)
+        :param str fg: Foreground color. Must be an SVG color name.
+        :param str bg: Background color. Must be an SVG color name.
+        :param function tag: Tag constructor to use.
 
-def add_bounds(b1, b2):
-    (min_x_1, min_y_1), (max_x_1, max_y_1) = b1
-    (min_x_2, min_y_2), (max_x_2, max_y_2) = b2
-    min_x, min_y = min_none(min_x_1, min_x_2), min_none(min_y_1, min_y_2)
-    max_x, max_y = max_none(max_x_1, max_x_2), max_none(max_y_1, max_y_2)
-    return ((min_x, min_y), (max_x, max_y))
+        :rtype: str
+        """
 
-def rad_to_deg(x):
-    return x/math.pi * 180
+        raise NotImplementedError()
+
 
 @dataclass
 class Circle(GraphicPrimitive):
+    #: Center X coordinate
     x : float
+    #: Center y coordinate
     y : float
+    #: Radius, not diameter like in :py:class:`.apertures.CircleAperture`
     r : float # Here, we use radius as common in modern computer graphics, not diameter as gerber uses.
 
     def bounding_box(self):
         return ((self.x-self.r, self.y-self.r), (self.x+self.r, self.y+self.r))
 
-    def to_svg(self, tag, fg, bg):
+    def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
         return tag('circle', cx=self.x, cy=self.y, r=self.r, style=f'fill: {color}')
 
 
 @dataclass
-class Obround(GraphicPrimitive):
-    x : float
-    y : float
-    w : float
-    h : float
-    rotation : float # radians!
-
-    def to_line(self):
-        if self.w > self.h:
-            w, a, b = self.h, self.w-self.h, 0
-        else:
-            w, a, b = self.w, 0, self.h-self.w
-        return Line(
-                *rotate_point(self.x-a/2, self.y-b/2, self.rotation, self.x, self.y),
-                *rotate_point(self.x+a/2, self.y+b/2, self.rotation, self.x, self.y),
-                w, polarity_dark=self.polarity_dark)
-
-    def bounding_box(self):
-        return self.to_line().bounding_box()
-
-    def to_svg(self, tag, fg, bg):
-        return self.to_line().to_svg(tag, fg, bg)
-
-
-def arc_bounds(x1, y1, x2, y2, cx, cy, clockwise):
-    # This is one of these problems typical for computer geometry where out of nowhere a seemingly simple task just
-    # happens to be anything but in practice.
-    #
-    # Online there are a number of algorithms to be found solving this problem. Often, they solve the more general
-    # problem for elliptic arcs. We can keep things simple here since we only have circular arcs.
-    # 
-    # This solution manages to handle circular arcs given in gerber format (with explicit center and endpoints, plus
-    # sweep direction instead of a format with e.g. angles and radius) without any trigonometric functions (e.g. atan2).
-    #
-    # cx, cy are relative to p1.
-
-    # Center arc on cx, cy
-    cx += x1
-    cy += y1
-    x1 -= cx
-    x2 -= cx
-    y1 -= cy
-    y2 -= cy
-    clockwise = bool(clockwise) # bool'ify for XOR/XNOR below
-
-    # Calculate radius
-    r = math.sqrt(x1**2 + y1**2)
-
-    # Calculate in which half-planes (north/south, west/east) P1 and P2 lie.
-    # Note that we assume the y axis points upwards, as in Gerber and maths.
-    # SVG has its y axis pointing downwards.
-    p1_west = x1 < 0
-    p1_north = y1 > 0
-    p2_west = x2 < 0
-    p2_north = y2 > 0
-
-    # Calculate bounding box of P1 and P2
-    min_x = min(x1, x2)
-    min_y = min(y1, y2)
-    max_x = max(x1, x2)
-    max_y = max(y1, y2)
-
-    #               North
-    #                 ^
-    #                 |
-    #                 |(0,0)
-    #      West <-----X-----> East
-    #                 |
-    #  +Y             |
-    #   ^             v
-    #   |           South
-    #   |
-    #   +-----> +X
-    #
-    # Check whether the arc sweeps over any coordinate axes. If it does, add the intersection point to the bounding box.
-    # Note that, since this intersection point is at radius r, it has coordinate e.g. (0, r) for the north intersection.
-    # Since we know that the points lie on either side of the coordinate axis, the '0' coordinate of the intersection
-    # point will not change the bounding box in that axis--only its 'r' coordinate matters. We also know that the
-    # absolute value of that coordinate will be greater than or equal to the old coordinate in that direction since the
-    # intersection with the axis is the point where the full circle is tangent to the AABB. Thus, we can blindly set the
-    # corresponding coordinate of the bounding box without min()/max()'ing first.
-
-    # Handle north/south halfplanes
-    if p1_west != p2_west: # arc starts in west half-plane, ends in east half-plane
-        if p1_west == clockwise: # arc is clockwise west -> east or counter-clockwise east -> west
-            max_y = r # add north to bounding box
-        else: # arc is counter-clockwise west -> east or clockwise east -> west
-            min_y = -r # south
-    else: # Arc starts and ends in same halfplane west/east
-        # Since both points are on the arc (at same radius) in one halfplane, we can use the y coord as a proxy for
-        # angle comparisons. 
-        small_arc_is_north_to_south = y1 > y2
-        small_arc_is_clockwise = small_arc_is_north_to_south == p1_west
-        if small_arc_is_clockwise != clockwise:
-            min_y, max_y = -r, r # intersect aabb with both north and south
-
-    # Handle west/east halfplanes
-    if p1_north != p2_north:
-        if p1_north == clockwise:
-            max_x = r # east
-        else:
-            min_x = -r # west
-    else:
-        small_arc_is_west_to_east = x1 < x2
-        small_arc_is_clockwise = small_arc_is_west_to_east == p1_north
-        if small_arc_is_clockwise != clockwise:
-            min_x, max_x = -r, r # intersect aabb with both north and south
-
-    return (min_x+cx, min_y+cy), (max_x+cx, max_y+cy)
-
-
-def point_line_distance(l1, l2, p):
-    # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line
-    x1, y1 = l1
-    x2, y2 = l2
-    x0, y0 = p
-    length = math.dist(l1, l2)
-    if math.isclose(length, 0):
-        return math.dist(l1, p)
-    return ((x2-x1)*(y1-y0) - (x1-x0)*(y2-y1)) / length
-
-def svg_arc(old, new, center, clockwise):
-    r = math.hypot(*center)
-    # invert sweep flag since the svg y axis is mirrored
-    sweep_flag = int(not clockwise)
-    # In the degenerate case where old == new, we always take the long way around. To represent this "full-circle arc"
-    # in SVG, we have to split it into two.
-    if math.isclose(math.dist(old, new), 0):
-        intermediate = old[0] + 2*center[0], old[1] + 2*center[1]
-        # Note that we have to preserve the sweep flag to avoid causing self-intersections by flipping the direction of
-        # a circular cutin
-        return f'A {r:.6} {r:.6} 0 1 {sweep_flag} {intermediate[0]:.6} {intermediate[1]:.6} ' +\
-               f'A {r:.6} {r:.6} 0 1 {sweep_flag} {new[0]:.6} {new[1]:.6}'
-
-    else: # normal case
-        d = point_line_distance(old, new, (old[0]+center[0], old[1]+center[1]))
-        large_arc = int((d < 0) == clockwise)
-        return f'A {r:.6} {r:.6} 0 {large_arc} {sweep_flag} {new[0]:.6} {new[1]:.6}'
-
-@dataclass
 class ArcPoly(GraphicPrimitive):
-    """ Polygon whose sides may be either straight lines or circular arcs """
+    """ Polygon whose sides may be either straight lines or circular arcs. """
 
-    # list of (x : float, y : float) tuples. Describes closed outline, i.e. first and last point are considered
-    # connected.
+    #: list of (x : float, y : float) tuples. Describes closed outline, i.e. the first and last point are considered
+    #: connected.
     outline : list
-    # must be either None (all segments are straight lines) or same length as outline.
-    # Straight line segments have None entry.
+    #: Must be either None (all segments are straight lines) or same length as outline.
+    #: Straight line segments have None entry.
     arc_centers : list = None
 
     @property
     def segments(self):
+        """ Return an iterator through all *segments* of this polygon. For each outline segment (line or arc), this
+        iterator will yield a ``(p1, p2, center)`` tuple. If the segment is a straight line, ``center`` will be
+        ``None``.
+        """
         ol = self.outline
         return itertools.zip_longest(ol, ol[1:] + [ol[0]], self.arc_centers or [])
 
@@ -223,10 +83,24 @@ class ArcPoly(GraphicPrimitive):
                 bbox = add_bounds(bbox, line_bounds)
         return bbox
 
+    @classmethod
+    def from_regular_polygon(kls, x:float, y:float, r:float, n:int, rotation:float=0, polarity_dark:bool=True):
+        """ Convert an n-sided gerber polygon to a normal ArcPoly defined by outline """
+
+        delta = 2*math.pi / self.n
+
+        return kls([
+                (self.x + math.cos(self.rotation + i*delta) * self.r,
+                 self.y + math.sin(self.rotation + i*delta) * self.r)
+                for i in range(self.n) ], polarity_dark=polarity_dark)
+
     def __len__(self):
+        """ Return the number of points on this polygon's outline (which is also the number of segments because the
+        polygon is closed). """
         return len(self.outline)
 
     def __bool__(self):
+        """ Return ``True`` if this polygon has any outline points. """
         return bool(len(self))
 
     def _path_d(self):
@@ -242,61 +116,44 @@ class ArcPoly(GraphicPrimitive):
                 clockwise, center = arc
                 yield svg_arc(old, new, center, clockwise)
 
-    def to_svg(self, tag, fg, bg):
+    def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
         return tag('path', d=' '.join(self._path_d()), style=f'fill: {color}')
 
-class Polyline:
-    def __init__(self, *lines):
-        self.coords = []
-        self.polarity_dark = None
-        self.width = None
-
-        for line in lines:
-            self.append(line)
-
-    def append(self, line):
-        assert isinstance(line, Line)
-        if not self.coords:
-            self.coords.append((line.x1, line.y1))
-            self.coords.append((line.x2, line.y2))
-            self.polarity_dark = line.polarity_dark
-            self.width = line.width
-            return True
-
-        else:
-            x, y = self.coords[-1]
-            if self.polarity_dark == line.polarity_dark and self.width == line.width \
-                    and math.isclose(line.x1, x) and math.isclose(line.y1, y):
-                self.coords.append((line.x2, line.y2))
-                return True
-
-            else:
-                return False
-
-    def to_svg(self, tag, fg, bg):
-        color = fg if self.polarity_dark else bg
-        if not self.coords:
-            return None
-
-        (x0, y0), *rest = self.coords
-        d = f'M {x0:.6} {y0:.6} ' + ' '.join(f'L {x:.6} {y:.6}' for x, y in rest)
-        width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
-        return tag('path', d=d, style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linejoin: round; stroke-linecap: round')
 
 @dataclass
 class Line(GraphicPrimitive):
+    """ Straight line with round end caps. """
+    #: Start X coordinate. As usual in modern graphics APIs, this is at the center of the half-circle capping off this
+    #: line.
     x1 : float
+    #: Start Y coordinate
     y1 : float
+    #: End X coordinate
     x2 : float
+    #: End Y coordinate
     y2 : float
+    #: Line width
     width : float
+
+    @classmethod
+    def from_obround(kls, x:float, y:float, w:float, h:float, rotation:float=0, polarity_dark:bool=True):
+        """ Convert a gerber obround into a :py:class:`~.graphic_primitives.Line`. """
+        if self.w > self.h:
+            w, a, b = self.h, self.w-self.h, 0
+        else:
+            w, a, b = self.w, 0, self.h-self.w
+
+        return kls(
+                *rotate_point(self.x-a/2, self.y-b/2, self.rotation, self.x, self.y),
+                *rotate_point(self.x+a/2, self.y+b/2, self.rotation, self.x, self.y),
+                w, polarity_dark=self.polarity_dark)
 
     def bounding_box(self):
         r = self.width / 2
         return add_bounds(Circle(self.x1, self.y1, r).bounding_box(), Circle(self.x2, self.y2, r).bounding_box())
 
-    def to_svg(self, tag, fg, bg):
+    def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
         width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
         return tag('path', d=f'M {self.x1:.6} {self.y1:.6} L {self.x2:.6} {self.y2:.6}',
@@ -304,14 +161,23 @@ class Line(GraphicPrimitive):
 
 @dataclass
 class Arc(GraphicPrimitive):
+    """ Circular arc with line width ``width`` going from ``(x1, y1)`` to ``(x2, y2)`` around center at ``(cx, cy)``. """
+    #: Start X coodinate
     x1 : float
+    #: Start Y coodinate
     y1 : float
+    #: End X coodinate
     x2 : float
+    #: End Y coodinate
     y2 : float
-    # absolute coordinates
+    #: Center X coordinate relative to ``x1``
     cx : float
+    #: Center Y coordinate relative to ``y1``
     cy : float
+    #: ``True`` if this arc is clockwise from start to end. Selects between the large arc and the small arc given this
+    #: start, end and center
     clockwise : bool
+    #: Line width of this arc.
     width : float
 
     def bounding_box(self):
@@ -333,24 +199,25 @@ class Arc(GraphicPrimitive):
         arc = arc_bounds(x1, y1, x2, y2, self.cx, self.cy, self.clockwise)
         return add_bounds(endpoints, arc) # FIXME add "include_center" switch
 
-    def to_svg(self, tag, fg, bg):
+    def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
         arc = svg_arc((self.x1, self.y1), (self.x2, self.y2), (self.cx, self.cy), self.clockwise)
         width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
         return tag('path', d=f'M {self.x1:.6} {self.y1:.6} {arc}',
                 style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linecap: round; fill: none')
 
-def svg_rotation(angle_rad, cx=0, cy=0):
-    return f'rotate({float(rad_to_deg(angle_rad)):.4} {float(cx):.6} {float(cy):.6})'
-
 @dataclass
 class Rectangle(GraphicPrimitive):
-    # coordinates are center coordinates
+    #: **Center** X coordinate
     x : float
+    #: **Center** Y coordinate
     y : float
+    #: width
     w : float
+    #: height
     h : float
-    rotation : float # radians, around center!
+    #: rotation around center in radians
+    rotation : float
 
     def bounding_box(self):
         return self.to_arc_poly().bounding_box()
@@ -367,37 +234,9 @@ class Rectangle(GraphicPrimitive):
             (x + (cw+sh), y - (ch+sw)),
             ])
 
-    @property
-    def center(self):
-        return self.x + self.w/2, self.y + self.h/2
-
-    def to_svg(self, tag, fg, bg):
+    def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
         x, y = self.x - self.w/2, self.y - self.h/2
         return tag('rect', x=x, y=y, width=self.w, height=self.h,
                 transform=svg_rotation(self.rotation, self.x, self.y), style=f'fill: {color}')
-
-@dataclass
-class RegularPolygon(GraphicPrimitive):
-    x : float
-    y : float
-    r : float
-    n : int
-    rotation : float # radians!
-
-    def to_arc_poly(self):
-        ''' convert n-sided gerber polygon to normal ArcPoly defined by outline '''
-
-        delta = 2*math.pi / self.n
-
-        return ArcPoly([
-                (self.x + math.cos(self.rotation + i*delta) * self.r,
-                 self.y + math.sin(self.rotation + i*delta) * self.r)
-                for i in range(self.n) ])
-
-    def bounding_box(self):
-        return self.to_arc_poly().bounding_box()
-
-    def to_svg(self, tag, fg, bg):
-        return self.to_arc_poly().to_svg(tag, fg, bg)
 

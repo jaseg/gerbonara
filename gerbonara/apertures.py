@@ -10,10 +10,9 @@ from . import graphic_primitives as gp
 
 def _flash_hole(self, x, y, unit=None, polarity_dark=True):
     if getattr(self, 'hole_rect_h', None) is not None:
+        w, h = self.unit.convert_to(unit, self.hole_dia), self.unit.convert_to(unit, self.hole_rect_h)
         return [*self._primitives(x, y, unit, polarity_dark),
-                gp.Rectangle((x, y),
-                    (self.unit.convert_to(unit, self.hole_dia), self.unit.convert_to(unit, self.hole_rect_h)),
-                    rotation=self.rotation, polarity_dark=(not polarity_dark))]
+                gp.Rectangle(x, y, w, h, rotation=self.rotation, polarity_dark=(not polarity_dark))]
     elif self.hole_dia is not None:
         return [*self._primitives(x, y, unit, polarity_dark),
                 gp.Circle(x, y, self.unit.convert_to(unit, self.hole_dia/2), polarity_dark=(not polarity_dark))]
@@ -312,7 +311,7 @@ class ObroundAperture(Aperture):
     rotation : float = 0
 
     def _primitives(self, x, y, unit=None, polarity_dark=True):
-        return [ gp.Obround(x, y, self.unit.convert_to(unit, self.w), self.unit.convert_to(unit, self.h),
+        return [ gp.Line.from_obround(x, y, self.unit.convert_to(unit, self.w), self.unit.convert_to(unit, self.h),
             rotation=self.rotation, polarity_dark=polarity_dark) ]
 
     def __str__(self):
@@ -370,7 +369,7 @@ class PolygonAperture(Aperture):
         self.n_vertices = int(self.n_vertices)
 
     def _primitives(self, x, y, unit=None, polarity_dark=True):
-        return [ gp.RegularPolygon(x, y, self.unit.convert_to(unit, self.diameter)/2, self.n_vertices,
+        return [ gp.ArcPoly.from_regular_polygon(x, y, self.unit.convert_to(unit, self.diameter)/2, self.n_vertices,
             rotation=self.rotation, polarity_dark=polarity_dark) ]
 
     def __str__(self):

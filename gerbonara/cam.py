@@ -198,13 +198,55 @@ class FileSettings:
         return format(value, f'0{integer_digits+decimal_digits+1}.{decimal_digits}f')
 
 
+class Polyline:
+    """ Class that is internally used to generate compact SVG renderings. Collectes a number of subsequent
+    :py:class:`~.graphic_objects.Line` and :py:class:`~.graphic_objects.Arc` instances into one SVG <path>. """
+
+    def __init__(self, *lines):
+        self.coords = []
+        self.polarity_dark = None
+        self.width = None
+
+        for line in lines:
+            self.append(line)
+
+    def append(self, line):
+        assert isinstance(line, Line)
+        if not self.coords:
+            self.coords.append((line.x1, line.y1))
+            self.coords.append((line.x2, line.y2))
+            self.polarity_dark = line.polarity_dark
+            self.width = line.width
+            return True
+
+        else:
+            x, y = self.coords[-1]
+            if self.polarity_dark == line.polarity_dark and self.width == line.width \
+                    and math.isclose(line.x1, x) and math.isclose(line.y1, y):
+                self.coords.append((line.x2, line.y2))
+                return True
+
+            else:
+                return False
+
+    def to_svg(self, fg='black', bg='white', tag=Tag):
+        color = fg if self.polarity_dark else bg
+        if not self.coords:
+            return None
+
+        (x0, y0), *rest = self.coords
+        d = f'M {x0:.6} {y0:.6} ' + ' '.join(f'L {x:.6} {y:.6}' for x, y in rest)
+        width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
+        return tag('path', d=d, style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linejoin: round; stroke-linecap: round')
+
+
 class CamFile:
     def __init__(self, original_path=None, layer_name=None, import_settings=None):
         self.original_path = original_path
         self.layer_name = layer_name
         self.import_settings = import_settings
 
-    def to_svg(self, tag=Tag, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, fg='black', bg='white'):
+    def to_svg(self, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, fg='black', bg='white', tag=Tag):
 
         if force_bounds is None:
             (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
@@ -252,15 +294,15 @@ class CamFile:
                             polyline = gp.Polyline(primitive)
                         else:
                             if not polyline.append(primitive):
-                                tags.append(polyline.to_svg(tag, fg, bg))
+                                tags.append(polyline.to_svg(fg, bg, tag=tag))
                                 polyline = gp.Polyline(primitive)
                     else:
                         if polyline:
-                            tags.append(polyline.to_svg(tag, fg, bg))
+                            tags.append(polyline.to_svg(fg, bg, tag=tag))
                             polyline = None
-                        tags.append(primitive.to_svg(tag, fg, bg))
+                        tags.append(primitive.to_svg(fg, bg, tag=tag))
         if polyline:
-            tags.append(polyline.to_svg(tag, fg, bg))
+            tags.append(polyline.to_svg(fg, bg, tag=tag))
 
         # setup viewport transform flipping y axis
         xform = f'translate({content_min_x} {content_min_y+content_h}) scale(1 -1) translate({-content_min_x} {-content_min_y})'
