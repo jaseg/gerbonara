@@ -10,7 +10,13 @@ either a :py:class:`.GerberFile` or an :py:class:`.ExcellonFile`) is represented
 :py:class:`.LayerStack` contains logic to automatcally recognize a wide variety of CAD tools from file name and
 syntactic hints, and can automatically match all files in a folder to their appropriate layers.
 
+:py:class:`.CamFile` is the common base class for all layer types.
+
+
 .. autoclass:: gerbonara.layers.LayerStack
+   :members:
+
+.. autoclass:: gerbonara.cam.CamFile
    :members:
 
 .. autoclass:: gerbonara.rs274x.GerberFile

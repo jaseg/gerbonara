@@ -1,19 +1,21 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
-
-# copyright 2014 Hamilton Kibbe <ham@hamiltonkib.be>
+#
+# Copyright 2014 Hamilton Kibbe <ham@hamiltonkib.be>
+# Copyright 2022 Jan Götte <code@jaseg.de>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
 
 import math
 from dataclasses import dataclass
@@ -27,20 +29,24 @@ from . import graphic_objects as go
 
 @dataclass
 class FileSettings:
-    '''
+    ''' Format settings for Gerber/Excellon import/export.
+
     .. note::
-        Format and zero suppression are configurable. Note that the Excellon
-        and Gerber formats use opposite terminology with respect to leading
-        and trailing zeros. The Gerber format specifies which zeros are
-        suppressed, while the Excellon format specifies which zeros are
-        included. This function uses the Gerber-file convention, so an
-        Excellon file in LZ (leading zeros) mode would use
-        `zeros='trailing'`
+        Format and zero suppression are configurable. Note that the Excellon and Gerber formats use opposite terminology
+        with respect to leading and trailing zeros. The Gerber format specifies which zeros are suppressed, while the
+        Excellon format specifies which zeros are included. This function uses the Gerber-file convention, so an
+        Excellon file in LZ (leading zeros) mode would use ``zeros='trailing'``
     '''
+    #: Coordinate notation. ``'absolute'`` or ``'incremental'``. Absolute mode is universally used today. Incremental
+    #: (relative) mode is technically still supported, but exceedingly rare in the wild.
     notation : str = 'absolute'
+    #: Export unit. :py:attr:`~.utilities.MM` or :py:attr:`~.utilities.Inch`
     unit : LengthUnit = MM
+    #: Angle unit. Should be ``'degree'`` unless you really know what you're doing.
     angle_unit : str = 'degree'
+    #: Zero suppression settings. See note at :py:class:`.FileSettings` for meaning.
     zeros : bool = None
+    #: Number format. ``(integer, decimal)`` tuple of number of integer and decimal digits. At most ``(6,7)`` by spec.
     number_format : tuple = (2, 5)
 
     # input validation
@@ -64,6 +70,7 @@ class FileSettings:
         super().__setattr__(name, value)
 
     def to_radian(self, value):
+        """ Convert a given numeric string or a given float from file units into radians. """
         value = float(value)
         return math.radians(value) if self.angle_unit == 'degree' else value
 
@@ -113,14 +120,15 @@ class FileSettings:
         return f'<File settings: unit={self.unit}/{self.angle_unit} notation={self.notation} zeros={self.zeros} number_format={self.number_format}>'
 
     @property
-    def incremental(self):
+    def is_incremental(self):
         return self.notation == 'incremental'
 
     @property
-    def absolute(self):
+    def is_absolute(self):
         return not self.incremental # default to absolute
 
     def parse_gerber_value(self, value):
+        """ Parse a numeric string in gerber format using this file's settings. """
         if not value:
             return None
 
@@ -155,7 +163,7 @@ class FileSettings:
         return out
 
     def write_gerber_value(self, value, unit=None):
-        """ Convert a floating point number to a Gerber/Excellon-formatted string.  """
+        """ Convert a floating point number to a Gerber-formatted string.  """
 
         if unit is not None:
             value = self.unit(value, unit)
@@ -186,6 +194,7 @@ class FileSettings:
         return sign + (num or '0')
 
     def write_excellon_value(self, value, unit=None):
+        """ Convert a floating point number to an Excellon-formatted string.  """
         if unit is not None:
             value = self.unit(value, unit)
         
@@ -241,6 +250,10 @@ class Polyline:
 
 
 class CamFile:
+    """ Base class for all layer classes (:py:class:`.GerberFile`, :py:class:`.ExcellonFile`, and :py:class:`.Netlist`).
+
+    Provides some common functions such as :py:meth:`~.CamFile.to_svg`.
+    """
     def __init__(self, original_path=None, layer_name=None, import_settings=None):
         self.original_path = original_path
         self.layer_name = layer_name
@@ -319,13 +332,29 @@ class CamFile:
                 root=True)
 
     def size(self, unit=MM):
+        """ Get the dimensions of the file's axis-aligned bounding box, i.e. the difference in x- and y-direction
+        between the minimum x and y coordinates and the maximum x and y coordinates.
+
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit to return results in. Default: mm
+        :returns: ``(w, h)`` tuple of floats.
+        :rtype: tuple
+        """
+
         (x0, y0), (x1, y1) = self.bounding_box(unit, default=((0, 0), (0, 0)))
         return (x1 - x0, y1 - y0)
 
     def bounding_box(self, unit=MM, default=None):
-        """ Calculate bounding box of file. Returns value given by 'default' argument when there are no graphical
-        objects (default: None)
+        """ Calculate the axis-aligned bounding box of file. Returns value given by the ``default`` argument when the
+        file is empty. This file calculates the accurate bounding box, even for features such as arcs.
+
+        .. note:: Gerbonara returns bounding boxes as a ``(bottom_left, top_right)`` tuple of points, not in the
+                  ``((min_x, max_x), (min_y, max_y))`` format used by pcb-tools.
+
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit to return results in. Default: mm
+        :returns: ``((x_min, y_min), (x_max, y_max))`` tuple of floats.
+        :rtype: tuple
         """
+
         bounds = [ p.bounding_box(unit) for p in self.objects ]
         if not bounds:
             return default
@@ -335,10 +364,71 @@ class CamFile:
         max_x = max(x1 for (x0, y0), (x1, y1) in bounds)
         max_y = max(y1 for (x0, y0), (x1, y1) in bounds)
 
-        #for p in self.objects:
-        #    bb = (o_min_x, o_min_y), (o_max_x, o_max_y) = p.bounding_box(unit)
-        #    if o_min_x == min_x or o_min_y == min_y or o_max_x == max_x or o_max_y == max_y:
-        #        print('\033[91m  bounds\033[0m', bb, p)
-
         return ((min_x, min_y), (max_x, max_y))
+
+    def to_excellon(self):
+        """ Convert to a :py:class:`.ExcellonFile`. Returns ``self`` if it already is one. """
+        raise NotImplementedError()
+
+    def to_gerber(self):
+        """ Convert to a :py:class:`.GerberFile`. Returns ``self`` if it already is one. """
+        raise NotImplementedError()
+
+    def merge(self, other):
+        """ Merge ``other`` into ``self``, i.e. add all objects that are in ``other`` to ``self``. This resets
+        :py:attr:`.import_settings` and :py:attr:`~.CamFile.generator`. Units and other file-specific settings are
+        automatically handled.
+        """
+        raise NotImplementedError()
+
+    @property
+    def generator(self):
+        """ Return our best guess as to which software produced this file.
+
+        :returns: a str like ``'kicad'`` or ``'allegro'``
+        """
+        raise NotImplementedError()
+
+    def offset(self, x=0, y=0, unit=MM):
+        """ Add a coordinate offset to this file. The offset is given in Gerber/Excellon coordinates, so the Y axis
+        points upwards. Gerbonara does not use the poorly-supported Gerber file offset options, but instead actually
+        changes the coordinates of every object in the file. This means that you can load the generated file with any
+        Gerber viewer, and things should just work.
+
+        :param float x: X offset
+        :param float y: Y offset
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Unit ``x`` and ``y`` are passed in. Default: mm
+        """
+        raise NotImplementedError()
+
+    def rotate(self, angle, cx=0, cy=0, unit=MM):
+        """ Apply a rotation to this file. The center of rotation is given in Gerber/Excellon coordinates, so the Y axis
+        points upwards. Gerbonara does not use the poorly-supported Gerber file rotation options, but instead actually
+        changes the coordinates and rotation of every object in the file. This means that you can load the generated
+        file with any Gerber viewer, and things should just work.
+
+        Note that when rotating certain apertures, they will be automatically converted to aperture macros during export
+        since the standard apertures do not support rotation by spec. This is the same way most CAD packages deal with
+        this issue so it should work with most Gerber viewers.
+    
+        :param float angle: Rotation angle in radians, *clockwise*.
+        :param float cx: Center of rotation X coordinate
+        :param float cy: Center of rotation Y coordinate
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Unit ``cx`` and ``cy`` are passed in. Default: mm
+        """
+        raise NotImplementedError()
+
+    @property
+    def is_empty(self):
+        """ Check if there are any objects in this file. """
+        raise NotImplementedError()
+
+    def __len__(self):
+        """ Return the number of objects in this file. Note that a e.g. a long trace or a long slot consisting of
+        multiple segments is counted as one object per segment. Gerber regions are counted as only one object. """
+        raise NotImplementedError()
+
+    def __bool__(self):
+        """ Test if this file contains any objects """
+        raise NotImplementedError()
 

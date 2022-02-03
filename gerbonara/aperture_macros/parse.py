@@ -140,7 +140,7 @@ class ApertureMacro:
         return dup
 
 
-cons, var = ConstantExpression, VariableExpression
+var = VariableExpression
 deg_per_rad = 180 / math.pi
 
 class GenericMacros:
@@ -179,3 +179,4 @@ if __name__ == '__main__':
 
     for primitive in parse_macro(sys.stdin.read(), 'mm'):
         print(primitive)
+

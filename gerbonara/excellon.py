@@ -1,19 +1,21 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
+#
 # Copyright 2014 Hamilton Kibbe <ham@hamiltonkib.be>
-
+# Copyright 2022 Jan Götte <code@jaseg.de>
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
 
 import math
 import operator
@@ -32,6 +34,8 @@ from .apertures import ExcellonTool
 from .utils import Inch, MM, to_unit, InterpMode, RegexMatcher
 
 class ExcellonContext:
+    """ Internal helper class used for tracking graphics state when writing Excellon. """
+
     def __init__(self, settings, tools):
         self.settings = settings
         self.tools = tools
@@ -41,6 +45,7 @@ class ExcellonContext:
         self.drill_down = False
 
     def select_tool(self, tool):
+        """ Select the current tool. Retract drill first if necessary. """
         if self.current_tool != tool:
             if self.drill_down:
                 yield 'M16' # drill up
@@ -50,6 +55,7 @@ class ExcellonContext:
             yield f'T{self.tools[id(tool)]:02d}'
 
     def drill_mode(self):
+        """ Enter drill mode. """
         if self.mode != ProgramState.DRILLING:
             self.mode = ProgramState.DRILLING
             if self.drill_down:
@@ -58,6 +64,7 @@ class ExcellonContext:
             yield 'G05' # drill mode
 
     def route_mode(self, unit, x, y):
+        """ Enter route mode and plunge tool at the given coordinates. """
         x, y = self.settings.unit(x, unit), self.settings.unit(y, unit)
 
         if self.mode == ProgramState.ROUTING and (self.x, self.y) == (x, y):
@@ -74,9 +81,12 @@ class ExcellonContext:
         self.x, self.y = x, y
 
     def set_current_point(self, unit, x, y):
+        """ Update internal last point """
         self.x, self.y = self.settings.unit(x, unit), self.settings.unit(y, unit)
 
 def parse_allegro_ncparam(data, settings=None):
+    """ Internal function to parse Excellon format information out of Allegro's nonstandard textual parameter files that
+    it generates along with the Excellon file. """
     # This function parses data from allegro's nc_param.txt and ncdrill.log files. We have to parse these files because
     # allegro Excellon files omit crucial information such as the *number format*. nc_param.txt really is the file we
     # want to parse, but sometimes due to user error it doesn't end up in the gerber package. In this case, we want to
@@ -125,6 +135,8 @@ def parse_allegro_ncparam(data, settings=None):
 
 
 def parse_allegro_logfile(data):
+    """ Internal function to parse Excellon format information out of Allegro's nonstandard textual log files that it
+    generates along with the Excellon file. """
     found_tools = {}
     unit = None
 
@@ -150,6 +162,18 @@ def parse_allegro_logfile(data):
     return found_tools
 
 class ExcellonFile(CamFile):
+    """ Excellon drill file.
+
+    An Excellon file can contain both drills and milled slots. Drills are represented by :py:class:`.Flash` instances
+    with their aperture set to the special :py:class:`.ExcellonDrill` aperture class. Drills can be plated or nonplated.
+    This information is stored in the :py:class:`.ExcellonTool`. Both can co-exist in the same file, and some CAD tools
+    even export files like this. :py:class:`.LayerStack` contains functions to convert between a single drill file with
+    mixed plated and nonplated holes and one with separate drill files for each. Best practice is to have separate drill
+    files for slots, nonplated holes, and plated holes, because the board house will produce all three in three separate
+    processes anyway, and also because there is no standardized way to represent plating in Excellon files. Gerbonara
+    uses Altium's convention for this, which uses a magic comment before the tool definition.
+    """
+
     def __init__(self, objects=None, comments=None, import_settings=None, original_path=None, generator_hints=None):
         super().__init__(original_path=original_path)
         self.objects = objects or []
@@ -177,21 +201,26 @@ class ExcellonFile(CamFile):
 
     @property
     def is_plated(self):
+        """ Test if *all* holes or slots in this file are plated. """
         return all(obj.plated for obj in self.objects)
 
     @property
     def is_nonplated(self):
+        """ Test if *all* holes or slots in this file are non-plated. """
         return all(obj.plated == False for obj in self.objects) # False, not None
 
     @property
     def is_plating_unknown(self):
+        """ Test if *all* holes or slots in this file have no known plating. """
         return all(obj.plated is None for obj in self.objects) # False, not None
 
     @property
     def is_mixed_plating(self):
+        """ Test if there are multiple plating values used in this file. """
         return len({obj.plated for obj in self.objects}) > 1
 
     def append(self, obj_or_comment):
+        """ Add a :py:class:`.GraphicObject` or a comment (str) to this file. """
         if isinstnace(obj_or_comment, str):
             self.comments.append(obj_or_comment)
         else:
@@ -228,6 +257,23 @@ class ExcellonFile(CamFile):
 
     @classmethod
     def open(kls, filename, plated=None, settings=None):
+        """ Load an Excellon file from the file system.
+
+        Certain CAD tools do not put any information on decimal points into the actual excellon file, and instead put
+        that information into a non-standard text file next to the excellon file. Using :py:meth:`~.ExcellonFile.open`
+        to open a file gives Gerbonara the opportunity to try to find this data. In contrast to pcb-tools, Gerbonara
+        will raise an exception instead of producing garbage parsing results if it cannot determine the file format
+        parameters with certainty.
+
+        .. note:: This is preferred over loading Excellon from a str through :py:meth:`~.ExcellonFile.from_string`.
+
+        :param filename: ``str`` or ``pathlib.Path``.
+        :param bool plated: If given, set plating status of any tools in this file that have undefined plating. This is
+                useful if you already know that this file contains only e.g. plated holes from contextual information
+                such as the file name.
+        :param FileSettings settings: Format settings to use. If None, try to auto-detect file settings.
+        """
+
         filename = Path(filename)
         logfile_tools = None
     
@@ -250,13 +296,19 @@ class ExcellonFile(CamFile):
 
     @classmethod
     def from_string(kls, data, settings=None, filename=None, plated=None, logfile_tools=None):
+        """ Parse the given string as an Excellon file. Note that often, Excellon files do not contain any information
+        on which number format (integer/decimal places, zeros suppression) is used. In case Gerbonara cannot determine
+        this with certainty, this function *will* error out. Use :py:meth:`~.ExcellonFile.open` if you want Gerbonara to
+        parse this metadata from the non-standardized text files many CAD packages produce in addition to drill files.
+        """
+
         parser = ExcellonParser(settings, logfile_tools=logfile_tools)
         parser.do_parse(data, filename=filename)
         return kls(objects=parser.objects, comments=parser.comments, import_settings=settings,
                 generator_hints=parser.generator_hints, original_path=filename)
 
     def _generate_statements(self, settings, drop_comments=True):
-
+        """ Export this file as Excellon code, yields one str per line. """
         yield '; XNC file generated by gerbonara'
         if self.comments and not drop_comments:
             yield '; Comments found in original file:'
@@ -296,8 +348,17 @@ class ExcellonFile(CamFile):
         yield 'M30'
 
     def generate_excellon(self, settings=None, drop_comments=True):
-        ''' Export to Excellon format. This function always generates XNC, which is a well-defined subset of Excellon.
-        '''
+        """ Export to Excellon format. This function always generates XNC, which is a well-defined subset of Excellon.
+        Uses sane default settings if you don't give any.
+
+
+        :param bool drop_comments: If true, do not write comments to output file. This defaults to true because
+                otherwise there is a risk that Gerbonara does not consider some obscure magic comment semantically
+                meaningful while some other Excellon viewer might still parse it.
+        
+        :rtype: str
+        """
+
         if settings is None:
             if self.import_settings:
                 settings = self.import_settings.copy()
@@ -308,6 +369,8 @@ class ExcellonFile(CamFile):
         return '\n'.join(self._generate_statements(settings, drop_comments=drop_comments))
 
     def save(self, filename, settings=None, drop_comments=True):
+        """ Save this Excellon file to the file system. See :py:meth:`~.ExcellonFile.generate_excellon` for the meaning
+        of the arguments. """
         with open(filename, 'w') as f:
             f.write(self.generate_excellon(settings, drop_comments=drop_comments))
 
@@ -323,18 +386,6 @@ class ExcellonFile(CamFile):
             obj.rotate(angle, cx, cy, unit=unit)
 
     @property
-    def has_mixed_plating(self):
-        return len(set(obj.plated for obj in self.objects)) > 1
-    
-    @property
-    def is_plated(self):
-        return all(obj.plated for obj in self.objects)
-
-    @property
-    def is_nonplated(self):
-        return not any(obj.plated for obj in self.objects)
-
-    @property
     def is_empty(self):
         return not self.objects
 
@@ -342,6 +393,15 @@ class ExcellonFile(CamFile):
         return len(self.objects)
 
     def split_by_plating(self):
+        """ Split this file into two :py:class:`.ExcellonFile` instances, one containing all plated objects, and one
+        containing all nonplated objects. In this function, objects with undefined plating are considered nonplated.
+
+        .. note:: This does not copy the objects, so modifications in either of the returned files may clobber the
+                  original file.
+
+        :returns: (nonplated_file, plated_file)
+        :rtype: tuple
+        """
         plated = ExcellonFile(
             comments = self.comments.copy(),
             import_settings = self.import_settings.copy(),
@@ -356,15 +416,18 @@ class ExcellonFile(CamFile):
 
         return nonplated, plated
 
-    def path_lengths(self, unit):
+    def path_lengths(self, unit=MM):
         """ Calculate path lengths per tool.
-
-        Returns: dict { tool: float(path length) }
 
         This function only sums actual cut lengths, and ignores travel lengths that the tool is doing without cutting to
         get from one object to another. Travel lengths depend on the CAM program's path planning, which highly depends
         on panelization and other factors. Additionally, an EDA tool will not even attempt to minimize travel distance
         as that's not its job.
+
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Unit to use for return value. Default: mm
+
+        :returns: ``{ tool: float(path length) }``
+        :rtype dict:
         """
         lengths = {}
         tool = None
@@ -377,31 +440,42 @@ class ExcellonFile(CamFile):
         return lengths
 
     def hit_count(self):
+        """ Calculate the number of objects per tool.
+
+        :rtype: collections.Counter
+        """
         return Counter(obj.tool for obj in self.objects)
 
-    def drill_sizes(self):
-        return sorted({ obj.tool.diameter for obj in self.objects })
+    def drill_sizes(self, unit=MM):
+        """ Return a sorted list of all tool diameters found in this file.
+
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Unit to use for return values. Default: mm
+
+        :returns: list of floats, sorted smallest to largest diameter.
+        :rtype: list
+        """
+        # use equivalent_width for unit conversion
+        return sorted({ obj.tool.equivalent_width(unit) for obj in self.objects })
 
     def drills(self):
+        """ Return all drilled hole objects in this file.
+
+        :returns: list of :py:class:`.Flash` instances
+        :rtype: list
+        """
         return (obj for obj in self.objects if isinstance(obj, Flash))
 
     def slots(self):
+        """ Return all milled slot objects in this file.
+
+        :returns: list of :py:class:`~.graphic_objects.Line` or :py:class:`~.graphic_objects.Arc` instances
+        :rtype: list
+        """
         return (obj for obj in self.objects if not isinstance(obj, Flash))
 
-    @property
-    def bounds(self):
-        if not self.objects:
-            return None
-
-        (x_min, y_min), (x_max, y_max) = self.objects[0].bounding_box()
-        for obj in self.objects:
-            (obj_x_min, obj_y_min), (obj_x_max, obj_y_max) = self.objects[0].bounding_box()
-            x_min, y_min = min(x_min, obj_x_min), min(y_min, obj_y_min)
-            x_max, y_max = max(x_max, obj_x_max), max(y_max, obj_y_max)
-
-        return ((x_min, y_min), (x_max, y_max))
 
 class ProgramState(Enum):
+    """ Internal helper class used to track Excellon program state (i.e. G05/G06 command state). """
     HEADER = 0
     DRILLING = 1
     ROUTING = 2
@@ -409,6 +483,8 @@ class ProgramState(Enum):
 
 
 class ExcellonParser(object):
+    """ Internal helper class that contains all the actual Excellon format parsing logic. """
+
     def __init__(self, settings=None, logfile_tools=None):
         # NOTE XNC files do not contain an explicit number format specification, but all values have decimal points.
         # Thus, we set the default number format to (None, None). If the file does not contain an explicit specification
@@ -634,7 +710,7 @@ class ExcellonParser(object):
 
         old_pos = self.pos
 
-        if self.settings.absolute:
+        if self.settings.is_absolute:
             if x is not None:
                 self.pos = (x, self.pos[1])
             if y is not None:

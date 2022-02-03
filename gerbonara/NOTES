@@ -1,0 +1,42 @@
+
+To do
+=====
+
+[X] Actually use newly added gerber samples in test suite
+[X] Make Gerber parser error out if no unit is set anywhere
+[ ] Add test case for board outline / bounds with arcs (e.g. circle made up of four arcs, each with center line along
+    x/y axis)
+[ ] Add "find outline" method
+[X] Refactor layer identification logic, automatically detect Allegro NCPARAM files
+[X] Add idempotence test: When reading, then reserializing the output of an earlier invocation of gerbonara, the output
+    should not change. That is, in f1 --gn-> f2 --gn-> f3, it should be f2 == f3 but not necessarily f1 == f2.
+[X] Handle upverter output correctly: Upverter puts drils in a file called "design_export.xln" that actually contains
+    Gerber, not Excellon
+[X] Add standard comment/attribute support for Gerber and Excellon
+[X] Add file/lineno info to all warnings and syntax errors
+[X] Make sure we handle arcs with co-inciding start/end points correctly (G74: no arc, G75: full circle)
+[ ] Add allegro drill test files with different zero suppression settings
+[ ] Add pcb-rnd to layer matching
+[ ] Add librepcb to layer matching
+[ ] On altium exports with multiple mech layers, use lowest-numbered one as board outline and raise a warning.
+[ ] Assign layer rules based on allegro metadata instead of filenames for allegro files
+[ ] Add more IPC-356 test files from github
+[X] Add IPC netlist support to LayerStack
+[ ] It seems the excellon generator never generates M16 (drill up) commands, only M15 (drill down) commands during
+    routing
+[ ] Add standalone excellon SVG export test
+[ ] In image difference tests, detect empty images.
+[ ] Merge subsequent paths in gerbv svgs for less bad rendering performance
+[ ] Add integrated zip handling to layerstack
+[ ] Add GraphicObject.as(unit) method
+[ ] Add methods to graphic_object Line, Arc, Flash to convert between gerber and excellon representations.
+[ ] Add to_primitives to all *File classes
+[ ] Add region cut-in API
+[ ] Add radius- instead of center-based method of creating Arcs
+[ ] Add warning when interpolating aperture that is not either a circle or a rectangle. 
+[ ] Maybe have Line and Arc just use a width instead of an aperture after all, and roll plating of excellon tool into
+    graphic object subclass.
+[ ] Figure out whether to drop rectangular holes or whether to support them in polygon apertures as well.
+[ ] Add "number of parameters" property to ApertureMacro
+[ ] Aperture macro outline: Warn if first and last point are not the same.
+[ ] Make sure incremental mode actually works for gerber import

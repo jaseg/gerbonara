@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# Copyright 2021 Jan Götte <code@jaseg.de>
+# Copyright 2022 Jan Götte <code@jaseg.de>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
 
 from pathlib import Path
 
@@ -260,6 +261,22 @@ REFERENCE_DIRS = {
 
     'siemens-2': {
         'Gerber/BoardOutlline.gdo': 'mechanical outline',
+        'Gerber/DrillDrawingThrough.gdo': None,
+        'Gerber/EtchLayerBottom.gdo': 'bottom copper',
+        'Gerber/EtchLayerTop.gdo': 'top copper',
+        'Gerber/GerberPlot.gpf': None,
+        'Gerber/PCB.dsn': None,
+        'Gerber/SolderPasteBottom.gdo': 'bottom paste',
+        'Gerber/SolderPasteTop.gdo': 'top paste',
+        'Gerber/SoldermaskBottom.gdo': 'bottom mask',
+        'Gerber/SoldermaskTop.gdo': 'top mask',
+        'NCDrill/ContourPlated.ncd': 'mechanical outline',
+        'NCDrill/ThruHoleNonPlated.ncd': 'drill nonplated',
+        'NCDrill/ThruHolePlated.ncd': 'drill plated',
+        },
+
+    'zuken': {
+        '': 'mechanical outline',
         'Gerber/DrillDrawingThrough.gdo': None,
         'Gerber/EtchLayerBottom.gdo': 'bottom copper',
         'Gerber/EtchLayerTop.gdo': 'top copper',
