@@ -404,7 +404,7 @@ class PolygonAperture(Aperture):
     def to_macro(self):
         return ApertureMacroInstance(GenericMacros.polygon, self._params(MM))
 
-    def params(self, unit=None):
+    def _params(self, unit=None):
         rotation = self.rotation % (2*math.pi / self.n_vertices) if self.rotation is not None else None
         if self.hole_dia is not None:
             return self.unit.convert_to(unit, self.diameter), self.n_vertices, rotation, self.unit.convert_to(unit, self.hole_dia)
@@ -457,7 +457,7 @@ class ApertureMacroInstance(Aperture):
                 hasattr(other, 'params') and self.params == other.params and \
                 hasattr(other, 'rotation') and self.rotation == other.rotation
 
-    def params(self, unit=None):
+    def _params(self, unit=None):
         # We ignore "unit" here as we convert the actual macro, not this instantiation.
         # We do this because here we do not have information about which parameter has which physical units.
         return tuple(self.parameters)

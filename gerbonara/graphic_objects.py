@@ -68,8 +68,9 @@ class GraphicObject:
 
         :returns: A copy of this object using the new unit. 
         """
-        copy = copy.copy(self)
-        copy.convert_to(unit)
+        obj = copy.copy(self)
+        obj.convert_to(unit)
+        return obj
 
     def convert_to(self, unit):
         """ Convert this gerber object to another :py:class:`.LengthUnit` in-place.
@@ -140,9 +141,8 @@ class GraphicObject:
 
         :rtype: Iterator[:py:class:`.GraphicPrimitive`]
         """
-        return self._to_primitives(unit)
 
-    def _to_statements(self, gs):
+    def to_statements(self, gs):
         """ Serialize this object into Gerber statements.
 
         :param gs: :py:class:`~.rs274x.GraphicsState` object containing current Gerber state (polarity, selected
@@ -151,9 +151,8 @@ class GraphicObject:
         :returns: Iterator yielding one string per line of output Gerber
         :rtype: Iterator[str]
         """
-        self._to_statements(gs)
 
-    def _to_xnc(self, ctx):
+    def to_xnc(self, ctx):
         """ Serialize this object into XNC Excellon statements.
 
         :param ctx: :py:class:`.ExcellonContext` object containing current Excellon state (selected tool,
@@ -162,7 +161,6 @@ class GraphicObject:
         :returns: Iterator yielding one string per line of output XNC code
         :rtype: Iterator[str]
         """
-        self._to_xnc(ctx)
 
 
 @dataclass
@@ -200,18 +198,18 @@ class Flash(GraphicObject):
         """
         return getattr(self.tool, 'plated', None)
 
-    def __offset(self, dx, dy):
+    def _offset(self, dx, dy):
         self.x += dx
         self.y += dy
 
     def _rotate(self, rotation, cx=0, cy=0):
         self.x, self.y = gp.rotate_point(self.x, self.y, rotation, cx, cy)
 
-    def _to_primitives(self, unit=None):
+    def to_primitives(self, unit=None):
         conv = self.converted(unit)
         yield from self.aperture.flash(conv.x, conv.y, unit, self.polarity_dark)
 
-    def _to_statements(self, gs):
+    def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
 
@@ -221,7 +219,7 @@ class Flash(GraphicObject):
 
         gs.update_point(self.x, self.y, unit=self.unit)
 
-    def _to_xnc(self, ctx):
+    def to_xnc(self, ctx):
         yield from ctx.select_tool(self.tool)
         yield from ctx.drill_mode()
 
@@ -290,7 +288,7 @@ class Region(GraphicObject):
         else:
             self.poly.arc_centers.append(None)
 
-    def _to_primitives(self, unit=None):
+    def to_primitives(self, unit=None):
         self.poly.polarity_dark = self.polarity_dark # FIXME: is this the right spot to do this?
         if unit == self.unit:
             yield self.poly
@@ -402,12 +400,12 @@ class Line(GraphicObject):
         """
         return self.tool.plated
 
-    def _to_primitives(self, unit=None):
+    def to_primitives(self, unit=None):
         conv = self.converted(unit)
         w = self.aperture.equivalent_width(unit) if self.aperture else 0.1 # for debugging
         yield gp.Line(*conv.p1, *conv.p2, w, polarity_dark=self.polarity_dark)
 
-    def _to_statements(self, gs):
+    def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
         yield from gs.set_interpolation_mode(InterpMode.LINEAR)
@@ -419,7 +417,7 @@ class Line(GraphicObject):
 
         gs.update_point(*self.p2, unit=self.unit)
 
-    def _to_xnc(self, ctx):
+    def to_xnc(self, ctx):
         yield from ctx.select_tool(self.tool)
         yield from ctx.route_mode(self.unit, *self.p1)
 
@@ -565,7 +563,7 @@ class Arc(GraphicObject):
         self.x2, self.y2 = gp.rotate_point(self.x2, self.y2, rotation, cx, cy)
         self.cx, self.cy = new_cx - self.x1, new_cy - self.y1
 
-    def _to_primitives(self, unit=None):
+    def to_primitives(self, unit=None):
         conv = self.converted(unit)
         w = self.aperture.equivalent_width(unit) if self.aperture else 0.1 # for debugging
         yield gp.Arc(x1=conv.x1, y1=conv.y1,
@@ -575,7 +573,7 @@ class Arc(GraphicObject):
                 width=w,
                 polarity_dark=self.polarity_dark)
 
-    def _to_statements(self, gs):
+    def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
         # TODO is the following line correct?
@@ -590,7 +588,7 @@ class Arc(GraphicObject):
 
         gs.update_point(*self.p2, unit=self.unit)
 
-    def _to_xnc(self, ctx):
+    def to_xnc(self, ctx):
         yield from ctx.select_tool(self.tool)
         yield from ctx.route_mode(self.unit, self.x1, self.y1)
         code = 'G02' if self.clockwise else 'G03'

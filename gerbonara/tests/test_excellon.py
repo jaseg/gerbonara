@@ -131,8 +131,6 @@ def test_gerber_alignment(reference, tmpfile, print_on_error):
     for obj in gerf.objects:
         if isinstance(obj, Flash):
             x, y = obj.unit.convert_to(MM, obj.x), obj.unit.convert_to(MM, obj.y)
-            if abs(x - 121.525) < 2 and abs(y - 64) < 2:
-                print(obj)
             flash_coords.append((x, y))
 
     tree = KDTree(flash_coords, copy_data=True)
@@ -144,10 +142,6 @@ def test_gerber_alignment(reference, tmpfile, print_on_error):
             if obj.plated in (True, None):
                 total += 1
                 x, y = obj.unit.convert_to(MM, obj.x), obj.unit.convert_to(MM, obj.y)
-                print((x, y), end=' ')
-                if abs(x - 121.525) < 2 and abs(y - 64) < 2:
-                    print(obj)
-                    print('   ', tree.query_ball_point((x, y), r=tolerance))
                 if tree.query_ball_point((x, y), r=tolerance):
                     matches += 1
 

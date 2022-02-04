@@ -255,20 +255,13 @@ class GerberFile(CamFile):
             settings.number_format = (5,6)
         return '\n'.join(self._generate_statements(settings, drop_comments=drop_comments))
 
-    @property
-    def is_empty(self):
-        return not self.objects
-
     def __len__(self):
         return len(self.objects)
-
-    def __bool__(self):
-        return not self.is_empty
 
     def offset(self, dx=0,  dy=0, unit=MM):
         # TODO round offset to file resolution
         for obj in self.objects:
-            obj.with_offset(dx, dy, unit)
+            obj.offset(dx, dy, unit)
 
     def rotate(self, angle:'radian', center=(0,0), unit=MM):
         if math.isclose(angle % (2*math.pi), 0):

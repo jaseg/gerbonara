@@ -561,10 +561,8 @@ class Outline:
 
     @classmethod
     def parse(kls, line, settings):
-        print('parsing outline', line)
         outline_type = OutlineType[line[3:17].strip()]
         for outline in parse_coord_chain(line[22:], settings):
-            print(' ->', outline)
             yield kls(outline_type, outline, unit=settings.unit)
 
     def format(self, settings):

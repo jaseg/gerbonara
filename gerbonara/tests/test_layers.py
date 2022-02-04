@@ -275,22 +275,6 @@ REFERENCE_DIRS = {
         'NCDrill/ThruHolePlated.ncd': 'drill plated',
         },
 
-    'zuken': {
-        '': 'mechanical outline',
-        'Gerber/DrillDrawingThrough.gdo': None,
-        'Gerber/EtchLayerBottom.gdo': 'bottom copper',
-        'Gerber/EtchLayerTop.gdo': 'top copper',
-        'Gerber/GerberPlot.gpf': None,
-        'Gerber/PCB.dsn': None,
-        'Gerber/SolderPasteBottom.gdo': 'bottom paste',
-        'Gerber/SolderPasteTop.gdo': 'top paste',
-        'Gerber/SoldermaskBottom.gdo': 'bottom mask',
-        'Gerber/SoldermaskTop.gdo': 'top mask',
-        'NCDrill/ContourPlated.ncd': 'mechanical outline',
-        'NCDrill/ThruHoleNonPlated.ncd': 'drill nonplated',
-        'NCDrill/ThruHolePlated.ncd': 'drill plated',
-        },
-
     'upverter': {
         'design_export.drl': 'drill unknown',
         'design_export.gbl': 'bottom copper',

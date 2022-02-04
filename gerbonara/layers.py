@@ -58,11 +58,13 @@ def match_files(filenames):
                     gen[target] = gen.get(target, []) + [fn]
     return matches
 
+
 def best_match(filenames):
     matches = match_files(filenames)
     matches = sorted(matches.items(), key=lambda pair: len(pair[1]))
     generator, files = matches[-1]
     return generator, files
+
 
 def identify_file(data):
     if 'M48' in data:
@@ -78,6 +80,7 @@ def identify_file(data):
         return 'ipc356'
 
     return None
+
 
 def common_prefix(l):
     out = []
@@ -115,6 +118,7 @@ def autoguess(filenames):
 
     return matches
 
+
 def layername_autoguesser(fn):
     fn, _, ext = fn.lower().rpartition('.')
     
@@ -125,6 +129,7 @@ def layername_autoguesser(fn):
     if re.search('top|front|pri?m?(ary)?', fn):
         side = 'top'
         use = 'copper'
+
     if re.search('bot(tom)?|back|sec(ondary)?', fn):
         side = 'bottom'
         use = 'copper'
@@ -135,20 +140,20 @@ def layername_autoguesser(fn):
     elif re.search('(solder)?paste', fn):
         use = 'paste'
 
-    elif re.search('(solder)?mask', fn):
+    elif re.search('(solder)?(mask|resist)', fn):
         use = 'mask'
 
     elif re.search('drill|rout?e?', fn):
         use = 'drill'
         side = 'unknown'
 
-        if re.search(r'np(th)?|(non|un)\W*plated|(non|un)\Wgalv', fn):
+        if re.search(r'np(th|lt)?|(non|un)\W*plated|(non|un)\Wgalv', fn):
             side = 'nonplated'
 
-        elif re.search('pth|plated|galv', fn):
+        elif re.search('pth|plated|galv|plt', fn):
             side = 'plated'
 
-    elif (m := re.search(r'(la?y?e?r?|in(ner)?)\W*(?P<num>[0-9]+)', fn)):
+    elif (m := re.search(r'(la?y?e?r?|in(ner)?|conduct(or|ive)?)\W*(?P<num>[0-9]+)', fn)):
         use = 'copper'
         side = f'inner_{int(m["num"]):02d}'
 
@@ -169,6 +174,7 @@ def layername_autoguesser(fn):
 
     return f'{side} {use}'
 
+
 class LayerStack:
     @classmethod
     def from_directory(kls, directory, board_name=None, verbose=False):
@@ -179,7 +185,7 @@ class LayerStack:
 
         files = [ path for path in directory.glob('**/*') if path.is_file() ]
         generator, filemap = best_match(files)
-        print('detected generator', generator)
+        #print('detected generator', generator)
 
         if len(filemap) < 6:
             warnings.warn('Ambiguous gerber filenames. Trying last-resort autoguesser.')
@@ -210,6 +216,12 @@ class LayerStack:
                 raise SystemError('Cannot figure out gerber file mapping')
             # FIXME use layer metadata from comments and ipc file if available
 
+        elif generator == 'zuken':
+            filemap = autoguess([ f for files in filemap for f in files ])
+            if len(filemap < 6):
+                raise SystemError('Cannot figure out gerber file mapping')
+            # FIXME use layer metadata from comments and ipc file if available
+
         elif generator == 'altium':
             excellon_settings = None
 
@@ -231,8 +243,8 @@ class LayerStack:
         else:
             excellon_settings = None
 
-        import pprint
-        pprint.pprint(filemap)
+        #import pprint
+        #pprint.pprint(filemap)
 
         ambiguous = [ key for key, value in filemap.items() if len(value) > 1 and not 'drill' in key ]
         if ambiguous:
@@ -247,7 +259,7 @@ class LayerStack:
 
             for path in paths:
                 id_result = identify_file(path.read_text())
-                print('id_result', id_result)
+                #print('id_result', id_result)
 
                 if 'netlist' in key:
                     layer = Netlist.open(path)

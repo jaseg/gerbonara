@@ -29,7 +29,7 @@ import os
 import re
 import textwrap
 from enum import Enum
-from math import radians, sin, cos, sqrt, atan2, pi
+import math
 
 class UnknownStatementWarning(Warning):
     """ Gerbonara found an unknown Gerber or Excellon statement. """

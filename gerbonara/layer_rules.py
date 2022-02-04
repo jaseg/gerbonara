@@ -148,7 +148,7 @@ MATCH_RULES = {
     },
 
 'allegro': {
-        # Allegro doesn't have any widespread convention, so we rely heavily on the layer name auto-guesser here.
+    # Allegro doesn't have any widespread convention, so we rely heavily on the layer name auto-guesser here.
     'drill mech': r'.*\.rou',
     'drill mech': r'.*\.drl',
     'generic gerber': r'.*\.art',
@@ -160,9 +160,17 @@ MATCH_RULES = {
     },
 
 'pads': {
-        # Pads also does not seem to have a factory-default naming schema. Or it has one but everyone ignores it.
+    # Pads also does not seem to have a factory-default naming schema. Or it has one but everyone ignores it.
     'generic gerber':   r'.*\.pho',
     'drill mech':       r'.*\.drl',
     },
 
+'zuken': {
+    'generic gerber': r'.*\.fph',
+    'gerber params': r'.*\.fpl',
+    'drill mech': r'.*\.fdr',
+    'excellon params': r'.*\.fdl',
+    'other netlist': r'.*\.ipc',
+    'ipc-2581': r'.*\.xml',
+    },
 }

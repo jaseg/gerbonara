@@ -104,12 +104,12 @@ class ArcPoly(GraphicPrimitive):
     def from_regular_polygon(kls, x:float, y:float, r:float, n:int, rotation:float=0, polarity_dark:bool=True):
         """ Convert an n-sided gerber polygon to a normal ArcPoly defined by outline """
 
-        delta = 2*math.pi / self.n
+        delta = 2*math.pi / n
 
         return kls([
-                (self.x + math.cos(self.rotation + i*delta) * self.r,
-                 self.y + math.sin(self.rotation + i*delta) * self.r)
-                for i in range(self.n) ], polarity_dark=polarity_dark)
+                (x + math.cos(rotation + i*delta) * r,
+                 y + math.sin(rotation + i*delta) * r)
+                for i in range(n) ], polarity_dark=polarity_dark)
 
     def __len__(self):
         """ Return the number of points on this polygon's outline (which is also the number of segments because the
@@ -156,15 +156,15 @@ class Line(GraphicPrimitive):
     @classmethod
     def from_obround(kls, x:float, y:float, w:float, h:float, rotation:float=0, polarity_dark:bool=True):
         """ Convert a gerber obround into a :py:class:`~.graphic_primitives.Line`. """
-        if self.w > self.h:
-            w, a, b = self.h, self.w-self.h, 0
+        if w > h:
+            w, a, b = h, w-h, 0
         else:
-            w, a, b = self.w, 0, self.h-self.w
+            w, a, b = w, 0, h-w
 
         return kls(
-                *rotate_point(self.x-a/2, self.y-b/2, self.rotation, self.x, self.y),
-                *rotate_point(self.x+a/2, self.y+b/2, self.rotation, self.x, self.y),
-                w, polarity_dark=self.polarity_dark)
+                *rotate_point(x-a/2, y-b/2, rotation, x, y),
+                *rotate_point(x+a/2, y+b/2, rotation, x, y),
+                w, polarity_dark=polarity_dark)
 
     def bounding_box(self):
         r = self.width / 2

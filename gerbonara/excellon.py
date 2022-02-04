@@ -196,9 +196,6 @@ class ExcellonFile(CamFile):
     def __repr__(self):
         return str(self)
 
-    def __bool__(self):
-        return not self.is_empty
-
     @property
     def is_plated(self):
         """ Test if *all* holes or slots in this file are plated. """
@@ -385,10 +382,6 @@ class ExcellonFile(CamFile):
         for obj in self.objects:
             obj.rotate(angle, cx, cy, unit=unit)
 
-    @property
-    def is_empty(self):
-        return not self.objects
-
     def __len__(self):
         return len(self.objects)
 
@@ -540,7 +533,6 @@ class ExcellonParser(object):
             # TODO check first command in file is "start of header" command.
 
             try:
-                print(f'{self.settings.number_format} {lineno} "{line}"')
                 if not self.exprs.handle(self, line):
                     raise ValueError('Unknown excellon statement:', line)
             except Exception as e:

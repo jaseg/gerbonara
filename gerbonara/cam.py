@@ -125,7 +125,7 @@ class FileSettings:
 
     @property
     def is_absolute(self):
-        return not self.incremental # default to absolute
+        return not self.is_incremental # default to absolute
 
     def parse_gerber_value(self, value):
         """ Parse a numeric string in gerber format using this file's settings. """
@@ -220,7 +220,7 @@ class Polyline:
             self.append(line)
 
     def append(self, line):
-        assert isinstance(line, Line)
+        assert isinstance(line, gp.Line)
         if not self.coords:
             self.coords.append((line.x1, line.y1))
             self.coords.append((line.x2, line.y2))
@@ -287,12 +287,12 @@ class CamFile:
                 inkscape__document_units=svg_unit.shorthand)
 
         tags = []
-        polyline = None
+        pl = None
         for i, obj in enumerate(self.objects):
             #if isinstance(obj, go.Flash):
-            #    if polyline:
-            #        tags.append(polyline.to_svg(tag, fg, bg))
-            #        polyline = None
+            #    if pl:
+            #        tags.append(pl.to_svg(tag, fg, bg))
+            #        pl = None
 
             #    mask_tags = [ prim.to_svg(tag, 'white', 'black') for prim in obj.to_primitives(unit=svg_unit) ]
             #    mask_tags.insert(0, tag('rect', width='100%', height='100%', fill='black'))
@@ -303,19 +303,19 @@ class CamFile:
             #else:
                 for primitive in obj.to_primitives(unit=svg_unit):
                     if isinstance(primitive, gp.Line):
-                        if not polyline:
-                            polyline = gp.Polyline(primitive)
+                        if not pl:
+                            pl = Polyline(primitive)
                         else:
-                            if not polyline.append(primitive):
-                                tags.append(polyline.to_svg(fg, bg, tag=tag))
-                                polyline = gp.Polyline(primitive)
+                            if not pl.append(primitive):
+                                tags.append(pl.to_svg(fg, bg, tag=tag))
+                                pl = Polyline(primitive)
                     else:
-                        if polyline:
-                            tags.append(polyline.to_svg(fg, bg, tag=tag))
-                            polyline = None
+                        if pl:
+                            tags.append(pl.to_svg(fg, bg, tag=tag))
+                            pl = None
                         tags.append(primitive.to_svg(fg, bg, tag=tag))
-        if polyline:
-            tags.append(polyline.to_svg(fg, bg, tag=tag))
+        if pl:
+            tags.append(pl.to_svg(fg, bg, tag=tag))
 
         # setup viewport transform flipping y axis
         xform = f'translate({content_min_x} {content_min_y+content_h}) scale(1 -1) translate({-content_min_x} {-content_min_y})'
@@ -421,7 +421,7 @@ class CamFile:
     @property
     def is_empty(self):
         """ Check if there are any objects in this file. """
-        raise NotImplementedError()
+        return not bool(list(self.objects))
 
     def __len__(self):
         """ Return the number of objects in this file. Note that a e.g. a long trace or a long slot consisting of
@@ -430,5 +430,5 @@ class CamFile:
 
     def __bool__(self):
         """ Test if this file contains any objects """
-        raise NotImplementedError()
+        return not self.is_empty
 
