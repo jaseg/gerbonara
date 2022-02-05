@@ -20,6 +20,7 @@
 import os
 import re
 import warnings
+import copy
 from collections import namedtuple
 from pathlib import Path
 
@@ -41,6 +42,22 @@ STANDARD_LAYERS = [
         'bottom silk',
         'bottom paste',
         ]
+
+class NamingScheme:
+    kicad = {
+    'top copper':           '{board_name}-F.Cu.gbr',
+    'top mask':             '{board_name}-F.Mask.gbr',
+    'top silk':             '{board_name}-F.SilkS.gbr',
+    'top paste':            '{board_name}-F.Paste.gbr',
+    'bottom copper':        '{board_name}-B.Cu.gbr',
+    'bottom mask':          '{board_name}-B.Mask.gbr',
+    'bottom silk':          '{board_name}-B.SilkS.gbr',
+    'bottom paste':         '{board_name}-B.Paste.gbr',
+    'inner copper':         '{board_name}-In{layer_number}.Cu.gbr',
+    'mechanical outline':   '{board_name}-Edge.Cuts.gbr',
+    'drill unknown':        '{board_name}.drl',
+    'other netlist':        '{board_name}.d356',
+    }
 
 
 def match_files(filenames):
@@ -176,8 +193,15 @@ def layername_autoguesser(fn):
 
 
 class LayerStack:
+
+    def __init__(self, graphic_layers, drill_layers, netlist=None, board_name=None):
+        self.graphic_layers = graphic_layers
+        self.drill_layers = drill_layers
+        self.board_name = board_name
+        self.netlist = netlist
+
     @classmethod
-    def from_directory(kls, directory, board_name=None, verbose=False):
+    def from_directory(kls, directory, board_name=None):
 
         directory = Path(directory)
         if not directory.is_dir():
@@ -307,11 +331,73 @@ class LayerStack:
         board_name = re.sub(r'\W+$', '', board_name)
         return kls(layers, drill_layers, netlist, board_name=board_name)
 
-    def __init__(self, graphic_layers, drill_layers, netlist=None, board_name=None):
-        self.graphic_layers = graphic_layers
-        self.drill_layers = drill_layers
-        self.board_name = board_name
-        self.netlist = netlist
+    def save_to_directory(self, path, naming_scheme={}, overwrite_existing=True):
+        outdir = Path(path)
+        outdir.mkdir(parents=True, exist_ok=overwrite_existing)
+
+        def check_not_exists(path):
+            if path.exists() and not overwrite_existing:
+                raise SystemError(f'Path exists but overwrite_existing is False: {path}')
+
+        def get_name(layer_type, layer):
+            nonlocal naming_scheme, overwrite_existing
+
+            if (m := re.match('inner_([0-9]*) copper', layer_type)):
+                layer_type = 'inner copper'
+                num = int(m[1])
+            else:
+                num = None
+
+            if layer_type in naming_scheme:
+                path = outdir / naming_scheme[layer_type].format(layer_num=num, board_name=self.board_name)
+            else:
+                path = outdir / layer.original_path.name
+
+            check_not_exists(path)
+            return path
+
+        for (side, use), layer in self.graphic_layers.items():
+            outpath = get_name(f'{side} {use}', layer)
+            layer.save(outpath)
+
+        if naming_scheme:
+            self.normalize_drill_layers()
+
+            def save_layer(layer, layer_name):
+                nonlocal self, outdir, drill_layers, check_not_exists
+                path = outdir / drill_layers[layer_name].format(board_name=self.board_name)
+                check_not_exists(path)
+                layer.save(path)
+
+            drill_layers = { key.partition()[2]: value for key, value in naming_scheme if 'drill' in key }
+            if set(drill_layers) == {'plated', 'nonplated', 'unknown'}:
+                save_layer(self.drill_pth, 'plated')
+                save_layer(self.drill_npth, 'nonplated')
+                save_layer(self.drill_unknown, 'unknown')
+
+            elif 'plated' in drill_layers and len(drill_layers) == 2:
+                save_layer(self.drill_pth, 'plated')
+                merged = copy.copy(self.drill_npth)
+                merged.merge(self.drill_unknown)
+                save_layer(merged, list(set(drill_layers) - {'plated'})[0])
+
+            elif 'unknown' in drill_layers:
+                merged = copy.copy(self.drill_pth)
+                merged.merge(self.drill_npth)
+                merged.merge(self.drill_unknown)
+                save_layer(merged, 'unknown')
+
+            else:
+                raise ValueError('Namin scheme does not specify unknown drill layer')
+
+        else:
+            for layer in self.drill_layers:
+                outpath = outdir / layer.original_path.name
+                check_not_exists(outpath)
+                layer.save(outpath)
+
+        if self.netlist:
+            layer.save(get_name('other netlist', self.netlist))
 
     def __str__(self):
         names = [ f'{side} {use}' for side, use in self.graphic_layers ]
