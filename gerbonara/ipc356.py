@@ -95,6 +95,13 @@ class Netlist(CamFile):
         for obj in self.objects:
             obj.rotate(angle, cx, cy, unit)
 
+    def __str__(self):
+        name = f'{self.original_path.name} ' if self.original_path else ''
+        return f'<IPC-356 Netlist {name}with {len(self.test_records)} records, {len(self.conductors)} conductors and {len(self.outlines)} outlines>'
+
+    def __repr__(self):
+        return str(self)
+
     @property
     def objects(self):
         yield from self.test_records

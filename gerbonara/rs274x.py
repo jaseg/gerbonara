@@ -232,6 +232,9 @@ class GerberFile(CamFile):
         name = f'{self.original_path.name} ' if self.original_path else ''
         return f'<GerberFile {name}with {len(self.apertures)} apertures, {len(self.objects)} objects>'
 
+    def __repr__(self):
+        return str(self)
+
     def save(self, filename, settings=None, drop_comments=True):
         """ Save this Gerber file to the file system. See :py:meth:`~.GerberFile.generate_gerber` for the meaning
         of the arguments. """

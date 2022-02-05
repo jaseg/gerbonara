@@ -20,7 +20,7 @@ import math
 import copy
 from dataclasses import dataclass, KW_ONLY, astuple, replace, field, fields
 
-from .utils import MM, InterpMode, to_unit
+from .utils import MM, InterpMode, to_unit, rotate_point
 from . import graphic_primitives as gp
 
 
@@ -555,6 +555,46 @@ class Arc(GraphicObject):
         (plating undefined)
         """
         return self.tool.plated
+
+    def approximate(self, max_error=1e-2, unit=MM, clip_max_error=True):
+        """ Approximate this :py:class:`~.graphic_objects.Arc` using a list of multiple
+        :py:class:`~.graphic_objects.Line`  instances to the given precision.
+
+        :param float max_error: Maximum approximation error in ``unit`` units.
+        :param unit: Either a :py:class:`.LengthUnit` instance or one of the strings ``'mm'`` or ``'inch'``.
+        :param bool clip_max_error: Clip max error such that at least a square is always rendered.
+
+        :returns: list of :py:class:`~.graphic_objects.Line` instances.
+        :rtype: list
+        """
+        # TODO the max_angle calculation below is a bit off -- we over-estimate the error, and thus produce finer
+        # results than necessary. Fix this.
+            
+        r = math.hypot(self.cx, self.cy)
+
+        max_error = self.unit(max_error, unit)
+        if clip_max_error:
+            # 1 - math.sqrt(1 - 0.5*math.sqrt(2))
+            max_error = min(max_error, r*0.4588038998538031)
+
+        elif max_error >= r:
+            return [Line(*self.p1, *self.p2, aperture=self.aperture, polarity_dark=self.polarity_dark)]
+
+        # see https://www.mathopenref.com/sagitta.html
+        l = math.sqrt(r**2 - (r - max_error)**2)
+
+        angle_max = math.asin(l/r)
+        sweep_angle = self.sweep_angle()
+        num_segments = math.ceil(sweep_angle / angle_max)
+        angle = sweep_angle / num_segments
+
+        if not self.clockwise:
+            angle = -angle
+
+        cx, cy = self.center
+        points = [ rotate_point(self.x1, self.y1, i*angle, cx, cy) for i in range(num_segments + 1) ]
+        return [ Line(*p1, *p2, aperture=self.aperture, polarity_dark=self.polarity_dark)
+                for p1, p2 in zip(points[0::], points[1::]) ]
 
     def _rotate(self, rotation, cx=0, cy=0):
         # rotate center first since we need old x1, y1 here
