@@ -24,8 +24,7 @@ test:archlinux:
   stage: test
   image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
   script:
-    - pip3 install --user pytest
-    - ~/.local/bin/pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
+    - pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
   dependencies:
     - build:archlinux
   artifacts:
@@ -38,7 +37,7 @@ docs:archlinux:
   stage: test
   image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
   script:
-    - ~/.local/bin/sphinx-build -E docs docs/_build
+    - sphinx-build -E docs docs/_build
   dependencies:
     - build:archlinux
   artifacts:
@@ -54,7 +53,7 @@ publish:gerbonara:
   cache: {}
   script:
     - export TWINE_USERNAME TWINE_PASSWORD
-    - ~/.local/bin/twine upload dist/*
+    - twine upload dist/*
   dependencies:
     - build:archlinux
   only:
@@ -66,7 +65,7 @@ pages:
     GIT_SUBMODULE_STRATEGY: none
   image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
   script:
-    - ~/.local/bin/sphinx-build -E docs docs/_build
+    - sphinx-build -E docs docs/_build
   dependencies:
     - build:archlinux
   artifacts:
