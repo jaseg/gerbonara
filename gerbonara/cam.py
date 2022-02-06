@@ -66,8 +66,11 @@ class FileSettings:
             if value != (None, None) and (value[0] > 6 or value[1] > 7):
                 raise ValueError(f'Requested precision of {value} is too high. Only up to 6.7 digits are supported by spec.')
 
-
         super().__setattr__(name, value)
+
+        if name in ('zeros', 'number_format'):
+            num = self.number_format[1 if self.zeros == 'leading' else 0] or 0
+            self._pad = '0'*num
 
     def to_radian(self, value):
         """ Convert a given numeric string or a given float from file units into radians. """
@@ -133,35 +136,27 @@ class FileSettings:
         if not value:
             return None
 
-        # Handle excellon edge case with explicit decimal. "That was easy!"
-        if '.' in value:
+        if '.' in value or value == '00':
             return float(value)
 
-        # TARGET3001! exports zeros as "00" even when it uses an explicit decimal point everywhere else.
-        if int(value) == 0:
-            return 0
-
-        # Format precision
         integer_digits, decimal_digits = self.number_format
-        if integer_digits is None or decimal_digits is None:
-            raise SyntaxError('No number format set and value does not contain a decimal point. If this is an Allegro '
-                    'Excellon drill file make sure either nc_param.txt or ncdrill.log ends up in the same folder as '
-                    'it, because Allegro does not include this critical information in their Excellon output. If you '
-                    'call this through ExcellonFile.from_string, you must manually supply from_string with a '
-                    'FileSettings object from excellon.parse_allegro_ncparam.')
 
-        # Remove extraneous information
-        sign = '-' if value[0] == '-' else ''
-        value = value.lstrip('+-')
+        sign = 1
+
+        if value[0] == '-':
+            sign = -1
+            value = value[1:]
+
+        elif value[0] == '+':
+            value = value[1:]
 
         if self.zeros == 'leading':
-            value = '0'*decimal_digits + value # pad with zeros to ensure we have enough decimals
-            out = float(sign + value[:-decimal_digits] + '.' + value[-decimal_digits:])
+            value = self._pad + value # pad with zeros to ensure we have enough decimals
+            return sign*float(value[:-decimal_digits] + '.' + value[-decimal_digits:])
 
         else: # no or trailing zero suppression
-            value = value + '0'*integer_digits
-            out = float(sign + value[:integer_digits] + '.' + value[integer_digits:])
-        return out
+            value = value + self._pad
+            return sign*float(value[:integer_digits] + '.' + value[integer_digits:])
 
     def write_gerber_value(self, value, unit=None):
         """ Convert a floating point number to a Gerber-formatted string.  """

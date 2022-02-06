@@ -725,6 +725,15 @@ class ExcellonParser(object):
             self.generator_hints.append('zuken')
 
     def do_move(self, match=None, x='X', y='Y'):
+        if self.settings.number_format == (None, None) and not '.' in match['X']:
+            # TARGET3001! exports zeros as "00" even when it uses an explicit decimal point everywhere else.
+            if match['X'] != '00':
+                raise SyntaxError('No number format set and value does not contain a decimal point. If this is an Allegro '
+                    'Excellon drill file make sure either nc_param.txt or ncdrill.log ends up in the same folder as '
+                    'it, because Allegro does not include this critical information in their Excellon output. If you '
+                    'call this through ExcellonFile.from_string, you must manually supply from_string with a '
+                    'FileSettings object from excellon.parse_allegro_ncparam.')
+
         x = self.settings.parse_gerber_value(match['X'])
         y = self.settings.parse_gerber_value(match['Y'])
 
