@@ -27,6 +27,11 @@ test:archlinux:
     - pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
   dependencies:
     - build:archlinux
+  cache:
+    key: test-image-cache
+    paths:
+      - gerbonara/tests/image_cache/*.svg
+      - gerbonara/tests/image_cache/*.png
   artifacts:
     name: "gerbolyze-$CI_COMMIT_REF_NAME-gerbonara"
     when: on_failure
