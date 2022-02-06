@@ -59,13 +59,13 @@ Quick Start
 
 First, install gerbonara from PyPI using pip:
 
-.. highlight:: shell
+.. code-block:: shell
 
    pip install --user gerbonara
 
 Then, you are ready to read and write gerber files:
 
-.. highlight:: python
+.. code-block:: python
 
     from gerbonara import LayerStack
 
