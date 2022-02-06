@@ -70,12 +70,12 @@ pages:
     GIT_SUBMODULE_STRATEGY: none
   image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
   script:
-    - sphinx-build -E docs docs/_build
+    - sphinx-build -E docs public
   dependencies:
     - build:archlinux
   artifacts:
     paths:
-      - docs/_build
+      - public
   only:
     - /^v.*$/
 
