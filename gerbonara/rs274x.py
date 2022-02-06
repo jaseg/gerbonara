@@ -631,16 +631,12 @@ class GerberParser:
             # multiple statements from one line.
             if line.strip() and self.eof_found:
                 self.warn('Data found in gerber file after EOF.')
-            #print(f'Line {lineno}: {line}')
 
             for name, le_regex in self.STATEMENT_REGEXES.items():
                 if (match := le_regex.match(line)):
-                    #print(f'    match: {name} / {match}')
                     try:
                         getattr(self, f'_parse_{name}')(match)
                     except Exception as e:
-                        #print(f'Line {lineno}: {line}')
-                        #print(f'    match: {name} / {match}')
                         raise SyntaxError(f'{filename}:{lineno} "{line}": {e}') from e
                     line = line[match.end(0):]
                     break

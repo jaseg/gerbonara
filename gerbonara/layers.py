@@ -63,14 +63,11 @@ class NamingScheme:
 def match_files(filenames):
     matches = {}
     for generator, rules in MATCH_RULES.items():
-        print(generator)
         gen = {}
         matches[generator] = gen
         for layer, regex in rules.items():
-            print('    ->', layer, regex)
             for fn in filenames:
                 if (m := re.fullmatch(regex, fn.name, re.IGNORECASE)):
-                    print('        ->', fn.name)
                     if layer == 'inner copper':
                         target = 'inner_' + ''.join(e or '' for e in m.groups()) + ' copper'
                     else:
@@ -218,9 +215,6 @@ class LayerStack:
 
         files = [ path for path in directory.glob('**/*') if path.is_file() ]
         generator, filemap = best_match(files)
-        print('detected generator', generator)
-        from pprint import pprint
-        pprint(filemap)
 
         if sum(len(files) for files in filemap.values()) < 6:
             warnings.warn('Ambiguous gerber filenames. Trying last-resort autoguesser.')
@@ -280,10 +274,6 @@ class LayerStack:
         else:
             excellon_settings = None
 
-        print('==> new')
-        import pprint
-        pprint.pprint(filemap)
-
         ambiguous = [ f'{key} ({", ".join(x.name for x in value)})' for key, value in filemap.items() if len(value) > 1 and not 'drill' in key ]
         if ambiguous:
             raise SystemError(f'Ambiguous layer names: {", ".join(ambiguous)}')
@@ -297,7 +287,6 @@ class LayerStack:
 
             for path in paths:
                 id_result = identify_file(path.read_text())
-                #print('id_result', id_result)
 
                 if 'netlist' in key:
                     layer = Netlist.open(path)
