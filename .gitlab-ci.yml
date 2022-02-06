@@ -13,6 +13,7 @@ build:archlinux:
   variables:
     GIT_SUBMODULE_STRATEGY: none
   script:
+    - pip3 install --user wheel
     - python3 setup.py bdist_wheel
   artifacts:
     name: "gerbolyze-$CI_COMMIT_REF_NAME-gerbonara"
