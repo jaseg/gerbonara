@@ -57,6 +57,21 @@ Features
 Quick Start
 ===========
 
+First, install gerbonara from PyPI using pip:
+
+.. highlight:: shell
+
+   pip install --user gerbonara
+
+Then, you are ready to read and write gerber files:
+
+.. highlight:: python
+
+    from gerbonara import LayerStack
+
+    stack = LayerStack.from_directory('output/gerber')
+    w, h = stack.outline.size('mm')
+    print(f'Board size is {w:.1f} mm x {h:.1f} mm')
 
 
 Development

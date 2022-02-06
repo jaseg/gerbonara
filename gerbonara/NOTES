@@ -13,6 +13,7 @@ To do
 [X] Handle upverter output correctly: Upverter puts drils in a file called "design_export.xln" that actually contains
     Gerber, not Excellon
 [X] Add standard comment/attribute support for Gerber and Excellon
+[ ] Add attribute support to gerber output
 [X] Add file/lineno info to all warnings and syntax errors
 [X] Make sure we handle arcs with co-inciding start/end points correctly (G74: no arc, G75: full circle)
 [ ] Add allegro drill test files with different zero suppression settings
@@ -40,3 +41,4 @@ To do
 [ ] Add "number of parameters" property to ApertureMacro
 [ ] Aperture macro outline: Warn if first and last point are not the same.
 [ ] Make sure incremental mode actually works for gerber import
+[ ] Add text rendering function
