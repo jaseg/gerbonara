@@ -23,28 +23,20 @@ yay -S python-gerbonara
 Python:
 
 ```
-pip install gerbonara
+pip install --user gerbonara
 ```
 
-# Usage
+# Documentation and Examples
 
-Here's a simple example:
+Documentation can be found at:
 
-```python
-import gerbonara
-from gerbonara.render import GerberCairoContext
+https://gerbolyze.gitlab.io/gerbonara
 
-# Read gerber and Excellon files
-top_copper = gerbonara.read('example.GTL')
-nc_drill = gerbonara.read('example.txt')
+# Issues
 
-# Rendering context
-ctx = GerberCairoContext()
+Please file any bugs at our issue tracker:
 
-# Create SVG image
-top_copper.render(ctx)
-nc_drill.render(ctx, 'composite.svg')
-```
+https://gitlab.com/gerbolyze/gerbonara/-/issues
 
 ---
 
