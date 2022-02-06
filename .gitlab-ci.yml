@@ -38,7 +38,6 @@ docs:archlinux:
   stage: test
   image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
   script:
-    - pip3 install --user sphinx
     - ~/.local/bin/sphinx-build -E docs docs/_build
   dependencies:
     - build:archlinux
@@ -54,11 +53,25 @@ publish:gerbonara:
   image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
   cache: {}
   script:
-    - pip install -U --user twine
     - export TWINE_USERNAME TWINE_PASSWORD
     - ~/.local/bin/twine upload dist/*
   dependencies:
     - build:archlinux
+  only:
+    - /^v.*$/
+
+pages:
+  stage: publish
+  variables:
+    GIT_SUBMODULE_STRATEGY: none
+  image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
+  script:
+    - ~/.local/bin/sphinx-build -E docs docs/_build
+  dependencies:
+    - build:archlinux
+  artifacts:
+    paths:
+      - docs/_build
   only:
     - /^v.*$/
 
