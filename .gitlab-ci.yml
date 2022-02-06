@@ -4,11 +4,12 @@ variables:
 stages:
   - build
   - test
+  - docs
   - publish
 
-build:debian_10:
+build:archlinux:
   stage: build
-  image: "registry.gitlab.com/gerbolyze/build-containers/debian:10"
+  image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
   variables:
     GIT_SUBMODULE_STRATEGY: none
   script:
@@ -18,32 +19,45 @@ build:debian_10:
     paths:
       - dist/*.whl
 
-test:debian_10:
+test:archlinux:
   stage: test
-  image: "registry.gitlab.com/gerbolyze/build-containers/debian:10"
+  image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
   script:
     - pip3 install --user pytest
     - ~/.local/bin/pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
   dependencies:
-    - build:debian_10
+    - build:archlinux
   artifacts:
     name: "gerbolyze-$CI_COMMIT_REF_NAME-gerbonara"
     when: on_failure
     paths:
       - gerbonara_test_failures/*
 
+docs:archlinux:
+  stage: test
+  image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
+  script:
+    - pip3 install --user sphinx
+    - ~/.local/bin/sphinx-build -E docs docs/_build
+  dependencies:
+    - build:archlinux
+  artifacts:
+    name: "docs-gerbonara-$CI_COMMIT_REF_NAME"
+    paths:
+      - docs/_build
+
 publish:gerbonara:
   stage: publish
   variables:
     GIT_SUBMODULE_STRATEGY: none
-  image: "registry.gitlab.com/gerbolyze/build-containers/debian:10"
+  image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
   cache: {}
   script:
     - pip install -U --user twine
     - export TWINE_USERNAME TWINE_PASSWORD
     - ~/.local/bin/twine upload dist/*
   dependencies:
-    - build:debian_10
+    - build:archlinux
   only:
     - /^v.*$/
 
