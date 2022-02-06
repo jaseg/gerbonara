@@ -22,7 +22,8 @@ test:debian_10:
   stage: test
   image: "registry.gitlab.com/gerbolyze/build-containers/debian:10"
   script:
-    - "pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'"
+    - pip3 install --user pytest
+    - ~/.local/bin/pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
   dependencies:
     - build:debian_10
   artifacts:
