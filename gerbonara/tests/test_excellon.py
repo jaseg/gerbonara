@@ -48,6 +48,8 @@ REFERENCE_FILES = {
         'diptrace/mainboard.drl': (None, 'diptrace/mainboard_Top.gbr'),
         'diptrace/panel.drl': (None, None),
         'diptrace/keyboard.drl': (None, 'diptrace/keyboard_Bottom.gbr'),
+        'zuken-emulated/Drill/8seg_Driver__routed_Drill_thru_plt.fdr/8seg_Driver__routed_Drill_thru_plt.fdr': (('inch', 'trailing', 4), 'zuken-emulated/Gerber/Conductive-1.fph'),
+        'zuken-emulated/Drill/8seg_Driver__routed_Drill_thru_nplt.fdr': (('inch', 'trailing', 4), None),
         }
 
 @filter_syntax_warnings
@@ -105,8 +107,12 @@ def test_idempotence(reference, tmpfile):
     tmp_1 = tmpfile('First generation output', '.drl')
     tmp_2 = tmpfile('Second generation output', '.drl')
 
-    ExcellonFile.open(reference).save(tmp_1)
-    ExcellonFile.open(tmp_1).save(tmp_2)
+    f1 = ExcellonFile.open(reference)
+    f1.save(tmp_1)
+    print(f'{f1.import_settings=}')
+    f2 = ExcellonFile.open(tmp_1)
+    f2.save(tmp_2)
+    print(f'{f2.import_settings=}')
 
     assert tmp_1.read_text() == tmp_2.read_text()
 
@@ -125,7 +131,7 @@ def test_gerber_alignment(reference, tmpfile, print_on_error):
     gerf = GerberFile.open(gerf_path)
     print('bounds excellon:', excf.bounding_box(MM))
     print('bounds gerber:', gerf.bounding_box(MM))
-    excf.save('/tmp/test.xnc')
+    excf.save(tmp)
 
     flash_coords = []
     for obj in gerf.objects:

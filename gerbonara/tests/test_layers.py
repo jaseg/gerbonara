@@ -289,6 +289,20 @@ REFERENCE_DIRS = {
         'design_export.xln': 'drill unknown',
         'layers.cfg': None,
         },
+
+    'zuken-emulated': {
+        'Gerber/MetalMask-A.fph': 'top paste',
+        'Gerber/MetalMask-B.fph': 'bottom paste',
+        'Gerber/Symbol-A.fph': 'top silk',
+        'Gerber/Symbol-B.fph': 'bottom silk',
+        'Gerber/Resist-A.fph': 'top mask',
+        'Gerber/Resist-B.fph': 'bottom mask',
+        'Gerber/Conductive-1.fph': 'top copper',
+        'Gerber/Conductive-2.fph': 'bottom copper',
+        'Drill/8seg_Driver__routed_Drill_thru_plt.fdr/8seg_Driver__routed_Drill_thru_plt.fdl': None,
+        'Drill/8seg_Driver__routed_Drill_thru_plt.fdr/8seg_Driver__routed_Drill_thru_plt.fdr': 'drill plated',
+        'Drill/8seg_Driver__routed_Drill_thru_nplt.fdr': 'drill nonplated',
+        }
     }
 
 @filter_syntax_warnings

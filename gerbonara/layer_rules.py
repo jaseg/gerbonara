@@ -37,16 +37,16 @@ MATCH_RULES = {
     },
 
 'kicad': {
-    'top copper':       r'.*\.gtl|.*f.cu.*',
-    'top mask':         r'.*\.gts|.*f.mask.*',
-    'top silk':         r'.*\.gto|.*f.silks.*',
-    'top paste':        r'.*\.gtp|.*f.paste.*',
-    'bottom copper':    r'.*\.gbl|.*b.cu.*',
-    'bottom mask':      r'.*\.gbs|.*b.mask.*',
-    'bottom silk':      r'.*\.gbo|.*b.silks.*',
-    'bottom paste':     r'.*\.gbp|.*b.paste.*',
-    'inner copper':     r'.*\.gp?([0-9]+)|.*inn?e?r?([0-9]+).cu.*',
-    'mechanical outline':    r'.*\.(gm[0-9]+)|.*edge.cuts.*',
+    'top copper':       r'.*\.gtl|.*f.cu.(gbr|gtl)',
+    'top mask':         r'.*\.gts|.*f.mask.(gbr|gts)',
+    'top silk':         r'.*\.gto|.*f.silks.(gbr|gto)',
+    'top paste':        r'.*\.gtp|.*f.paste.(gbr|gtp)',
+    'bottom copper':    r'.*\.gbl|.*b.cu.(gbr|gbl)',
+    'bottom mask':      r'.*\.gbs|.*b.mask.(gbr|gbs)',
+    'bottom silk':      r'.*\.gbo|.*b.silks.(gbr|gbo)',
+    'bottom paste':     r'.*\.gbp|.*b.paste.(gbr|gbp)',
+    'inner copper':     r'.*\.gp?([0-9]+)|.*inn?e?r?([0-9]+).cu.(?:gbr|g[0-9]+)',
+    'mechanical outline':    r'.*\.(gm[0-9]+)|.*edge.cuts.(gbr|gm1)',
     'drill plated':     r'.*\.(drl)',
     'other netlist':    r'.*\.d356',
     },
@@ -149,13 +149,9 @@ MATCH_RULES = {
 
 'allegro': {
     # Allegro doesn't have any widespread convention, so we rely heavily on the layer name auto-guesser here.
-    'drill mech': r'.*\.rou',
-    'drill mech': r'.*\.drl',
+    'drill mech': r'.*\.(drl|rou)',
     'generic gerber': r'.*\.art',
-    'excellon params':  r'nc_param\.txt',
-    # put .log file last to prefer .txt
-    'excellon params':  r'ncdrill\.log',
-    'excellon params':  r'ncroute\.log',
+    'excellon params':  r'nc_param\.txt|ncdrill\.log|ncroute\.log',
     'other netlist':    r'.*\.ipc', # default rule due to lack of tool-specific examples
     },
 

@@ -96,10 +96,10 @@ some non-standard naming convention.
  * KiCAD
  * pcb-rnd
  * Siemens / Mentor Graphics Xpedition
- * Siemens / Mentor Graphics PADS
+ * Siemens PADS
  * Target 3001!
  * Upverter
- * Soon: Zuken CADSTAR and CR-8000
+ * Zuken CR-8000
 
 Indices and tables
 ==================

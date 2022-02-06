@@ -242,6 +242,14 @@ REFERENCE_FILES = [ l.strip() for l in '''
     diptrace/panel_BottomSilk.gbr
     diptrace/panel_BottomMask.gbr
     diptrace/mainboard_TopSilk.gbr
+    zuken-emulated/Gerber/MetalMask-A.fph
+    zuken-emulated/Gerber/MetalMask-B.fph
+    zuken-emulated/Gerber/Symbol-A.fph
+    zuken-emulated/Gerber/Symbol-B.fph
+    zuken-emulated/Gerber/Resist-A.fph
+    zuken-emulated/Gerber/Resist-B.fph
+    zuken-emulated/Gerber/Conductive-1.fph
+    zuken-emulated/Gerber/Conductive-2.fph
 '''.splitlines() if l ]
 
 MIN_REFERENCE_FILES = [

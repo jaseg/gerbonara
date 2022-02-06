@@ -117,7 +117,8 @@ class FileSettings:
         return deepcopy(self)
 
     def __str__(self):
-        return f'<File settings: unit={self.unit}/{self.angle_unit} notation={self.notation} zeros={self.zeros} number_format={self.number_format}>'
+        notation = f'notation={self.notation} ' if self.notation != 'absolute' else ''
+        return f'<File settings: unit={self.unit}/{self.angle_unit} {notation}zeros={self.zeros} number_format={self.number_format}>'
 
     @property
     def is_incremental(self):

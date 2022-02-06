@@ -1,0 +1,74 @@
+                ************************
+                *****  DRILL LIST  *****
+                ************************
+
+ Date                 : Sat Feb 05 23:42:05 2022
+ Host                 : Windows_Hostname
+ User                 : Windows_User
+ Output Data          : C:/TEMP/Not_Actual_Path/DF_Drill_thru_plt.fdr
+ Output List          : C:/TEMP/Not_Actual_Path/DF_Drill_thru_plt.fdl
+
+ Target File          : C:/TEMP/Not_Actual_Path/routed.dsgn
+ From-To              : Only through
+ Object               : Round hole
+                      : Slot hole
+                      : Rectangular hole
+                      : Hole in padstack (Round hole)
+                      : Hole in padstack (Slot hole)
+                      : Hole in padstack (Rectangular hole)
+ Slot Hole            : Alternately from both ends(Migration rate: 0.50000/Odd number: Off)
+ Rectangular Hole     : Alternately from both ends(Migration rate: 0.50000/Odd number: Off)
+ Diameter/Hole Type   : All
+ Plating Attribute    : Plated
+ Embedded Comp. Via   : Do not output
+
+ Reference Point      : 0.00000, 0.00000 [mm]
+ Mirror               : Off
+ Rotate               : 0-degree (No rotation)
+ Scale                : 1.00000
+ Offset               : 0.00000, 0.00000 [mm]
+
+ Toolpath Sorting     : N sort
+ Test Coupon          : Timing: 0 / Number of outputs: 1
+
+
+ NCF File             : C:/Project_Path/settings/ncf/Excellon2.ncf
+ NCF Comment          : EXCELLON2 FORMAT
+ Data Type            : Excellon2 Type
+ Character Code       : ASCII
+ EOB Code             : LF
+ EOR Code             : SPACE
+
+ Unit                 : inch
+ Coordinate Format    : 4V4
+ Round Unit           : 0.00010
+ Inc. / Abs.          : Absolute
+ Zero Suppress        : Trailing Zero Suppress
+ Omitting Coordinates : Omit
+ Zero Return          : During Tool Changing: Do not make
+
+
+ Assign Code          : Auto
+ Distinguish Tools    : Hole type: Off
+                      : Round hole and slot hole(rectangular hole): On
+                      : Plating attribute: Off
+                      : Embedded component via attribute: On
+
+ Tool Table           : 
+============================================================================================
+| No. | Hole  | Code | Tool  | Diameter |        | Corner | Angle  |   Hole    |  Plating  |
+|     | Shape |      | Shape |  Width   | Height | Radius |        |   Type    | Attribute |
+|-----+-------+------+-------+----------+--------+--------+--------+-----------+-----------|
+|   1 | Round | T01  | Round |   0.1000 | ------ | ------ | ------ | Undefined | Plated    |
+============================================================================================
+
+ Tool Count           : 
+======================================================================
+|  No.  | Code |     Hit     | Test Coupon | Inspection | Moved Dis. |
+|-------+------+-------------+-------------+------------+------------|
+|     1 | T01  |         100 |           0 |          0 | 1234.56789 |
+|-------+------+-------------+-------------+------------+------------|
+| Total        |         100 |           0 |          0 | 1234.56789 |
+======================================================================
+
+ Data Area            : min = ( 1.00000, 1.00000 ), max = ( 101.00000, 101.00000 )

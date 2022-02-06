@@ -161,6 +161,30 @@ def parse_allegro_logfile(data):
             found_tools[index1] = ExcellonTool(diameter=diameter, plated=is_plated, unit=unit)
     return found_tools
 
+def parse_zuken_logfile(data):
+    lines = [ line.strip() for line in data.splitlines() ]
+    if '*****  DRILL LIST  *****' not in lines:
+        return # likely not a Zuken CR-8000 logfile 
+
+    params = {}
+    for line in lines:
+        key, colon, value = line.partition(':')
+        if colon and value:
+            params[key.strip()] = value.strip()
+
+    if not (fmt := params.get('Coordinate Format')):
+        return None
+
+    integer, _, decimal = fmt.partition('V')
+    settings = FileSettings(number_format=(int(integer), int(decimal)))
+    
+    if (supp := params.get('Zero Suppress')):
+        supp, _1, _2 = supp.partition(' ')
+        settings.zeros = supp.lower()
+
+    return settings
+
+
 class ExcellonFile(CamFile):
     """ Excellon drill file.
 
@@ -253,7 +277,7 @@ class ExcellonFile(CamFile):
         self.import_settings = None
 
     @classmethod
-    def open(kls, filename, plated=None, settings=None):
+    def open(kls, filename, plated=None, settings=None, external_tools=None):
         """ Load an Excellon file from the file system.
 
         Certain CAD tools do not put any information on decimal points into the actual excellon file, and instead put
@@ -272,36 +296,46 @@ class ExcellonFile(CamFile):
         """
 
         filename = Path(filename)
-        logfile_tools = None
+        external_tools = None
     
-        # Parse allegro parameter files.
-        # Prefer nc_param.txt over ncparam.log since the txt is the machine-readable one.
         if settings is None:
+            # Parse allegro parameter files for settings.
+            # Prefer nc_param.txt over ncparam.log since the txt is the machine-readable one.
             for fn in 'nc_param.txt', 'ncdrill.log':
                 if (param_file := filename.parent / fn).is_file():
                     settings =  parse_allegro_ncparam(param_file.read_text())
                     warnings.warn(f'Loaded allegro-style excellon settings file {param_file}')
                     break
 
+            # Parse Zuken log file for settings
+            if filename.name.endswith('.fdr'):
+                logfile = filename.with_suffix('.fdl')
+                if logfile.is_file():
+                    settings = parse_zuken_logfile(logfile.read_text())
+                    warnings.warn(f'Loaded zuken-style excellon log file {logfile}: {settings}')
+
+        if external_tools is None:
+            # Parse allegro log files for tools.
             # TODO add try/except aronud this
             log_file = filename.parent / 'ncdrill.log'
             if log_file.is_file():
-                logfile_tools = parse_allegro_logfile(log_file.read_text())
+                external_tools = parse_allegro_logfile(log_file.read_text())
+
 
         return kls.from_string(filename.read_text(), settings=settings,
-                filename=filename, plated=plated, logfile_tools=logfile_tools)
+                filename=filename, plated=plated, external_tools=external_tools)
 
     @classmethod
-    def from_string(kls, data, settings=None, filename=None, plated=None, logfile_tools=None):
+    def from_string(kls, data, settings=None, filename=None, plated=None, external_tools=None):
         """ Parse the given string as an Excellon file. Note that often, Excellon files do not contain any information
         on which number format (integer/decimal places, zeros suppression) is used. In case Gerbonara cannot determine
         this with certainty, this function *will* error out. Use :py:meth:`~.ExcellonFile.open` if you want Gerbonara to
         parse this metadata from the non-standardized text files many CAD packages produce in addition to drill files.
         """
 
-        parser = ExcellonParser(settings, logfile_tools=logfile_tools)
+        parser = ExcellonParser(settings, external_tools=external_tools)
         parser.do_parse(data, filename=filename)
-        return kls(objects=parser.objects, comments=parser.comments, import_settings=settings,
+        return kls(objects=parser.objects, comments=parser.comments, import_settings=parser.settings,
                 generator_hints=parser.generator_hints, original_path=filename)
 
     def _generate_statements(self, settings, drop_comments=True):
@@ -478,7 +512,7 @@ class ProgramState(Enum):
 class ExcellonParser(object):
     """ Internal helper class that contains all the actual Excellon format parsing logic. """
 
-    def __init__(self, settings=None, logfile_tools=None):
+    def __init__(self, settings=None, external_tools=None):
         # NOTE XNC files do not contain an explicit number format specification, but all values have decimal points.
         # Thus, we set the default number format to (None, None). If the file does not contain an explicit specification
         # and FileSettings.parse_gerber_value encounters a number without an explicit decimal point, it will throw a
@@ -500,7 +534,7 @@ class ExcellonParser(object):
         self.generator_hints = []
         self.lineno = None
         self.filename = None
-        self.logfile_tools = logfile_tools or {}
+        self.external_tools = external_tools or {}
 
     def warn(self, msg):
         warnings.warn(f'{self.filename}:{self.lineno} "{self.line}": {msg}', SyntaxWarning)
@@ -610,11 +644,11 @@ class ExcellonParser(object):
         if index == 0: # T0 is used as END marker, just ignore
             return
         elif index not in self.tools:
-            if not self.tools and index in self.logfile_tools:
+            if not self.tools and index in self.external_tools:
                 # allegro is just wonderful.
                 self.warn(f'Undefined tool index {index} selected. We found an allegro drill log file next to this, so '
                             'we will use tool definitions from there.')
-                self.active_tool = self.logfile_tools[index]
+                self.active_tool = self.external_tools[index]
 
             else:
                 raise SyntaxError(f'Undefined tool index {index} selected.')
@@ -670,15 +704,6 @@ class ExcellonParser(object):
     def handle_end_header(self, match):
         self.program_state = ProgramState.DRILLING
 
-    @exprs.match('M00')
-    def handle_next_tool(self, match):
-        #FIXME is this correct? Shouldn't this be "end of program"?
-        if self.active_tool:
-            self.active_tool = self.tools[self.tools.index(self.active_tool) + 1]
-
-        else:
-            self.warn('M00 statement found before first tool selection statement.')
-
     @exprs.match('M15')
     def handle_drill_down(self, match):
         self.drill_down = True
@@ -688,13 +713,15 @@ class ExcellonParser(object):
         self.drill_down = False
 
 
-    @exprs.match('M30')
+    @exprs.match('M30|M00')
     def handle_end_of_program(self, match):
         if self.program_state in (None, ProgramState.HEADER):
             self.warn('M30 statement found before end of header.')
         self.program_state = ProgramState.FINISHED
-        # ignore.
         # TODO: maybe add warning if this is followed by other commands.
+
+        if match[0] == 'M00':
+            self.generator_hints.append('zuken')
 
     def do_move(self, match=None, x='X', y='Y'):
         x = self.settings.parse_gerber_value(match['X'])
@@ -839,11 +866,15 @@ class ExcellonParser(object):
 
     @exprs.match('(FMAT|VER),?([0-9]*)')
     def handle_command_format(self, match):
-        # We do not support integer/fractional decimals specification via FMAT because that's stupid. If you need this,
-        # please raise an issue on our issue tracker, provide a sample file and tell us where on earth you found that
-        # file.
-        if match[2] not in ('', '2'):
-            raise SyntaxError(f'Unsupported FMAT format version {match["version"]}')
+        if match[1] == 'FMAT':
+            # We do not support integer/fractional decimals specification via FMAT because that's stupid. If you need this,
+            # please raise an issue on our issue tracker, provide a sample file and tell us where on earth you found that
+            # file.
+            if match[2] not in ('', '2'):
+                raise SyntaxError(f'Unsupported FMAT format version {match[2]}')
+
+        else: # VER
+            self.generator_hints.append('zuken')
 
     @exprs.match(r'G40|G41|G42|F[0-9]+')
     def handle_unhandled(self, match):
@@ -879,6 +910,10 @@ class ExcellonParser(object):
 
         else:
             self.warn('Bare coordinate after end of file')
+
+    @exprs.match(r'DETECT,ON|ATC,ON|M06')
+    def parse_zuken_legacy_statements(self, match):
+        self.generator_hints.append('zuken')
 
     @exprs.match(r'; Format\s*: ([0-9]+\.[0-9]+) / (Absolute|Incremental) / (Inch|MM) / (Leading|Trailing)')
     def parse_siemens_format(self, match):

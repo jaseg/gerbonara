@@ -522,7 +522,7 @@ class GerberParser:
     STATEMENT_REGEXES = {
         'region_start': r'G36$',
         'region_end': r'G37$',
-        'coord': fr"(?P<interpolation>G0?[123]|G74|G75)?(X(?P<x>{NUMBER}))?(Y(?P<y>{NUMBER}))?" \
+        'coord': fr"(?P<interpolation>G0?[123]|G74|G75|G54|G55)?(X(?P<x>{NUMBER}))?(Y(?P<y>{NUMBER}))?" \
             fr"(I(?P<i>{NUMBER}))?(J(?P<j>{NUMBER}))?" \
             fr"(?P<operation>D0?[123])?$",
         'aperture': r"(G54|G55)?D(?P<number>\d+)",
@@ -669,6 +669,10 @@ class GerberParser:
             self.multi_quadrant_mode = True # used only for syntax checking
         elif match['interpolation'] == 'G75':
             self.multi_quadrant_mode = False
+        elif match['interpolation'] == 'G54':
+            pass # ignore.
+        elif match['interpolation'] == 'G55':
+            self.generator_hints.append('zuken')
 
         has_coord = (match['x'] or match['y'] or match['i'] or match['j'])
         if match['interpolation'] in ('G74', 'G75') and has_coord:
@@ -745,7 +749,11 @@ class GerberParser:
             raise SyntaxError(f'Invalid aperture number {number}: Aperture number must be >= 10.')
 
         if number not in self.aperture_map:
-            raise SyntaxError(f'Tried to access undefined aperture {number}')
+            if number == 10 and 'zuken' in self.generator_hints:
+                self.warn(f'Tried to access undefined aperture D10. This looks like a Zuken CR-8000 file. For these '
+                            'files, it is normal that an undefined aperture is used for region specifications.')
+            else:
+                raise SyntaxError(f'Tried to access undefined aperture {number}')
 
         self.graphics_state.aperture = self.aperture_map[number]
 
@@ -969,8 +977,11 @@ class GerberParser:
             if 'EAGLE' in self.file_attrs.get('.GenerationSoftware', []) or match['eagle_garbage']:
                 self.generator_hints.append('eagle')
     
-    def _parse_eof(self, _match):
+    def _parse_eof(self, match):
         self.eof_found = True
+
+        if match[0] == 'M00':
+            self.generator_hints.append('zuken')
 
     def _parse_ignored(self, match):
         pass

@@ -24,7 +24,7 @@ import copy
 from collections import namedtuple
 from pathlib import Path
 
-from .excellon import ExcellonFile
+from .excellon import ExcellonFile, parse_allegro_ncparam, parse_allegro_logfile
 from .rs274x import GerberFile
 from .ipc356 import Netlist
 from .cam import FileSettings
@@ -63,11 +63,14 @@ class NamingScheme:
 def match_files(filenames):
     matches = {}
     for generator, rules in MATCH_RULES.items():
+        print(generator)
         gen = {}
         matches[generator] = gen
         for layer, regex in rules.items():
+            print('    ->', layer, regex)
             for fn in filenames:
                 if (m := re.fullmatch(regex, fn.name, re.IGNORECASE)):
+                    print('        ->', fn.name)
                     if layer == 'inner copper':
                         target = 'inner_' + ''.join(e or '' for e in m.groups()) + ' copper'
                     else:
@@ -126,7 +129,7 @@ def autoguess(filenames):
             matches[name] = matches.get(name, []) + [f]
 
     inner_layers = [ m for m in matches if 'inner' in m ]
-    if len(inner_layers) >= 4 and 'copper top' not in matches and 'copper bottom' not in matches:
+    if len(inner_layers) >= 2 and 'copper top' not in matches and 'copper bottom' not in matches:
         if 'inner_01 copper' in matches:
             warnings.warn('Could not find copper layer. Re-assigning outermost inner layers to top/bottom copper.')
             matches['top copper'] = matches.pop('inner_01 copper')
@@ -139,7 +142,7 @@ def autoguess(filenames):
 def layername_autoguesser(fn):
     fn, _, ext = fn.lower().rpartition('.')
     
-    if ext in ('log', 'err'):
+    if ext in ('log', 'err', 'fdl', 'py', 'sh', 'md', 'rst', 'zip', 'pdf', 'svg', 'ps', 'png', 'jpg', 'bmp'):
         return 'unknown unknown'
 
     side, use = 'unknown', 'unknown'
@@ -151,10 +154,10 @@ def layername_autoguesser(fn):
         side = 'bottom'
         use = 'copper'
 
-    if re.search('silks?(creen)?', fn):
+    if re.search('silks?(creen)?|symbol', fn):
         use = 'silk'
 
-    elif re.search('(solder)?paste', fn):
+    elif re.search('(solder)?paste|metalmask', fn):
         use = 'paste'
 
     elif re.search('(solder)?(mask|resist)', fn):
@@ -189,6 +192,12 @@ def layername_autoguesser(fn):
         use = 'netlist'
         side = 'other'
 
+    if side == 'unknown':
+        if re.search(r'[^a-z0-9]a', fn):
+            side = 'top'
+        elif re.search(r'[^a-z0-9]b', fn):
+            side = 'bottom'
+
     return f'{side} {use}'
 
 
@@ -209,15 +218,18 @@ class LayerStack:
 
         files = [ path for path in directory.glob('**/*') if path.is_file() ]
         generator, filemap = best_match(files)
-        #print('detected generator', generator)
+        print('detected generator', generator)
+        from pprint import pprint
+        pprint(filemap)
 
-        if len(filemap) < 6:
+        if sum(len(files) for files in filemap.values()) < 6:
             warnings.warn('Ambiguous gerber filenames. Trying last-resort autoguesser.')
             generator = None
             filemap = autoguess(files)
             if len(filemap) < 6:
                 raise ValueError('Cannot figure out gerber file mapping. Partial map is: ', filemap)
 
+        excellon_settings, external_tools = None, None
         if generator == 'geda':
             # geda is written by geniuses who waste no bytes of unnecessary output so it doesn't actually include the
             # number format in files that use imperial units. Unfortunately it also doesn't include any hints that the
@@ -231,24 +243,25 @@ class LayerStack:
             # info into the excellon file itself, even if only as a comment.
             if 'excellon params' in filemap:
                 excellon_settings = parse_allegro_ncparam(filemap['excellon params'][0].read_text())
+                for file in filemap['excellon params']:
+                    if (external_tools := parse_allegro_logfile(file.read_text())):
+                        break
                 del filemap['excellon params']
             # Ignore if we can't find the param file -- maybe the user has convinced Allegro to actually put this
             # information into a comment, or maybe they have made Allegro just use decimal points like XNC does.
 
-            filemap = autoguess([ f for files in filemap for f in files ])
-            if len(filemap < 6):
+            filemap = autoguess([ f for files in filemap.values() for f in files ])
+            if len(filemap) < 6:
                 raise SystemError('Cannot figure out gerber file mapping')
             # FIXME use layer metadata from comments and ipc file if available
 
         elif generator == 'zuken':
-            filemap = autoguess([ f for files in filemap for f in files ])
-            if len(filemap < 6):
+            filemap = autoguess([ f for files in filemap.values() for f in files ])
+            if len(filemap) < 6:
                 raise SystemError('Cannot figure out gerber file mapping')
             # FIXME use layer metadata from comments and ipc file if available
 
         elif generator == 'altium':
-            excellon_settings = None
-
             if 'mechanical outline' in filemap:
                 # Use lowest-numbered mechanical layer as outline, ignore others.
                 mechs = {}
@@ -267,12 +280,13 @@ class LayerStack:
         else:
             excellon_settings = None
 
-        #import pprint
-        #pprint.pprint(filemap)
+        print('==> new')
+        import pprint
+        pprint.pprint(filemap)
 
-        ambiguous = [ key for key, value in filemap.items() if len(value) > 1 and not 'drill' in key ]
+        ambiguous = [ f'{key} ({", ".join(x.name for x in value)})' for key, value in filemap.items() if len(value) > 1 and not 'drill' in key ]
         if ambiguous:
-            raise SystemError(f'Ambiguous layer names for {", ".join(ambiguous)}')
+            raise SystemError(f'Ambiguous layer names: {", ".join(ambiguous)}')
 
         drill_layers = []
         netlist = None
@@ -300,7 +314,7 @@ class LayerStack:
                         plated = True
                     else:
                         plated = None
-                    layer = ExcellonFile.open(path, plated=plated, settings=excellon_settings)
+                    layer = ExcellonFile.open(path, plated=plated, settings=excellon_settings, external_tools=external_tools)
                 else:
 
                     layer = GerberFile.open(path)
