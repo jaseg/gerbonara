@@ -146,7 +146,7 @@ class GraphicObject:
         """ Serialize this object into Gerber statements.
 
         :param gs: :py:class:`~.rs274x.GraphicsState` object containing current Gerber state (polarity, selected
-        aperture, interpolation mode etc.).
+                             aperture, interpolation mode etc.).
 
         :returns: Iterator yielding one string per line of output Gerber
         :rtype: Iterator[str]
@@ -156,7 +156,7 @@ class GraphicObject:
         """ Serialize this object into XNC Excellon statements.
 
         :param ctx: :py:class:`.ExcellonContext` object containing current Excellon state (selected tool,
-        interpolation mode etc.).
+                              interpolation mode etc.).
 
         :returns: Iterator yielding one string per line of output XNC code
         :rtype: Iterator[str]
