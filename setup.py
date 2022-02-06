@@ -1,30 +1,13 @@
 #!/usr/bin/env python3
 
-from os import environ
-from os.path import join, abspath, dirname
-from codecs import open
+from pathlib import Path
 from setuptools import setup, find_packages
-from subprocess import check_output
-
-
-def long_description():
-    with open('README.md', 'r') as fh:
-        return fh.read()
-
+import subprocess
 
 def version():
-    with open(join(abspath(dirname(__file__)), 'gerbonara/__init__.py')) as fh:
-        for line in fh:
-            if line.startswith('__version__'):
-                ver = line.split("'")[1]
-                if environ.get('CI_COMMIT_SHA', '') != '' and environ.get('CI_COMMIT_TAG', '') == '':
-                    # attach commit hash to non tagged test uploads from CI
-                    commits = check_output(['/usr/bin/env', 'git', 'rev-list', '--count', 'HEAD'], text=True)
-                    return f'{ ver }.dev{ commits.strip() }'
-                return ver
-
-    raise RuntimeError('Unable to find version string.')
-
+    res = subprocess.run(['git', 'describe', '--tags', '--match', 'v*'], capture_output=True, check=True, text=True)
+    version, _, _rest = res.stdout.strip()[1:].partition('-')
+    return version
 
 setup(
     name='gerbonara',
@@ -32,7 +15,7 @@ setup(
     author='jaseg, XenGi',
     author_email='gerbonara@jaseg.de',
     description='Tools to handle Gerber and Excellon files in Python',
-    long_description=long_description(),
+    long_description=Path('README.md').read_text(),
     long_description_content_type='text/markdown',
     url='https://gitlab.com/gerbolyze/gerbonara',
     project_urls={
@@ -50,8 +33,6 @@ setup(
         ],
     },
     classifiers=[
-        #'Development Status :: 1 - Planning',
-        #'Development Status :: 3 - Alpha',
         'Development Status :: 4 - Beta',
         #'Development Status :: 5 - Production/Stable',
         'Environment :: Console',

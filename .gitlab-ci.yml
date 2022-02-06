@@ -1,80 +1,48 @@
-stages:
-  - test
-  - coverage
-  - build
-  - upload
-
-image: python:3-alpine
-
 variables:
-  TWINE_NON_INTERACTIVE: "true"
-  CONFIG_FILE: ".pypirc"
+  GIT_SUBMODULE_STRATEGY: recursive
 
-cache:
-  paths:
-    - .pipcache/
+stages:
+  - build
+  - test
+  - publish
 
-before_script:
-  - apk --no-cache add make
-  - pip --cache-dir .pipcache install -r test-requirements.txt
-  - cat /etc/alpine-release
-  - python -V
+build:debian_10:
+  stage: build
+  image: "registry.gitlab.com/gerbolyze/build-containers/debian:10"
+  variables:
+    GIT_SUBMODULE_STRATEGY: none
+  script:
+    - python3 setup.py bdist_wheel
+  artifacts:
+    name: "gerbolyze-$CI_COMMIT_REF_NAME-gerbonara"
+    paths:
+      - dist/*.whl
 
-.test:
+test:debian_10:
   stage: test
+  image: "registry.gitlab.com/gerbolyze/build-containers/debian:10"
   script:
-    - make test
+    - "pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'"
+  dependencies:
+    - build:debian_10
+  artifacts:
+    name: "gerbolyze-$CI_COMMIT_REF_NAME-gerbonara"
+    when: on_failure
+    paths:
+      - gerbonara_test_failures/*
 
-test:3.6:
-    extends: .test
-    image: python:3.6-alpine
-
-test:3.7:
-    extends: .test
-    image: python:3.7-alpine
-
-test:3.8:
-    extends: .test
-    image: python:3.8-alpine
-
-test:3.9:
-    extends: .test
-    image: python:3.9-alpine
-
-# 3.10
-test:rc:
-    extends: .test
-    allow_failure: true
-    image: python:rc-alpine
-
-testpypi:
-  stage: upload
+publish:gerbonara:
+  stage: publish
+  variables:
+    GIT_SUBMODULE_STRATEGY: none
+  image: "registry.gitlab.com/gerbolyze/build-containers/debian:10"
+  cache: {}
   script:
-    - pip --cache-dir .pipcache install twine
-    - python setup.py sdist bdist_wheel
-    - twine upload --skip-existing --repository testpypi dist/*
+    - pip install -U --user twine
+    - export TWINE_USERNAME TWINE_PASSWORD
+    - ~/.local/bin/twine upload dist/*
+  dependencies:
+    - build:debian_10
   only:
-    - master
+    - /^v.*$/
 
-pypi:
-  stage: upload
-  script:
-    - pip --cache-dir .pipcache install twine
-    - python setup.py sdist bdist_wheel
-    - twine upload --skip-existing --repository pypi dist/*
-  only:
-    - tags
-
-aur_git:
-  stage: upload
-  script:
-    - echo "build pygerber-git"
-  only:
-    - master
-
-aur:
-  stage: upload
-  script:
-    - echo "build pygerber"
-  only:
-    - tags
