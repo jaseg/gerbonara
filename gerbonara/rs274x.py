@@ -578,8 +578,8 @@ class GerberParser:
         self.object_attrs = {}
         self.aperture_attrs = {}
         self.filename = None
-        self.lineno = None
         self.line = None
+        self.lineno = 0
 
     def _shorten_line(self):
         line_joined = self.line.replace('\r', '').replace('\n', '\\n')
@@ -591,58 +591,26 @@ class GerberParser:
     def warn(self, msg, kls=SyntaxWarning):
         warnings.warn(f'{self.filename}:{self.lineno} "{self._shorten_line()}": {msg}', kls)
 
-    @classmethod
-    def _split_commands(kls, data):
+    def _split_commands(self, data):
+        # Ignore '%' signs within G04 commments because eagle likes to put completely broken file attributes inside G04
+        # comments, and those contain % signs. Best of all, they're not even balanced.
+        self.lineno = 0
         for match in re.finditer(r'G04.*?\*|%.*?%|[^*%]*\*', data, re.DOTALL):
             cmd = match[0].strip().strip('%').rstrip('*').replace('\r', '').replace('\n', '')
             if cmd:
-                yield 1, cmd
-        return
-
-        #######
-        start = 0
-        extended_command = False
-        lineno = 1
-
-        for pos, c in enumerate(data):
-            if c == '\n':
-                lineno += 1
-
-            if c == '%':
-                if extended_command:
-                    yield lineno, data[start:pos]
-                    extended_command = False
-
-                else:
-                    # Ignore % inside G04 comments. Eagle uses a completely borked file attribute syntax with unbalanced
-                    # percent signs inside G04 comments.
-                    if not data[start:pos].startswith('G04'):
-                        extended_command = True
-
-                start = pos + 1
-                continue
-
-            elif extended_command:
-                continue
-
-            if c in '*\r\n':
-                word_command = data[start:pos].strip()
-                if word_command and word_command != '*':
-                    yield lineno, word_command
-                start = pos + 1
+                # Expensive, but only used in case something goes wrong.
+                self.line = cmd
+                yield cmd
+            self.lineno += cmd.count('\n')
+        self.lineno = 0
+        self.line = ''
 
     def parse(self, data, filename=None):
         # filename arg is for error messages
         filename = self.filename = filename or '<unknown>'
 
-        for lineno, line in self._split_commands(data):
-            if not line.strip():
-                continue
-            line = line.rstrip('*').strip()
-            self.lineno, self.line = lineno, line
-            # We cannot assume input gerber to use well-formed statement delimiters. Thus, we may need to parse
-            # multiple statements from one line.
-            if line.strip() and self.eof_found:
+        for line in self._split_commands(data):
+            if self.eof_found:
                 self.warn('Data found in gerber file after EOF.')
 
             for name, le_regex in self.STATEMENT_REGEXES.items():
@@ -650,7 +618,7 @@ class GerberParser:
                     try:
                         getattr(self, f'_parse_{name}')(match)
                     except Exception as e:
-                        raise SyntaxError(f'{filename}:{lineno} "{self._shorten_line()}": {e}') from e
+                        raise SyntaxError(f'{filename}:{self.lineno} "{self._shorten_line()}": {e}') from e
                     line = line[match.end(0):]
                     break
 
