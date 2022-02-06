@@ -10,6 +10,12 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 
+import subprocess
+def version():
+    res = subprocess.run(['git', 'describe', '--tags', '--match', 'v*'], capture_output=True, check=True, text=True)
+    version, _, _rest = res.stdout.strip()[1:].partition('-')
+    return version
+
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.absolute()))
@@ -21,7 +27,7 @@ copyright = '2022, Jan Götte'
 author = 'jaseg'
 
 # The full version, including alpha/beta/rc tags
-release = '0.9.0'
+release = version()
 
 
 # -- General configuration ---------------------------------------------------
