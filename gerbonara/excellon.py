@@ -535,6 +535,7 @@ class ExcellonParser(object):
         self.lineno = None
         self.filename = None
         self.external_tools = external_tools or {}
+        self.found_kicad_format_comment = False
 
     def warn(self, msg):
         warnings.warn(f'{self.filename}:{self.lineno} "{self.line}": {msg}', SyntaxWarning)
@@ -844,7 +845,7 @@ class ExcellonParser(object):
             integer, _, fractional = match[3][1:].partition('.')
             self.settings.number_format = len(integer), len(fractional)
 
-        elif self.settings.number_format == (None, None) and not metric:
+        elif self.settings.number_format == (None, None) and not metric and not self.found_kicad_format_comment:
             self.warn('Using implicit number format from bare "INCH" statement. This is normal for Fritzing, Diptrace, Geda and pcb-rnd.')
             self.settings.number_format = (2,4)
     
@@ -981,6 +982,7 @@ class ExcellonParser(object):
         x = None if x == '-' else int(x)
         y = None if y == '-' else int(y)
         self.settings.number_format = x, y
+        self.found_kicad_format_comment = True
         self.settings.notation = match[2]
         self.settings.unit = Inch if match[3] == 'inch' else MM
 

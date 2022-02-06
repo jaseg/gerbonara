@@ -520,11 +520,11 @@ class GerberParser:
     NAME = r"[a-zA-Z_$\.][a-zA-Z_$\.0-9+\-]+"
 
     STATEMENT_REGEXES = {
-        'region_start': r'G36$',
-        'region_end': r'G37$',
         'coord': fr"(?P<interpolation>G0?[123]|G74|G75|G54|G55)?(X(?P<x>{NUMBER}))?(Y(?P<y>{NUMBER}))?" \
             fr"(I(?P<i>{NUMBER}))?(J(?P<j>{NUMBER}))?" \
             fr"(?P<operation>D0?[123])?$",
+        'region_start': r'G36$',
+        'region_end': r'G37$',
         'aperture': r"(G54|G55)?D(?P<number>\d+)",
         # Allegro combines format spec and unit into one long illegal extended command.
         'allegro_format_spec': r"FS(?P<zero>(L|T|D))?(?P<notation>(A|I))[NG0-9]*X(?P<x>[0-7][0-7])Y(?P<y>[0-7][0-7])[DM0-9]*\*MO(?P<unit>IN|MM)",
@@ -581,12 +581,25 @@ class GerberParser:
         self.lineno = None
         self.line = None
 
+    def _shorten_line(self):
+        line_joined = self.line.replace('\r', '').replace('\n', '\\n')
+        if len(line_joined) > 80:
+            return f'{line_joined[:20]}[...]{line_joined[-20:]}'
+        else:
+            return line_joined
+
     def warn(self, msg, kls=SyntaxWarning):
-        line_joined = self.line.replace('\n', '\\n')
-        warnings.warn(f'{self.filename}:{self.lineno} "{line_joined}": {msg}', kls)
+        warnings.warn(f'{self.filename}:{self.lineno} "{self._shorten_line()}": {msg}', kls)
 
     @classmethod
     def _split_commands(kls, data):
+        for match in re.finditer(r'G04.*?\*|%.*?%|[^*%]*\*', data, re.DOTALL):
+            cmd = match[0].strip().strip('%').rstrip('*').replace('\r', '').replace('\n', '')
+            if cmd:
+                yield 1, cmd
+        return
+
+        #######
         start = 0
         extended_command = False
         lineno = 1
@@ -637,13 +650,13 @@ class GerberParser:
                     try:
                         getattr(self, f'_parse_{name}')(match)
                     except Exception as e:
-                        raise SyntaxError(f'{filename}:{lineno} "{line}": {e}') from e
+                        raise SyntaxError(f'{filename}:{lineno} "{self._shorten_line()}": {e}') from e
                     line = line[match.end(0):]
                     break
 
             else:
-                self.warn(f'Unknown statement found: "{line}", ignoring.', UnknownStatementWarning)
-                self.target.comments.append(f'Unknown statement found: "{line}", ignoring.')
+                self.warn(f'Unknown statement found: "{self._shorten_line()}", ignoring.', UnknownStatementWarning)
+                self.target.comments.append(f'Unknown statement found: "{self._shorten_line()}", ignoring.')
         
         self.target.apertures = list(self.aperture_map.values())
         self.target.import_settings = self.file_settings
