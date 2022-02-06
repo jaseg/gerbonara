@@ -141,22 +141,13 @@ class FileSettings:
 
         integer_digits, decimal_digits = self.number_format
 
-        sign = 1
-
-        if value[0] == '-':
-            sign = -1
-            value = value[1:]
-
-        elif value[0] == '+':
-            value = value[1:]
-
         if self.zeros == 'leading':
             value = self._pad + value # pad with zeros to ensure we have enough decimals
-            return sign*float(value[:-decimal_digits] + '.' + value[-decimal_digits:])
+            return float(value[:-decimal_digits] + '.' + value[-decimal_digits:])
 
         else: # no or trailing zero suppression
             value = value + self._pad
-            return sign*float(value[:integer_digits] + '.' + value[integer_digits:])
+            return float(value[:integer_digits] + '.' + value[integer_digits:])
 
     def write_gerber_value(self, value, unit=None):
         """ Convert a floating point number to a Gerber-formatted string.  """

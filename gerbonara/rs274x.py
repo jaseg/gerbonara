@@ -292,7 +292,6 @@ class GraphicsState:
         self.polarity_dark = True
         self.point = None
         self.aperture = None
-        self.file_settings = None
         self.interpolation_mode = InterpMode.LINEAR
         self.multi_quadrant_mode = None # used only for syntax checking
         self.aperture_mirroring = (False, False) # LM mirroring (x, y)
@@ -305,6 +304,7 @@ class GraphicsState:
         self.image_scale = (1.0, 1.0) # SF image scaling (x, y); deprecated
         self._mat = None
         self.file_settings = file_settings
+        self.unit = file_settings.unit if file_settings else None
         self.aperture_map = aperture_map or {}
         self.warn = warn
         self.unit_warning = False
@@ -362,27 +362,23 @@ class GraphicsState:
             return rx, ry
 
     def flash(self, x, y):
-        if self.file_settings.unit is None and not self.unit_warning:
-            self.warn('Gerber file does not contain a unit definition.')
-            self.unit_warning = True
+        if self.unit is None:
+            raise SyntaxError('Gerber file does not contain a unit definition.')
         self.update_point_native(x, y)
         obj = go.Flash(*self.map_coord(*self.point), self.aperture,
                 polarity_dark=self._polarity_dark,
-                unit=self.file_settings.unit,
+                unit=self.unit,
                 attrs=self.object_attrs)
         return obj
 
     def interpolate(self, x, y, i=None, j=None, aperture=True, multi_quadrant=False):
         old_point = self.map_coord(*self.update_point_native(x, y))
-        unit = self.file_settings.unit
 
-        if not self.unit_warning and unit is None:
-            self.warn('Gerber file does not contain a unit definition.')
-        self.unit_warning = True
+        if (unit := self.unit) is None:
+            raise SyntaxError('Gerber file does not contain a unit definition.')
 
         if aperture:
-            aperture = self.aperture
-            if not aperture:
+            if (aperture := self.aperture) is None:
                 raise SyntaxError('Interpolation attempted without selecting aperture first')
 
             if math.isclose(aperture.equivalent_width(), 0):
@@ -401,7 +397,6 @@ class GraphicsState:
                     polarity_dark=self._polarity_dark, unit=unit, attrs=self.object_attrs)
 
         else:
-
             if i is None and j is None:
                 self.warn('Linear segment implied during arc interpolation mode through D01 w/o I, J values')
                 return go.Line(*old_point, *self.map_coord(*self.point), aperture,
@@ -508,8 +503,8 @@ class GerberParser:
     NAME = r"[a-zA-Z_$\.][a-zA-Z_$\.0-9+\-]+"
 
     STATEMENT_REGEXES = {
-        'coord': fr"(G0?[123]|G74|G75|G54|G55)?\s*(?:X({NUMBER}))?(?:Y({NUMBER}))?" \
-            fr"(?:I({NUMBER}))?(?:J({NUMBER}))?\s*" \
+        'coord': fr"(G0?[123]|G74|G75|G54|G55)?\s*(?:X\+?(-?)({NUMBER}))?(?:Y\+?(-?)({NUMBER}))?" \
+            fr"(?:I\+?(-?)({NUMBER}))?(?:J\+?(-?)({NUMBER}))?\s*" \
             fr"(?:D0?([123]))?$",
         'region_start': r'G36$',
         'region_end': r'G37$',
@@ -578,14 +573,16 @@ class GerberParser:
     def _split_commands(self, data):
         # Ignore '%' signs within G04 commments because eagle likes to put completely broken file attributes inside G04
         # comments, and those contain % signs. Best of all, they're not even balanced.
-        self.lineno = 0
-        for match in re.finditer(r'G04.*?\*|%.*?%|[^*%]*\*', data, re.DOTALL):
-            cmd = match[0].strip().strip('%').rstrip('*')
+        self.lineno = 1
+        for match in re.finditer(r'G04.*?\*\s*|%.*?%\s*|[^*%]*\*\s*', data, re.DOTALL):
+            cmd = match[0]
+            newlines = cmd.count('\n')
+            cmd = cmd.strip().strip('%').rstrip('*')
             if cmd:
                 # Expensive, but only used in case something goes wrong.
                 self.line = cmd
                 yield cmd
-            self.lineno += cmd.count('\n')
+            self.lineno += newlines
         self.lineno = 0
         self.line = ''
 
@@ -622,7 +619,7 @@ class GerberParser:
                     self.warn('File is missing mandatory M02 EOF marker. File may be truncated.')
 
     def _parse_coord(self, match):
-        interp, x, y, i, j, op = match.groups() # faster than name-based group access
+        interp, x_s, x, y_s, y, i_s, i, j_s, j, op = match.groups() # faster than name-based group access
         has_coord = x or y or i or j
 
         if not interp:
@@ -647,7 +644,11 @@ class GerberParser:
             self.generator_hints.append('zuken')
 
         x = self.file_settings.parse_gerber_value(x)
+        if x_s:
+            x = -x
         y = self.file_settings.parse_gerber_value(y)
+        if y_s:
+            y = -y
 
         if not op and has_coord:
             if self.last_operation == '1':
@@ -680,17 +681,19 @@ class GerberParser:
                     self.warn('Deprecated G74 multi-quadant mode arc found. G74 is bad and you should feel bad.')
 
             i = self.file_settings.parse_gerber_value(i)
+            if i_s:
+                i = -i
             j = self.file_settings.parse_gerber_value(j)
+            if j_s:
+                j = -j
 
             if self.current_region is None:
                 # in multi-quadrant mode this may return None if start and end point of the arc are the same.
-                obj = self.graphics_state.interpolate(x, y, i, j,
-                        multi_quadrant=bool(self.multi_quadrant_mode))
+                obj = self.graphics_state.interpolate(x, y, i, j, multi_quadrant=self.multi_quadrant_mode)
                 if obj is not None:
                     self.target.objects.append(obj)
             else:
-                obj = self.graphics_state.interpolate(x, y, i, j, aperture=False,
-                        multi_quadrant=bool(self.multi_quadrant_mode))
+                obj = self.graphics_state.interpolate(x, y, i, j, aperture=False, multi_quadrant=self.multi_quadrant_mode)
                 if obj is not None:
                     self.current_region.append(obj)
 
@@ -774,9 +777,9 @@ class GerberParser:
 
     def _parse_unit_mode(self, match):
         if match['unit'] == 'MM':
-            self.file_settings.unit = MM
+            self.graphics_state.unit = self.file_settings.unit = MM
         else:
-            self.file_settings.unit = Inch
+            self.graphics_state.unit = self.file_settings.unit = Inch
 
     def _parse_allegro_format_spec(self, match):
         self._parse_format_spec(match)
@@ -921,7 +924,7 @@ class GerberParser:
         self.current_region = None
 
     def _parse_old_unit(self, match):
-        self.file_settings.unit = Inch if match['mode'] == 'G70' else MM
+        self.graphics_state.unit = self.file_settings.unit = Inch if match['mode'] == 'G70' else MM
         self.warn(f'Deprecated {match["mode"]} unit mode statement found. This deprecated since 2012.', DeprecationWarning)
         self.target.comments.append('Replaced deprecated {match["mode"]} unit mode statement with MO statement')
 

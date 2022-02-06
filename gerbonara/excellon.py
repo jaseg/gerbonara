@@ -657,19 +657,24 @@ class ExcellonParser(object):
         else:
             self.active_tool = self.tools[index]
 
-    coord = lambda name, key=None: fr'({name}(?P<{key or name}>[+-]?[0-9]*\.?[0-9]*))?'
+    coord = lambda name: fr'(?:{name}\+?(-?)([0-9]*\.?[0-9]*))?'
     xy_coord = coord('X') + coord('Y')
     xyaij_coord = xy_coord + coord('A') + coord('I') + coord('J')
 
-    @exprs.match(r'R(?P<count>[0-9]+)' + xy_coord)
+    @exprs.match(r'R([0-9]+)' + xy_coord)
     def handle_repeat_hole(self, match):
         if self.program_state == ProgramState.HEADER:
             return
 
-        dx = int(match['X'] or '0')
-        dy = int(match['Y'] or '0')
+        count, x_s, x, y_s, y = match.groups()
+        dx = self.settings.parse_gerber_value(x) or 0
+        if x_s:
+            dx = -dx
+        dy = self.settings.parse_gerber_value(y) or 0
+        if y_s:
+            dy = -dy
 
-        for i in range(int(match['count'])):
+        for i in range(int(count)):
             self.pos = (self.pos[0] + dx, self.pos[1] + dy)
             # FIXME fix API below
             if not self.ensure_active_tool():
@@ -724,18 +729,24 @@ class ExcellonParser(object):
         if match[0] == 'M00':
             self.generator_hints.append('zuken')
 
-    def do_move(self, match=None, x='X', y='Y'):
-        if self.settings.number_format == (None, None) and not '.' in match['X']:
+    def do_move(self, coord_groups):
+        x_s, x, y_s, y = coord_groups
+
+        if self.settings.number_format == (None, None) and '.' not in x:
             # TARGET3001! exports zeros as "00" even when it uses an explicit decimal point everywhere else.
-            if match['X'] != '00':
+            if x != '00':
                 raise SyntaxError('No number format set and value does not contain a decimal point. If this is an Allegro '
                     'Excellon drill file make sure either nc_param.txt or ncdrill.log ends up in the same folder as '
                     'it, because Allegro does not include this critical information in their Excellon output. If you '
                     'call this through ExcellonFile.from_string, you must manually supply from_string with a '
                     'FileSettings object from excellon.parse_allegro_ncparam.')
 
-        x = self.settings.parse_gerber_value(match['X'])
-        y = self.settings.parse_gerber_value(match['Y'])
+        x = self.settings.parse_gerber_value(x)
+        if x_s:
+            x = -x
+        y = self.settings.parse_gerber_value(y)
+        if y_s:
+            y = -y
 
         old_pos = self.pos
 
@@ -757,7 +768,7 @@ class ExcellonParser(object):
         if self.program_state is None:
             self.warn('Routing mode command found before header.')
         self.program_state = ProgramState.ROUTING
-        self.do_move(match)
+        self.do_move(match.groups())
 
     @exprs.match('%')
     def handle_rewind_shorthand(self, match):
@@ -779,25 +790,26 @@ class ExcellonParser(object):
         self.warn('Routing command found before first tool definition.')
         return None
 
-    @exprs.match('(?P<mode>G01|G02|G03)' + xyaij_coord)
+    @exprs.match('(G01|G02|G03)' + xyaij_coord)
     def handle_linear_mode(self, match):
-        if match['mode'] == 'G01':
+        mode, *coord_groups = match.groups()
+        if mode == 'G01':
             self.interpolation_mode = InterpMode.LINEAR
         else:
-            clockwise = (match['mode'] == 'G02')
+            clockwise = (mode == 'G02')
             self.interpolation_mode = InterpMode.CIRCULAR_CW if clockwise else InterpMode.CIRCULAR_CCW
 
-        self.do_interpolation(match)
+        self.do_interpolation(coord_groups)
     
-    def do_interpolation(self, match):
-        x, y, a, i, j = match['X'], match['Y'], match['A'], match['I'], match['J']
+    def do_interpolation(self, coord_groups):
+        x_s, x, y_s, y, a_s, a, i_s, i, j_s, j = coord_groups
 
-        start, end = self.do_move(match)
+        start, end = self.do_move((x_s, x, y_s, y))
 
         if self.program_state != ProgramState.ROUTING:
             return
 
-        if not self.drill_down or not (match['X'] or match['Y']) or not self.ensure_active_tool():
+        if not self.drill_down or not (x or y) or not self.ensure_active_tool():
             return
 
         if self.interpolation_mode == InterpMode.LINEAR:
@@ -819,6 +831,8 @@ class ExcellonParser(object):
                 # Convert endpoint-radius-endpoint notation to endpoint-center-endpoint notation. We always use the
                 # smaller arc here.
                 # from https://math.stackexchange.com/a/1781546
+                if a_s:
+                    raise ValueError('Negative arc radius given')
                 r = settings.parse_gerber_value(a)
                 x1, y1 = start
                 x2, y2 = end
@@ -835,7 +849,11 @@ class ExcellonParser(object):
 
             else: # explicit center given
                 i = settings.parse_gerber_value(i)
+                if i_s:
+                    i = -i
                 j = settings.parse_gerber_value(j)
+                if j_s:
+                    j = -i
 
             self.objects.append(Arc(*start, *end, i, j, True, self.active_tool, unit=self.settings.unit))
 
@@ -865,7 +883,8 @@ class ExcellonParser(object):
 
     @exprs.match('G93' + xy_coord)
     def handle_absolute_mode(self, match):
-        if int(match['X'] or 0) != 0 or int(match['Y'] or 0) != 0:
+        _x_s, x, _y_s, y = match.groups()
+        if int(x or 0) != 0 or int(y or 0) != 0:
             # Siemens tooling likes to include a meaningless G93X0Y0 after its header.
             raise NotImplementedError('G93 zero set command is not supported.')
         self.generator_hints.append('siemens')
@@ -890,23 +909,11 @@ class ExcellonParser(object):
     def handle_unhandled(self, match):
         self.warn(f'{match[0]} excellon command intended for CAM tools found in EDA file.')
 
-    @exprs.match(coord('X', 'x1') + coord('Y', 'y1') + 'G85' + coord('X', 'x2') + coord('Y', 'y2'))
-    def handle_slot_dotted(self, match):
-        self.warn('Weird G85 excellon slot command used. Please raise an issue on our issue tracker and provide this file for testing.')
-        self.do_move(match, 'X1', 'Y1')
-        start, end = self.do_move(match, 'X2', 'Y2')
-        
-        if self.program_state in (ProgramState.DRILLING, ProgramState.HEADER): # FIXME should we realy handle this in header?
-            if self.ensure_active_tool():
-                # We ignore whether a slot is a "routed" G00/G01 slot or a "drilled" G85 slot and export both as routed
-                # slots.
-                self.objects.append(Line(*start, *end, self.active_tool, unit=self.settings.unit))
-
     @exprs.match(xyaij_coord)
     def handle_bare_coordinate(self, match):
         # Yes, drills in the header doesn't follow the specification, but it there are many files like this.
         if self.program_state in (ProgramState.DRILLING, ProgramState.HEADER):
-            _start, end = self.do_move(match)
+            _start, end = self.do_move(match.groups()[:4])
 
             if not self.ensure_active_tool():
                 return
@@ -916,7 +923,7 @@ class ExcellonParser(object):
         elif self.program_state == ProgramState.ROUTING:
             # Bare coordinates for routing also seem illegal, but Siemens actually uses these.
             # Example file: siemens/80101_0125_F200_ContourPlated.ncd
-            self.do_interpolation(match)
+            self.do_interpolation(match.groups())
 
         else:
             self.warn('Bare coordinate after end of file')
