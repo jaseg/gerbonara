@@ -95,6 +95,19 @@ class LengthUnit:
 
         return unit.convert_from(self, value)
 
+    def convert_bounds_from(self, unit, value):
+        """ :py:meth:`.LengthUnit.convert_from` but for ((min_x, min_y), (max_x, max_y)) bounding box tuples. """
+
+        if value is None:
+            return None
+
+        (min_x, min_y), (max_x, max_y) = value
+        min_x = self.convert_from(unit, min_x)
+        min_y = self.convert_from(unit, min_y)
+        max_x = self.convert_from(unit, max_x)
+        max_y = self.convert_from(unit, max_y)
+        return (min_x, min_y), (max_x, max_y)
+
     def format(self, value):
         """ Return a human-readdable string representing value in this unit.
 
@@ -235,7 +248,7 @@ def max_none(a, b):
 
 
 def add_bounds(b1, b2):
-    """ Add/union two bounding boxes.
+    """ Add/union multiple bounding boxes.
 
     :param tuple b1: ``((min_x, min_y), (max_x, max_y))``
     :param tuple b2: ``((min_x, min_y), (max_x, max_y))``
@@ -244,10 +257,28 @@ def add_bounds(b1, b2):
     :rtype: tuple
     """
 
-    (min_x_1, min_y_1), (max_x_1, max_y_1) = b1
-    (min_x_2, min_y_2), (max_x_2, max_y_2) = b2
-    min_x, min_y = min_none(min_x_1, min_x_2), min_none(min_y_1, min_y_2)
-    max_x, max_y = max_none(max_x_1, max_x_2), max_none(max_y_1, max_y_2)
+    return sum_bounds((b1, b2))
+
+
+def sum_bounds(bounds, *, default=None):
+    """ Add/union multiple bounding boxes.
+
+    :param bounds: each arg is one bounding box in ``((min_x, min_y), (max_x, max_y))`` format
+
+    :returns: ``((min_x, min_y), (max_x, max_y))``
+    :rtype: tuple
+    """
+
+    if not bounds:
+        return default
+
+    ((min_x, min_y), (max_x, max_y)), *bounds = bounds
+
+    for (min_x_2, min_y_2), (max_x_2, max_y_2) in bounds:
+        min_x, min_y = min_none(min_x, min_x_2), min_none(min_y, min_y_2)
+        max_x, max_y = max_none(max_x, max_x_2), max_none(max_y, max_y_2)
+        print('sum_bounds +{', (min_x_2, min_y_2), (max_x_2, max_y_2), '} = ', ((min_x, min_y), (max_x, max_y)))
+
     return ((min_x, min_y), (max_x, max_y))
 
 
@@ -399,4 +430,33 @@ def svg_arc(old, new, center, clockwise):
 
 def svg_rotation(angle_rad, cx=0, cy=0):
     return f'rotate({float(math.degrees(angle_rad)):.4} {float(cx):.6} {float(cy):.6})'
+
+def setup_svg(tags, bounds, margin=0, arg_unit=MM, svg_unit=MM, pagecolor='white', tag=Tag):
+    (min_x, min_y), (max_x, max_y) = bounds
+
+    if margin:
+        margin = svg_unit(margin, arg_unit)
+        min_x -= margin
+        min_y -= margin
+        max_x += margin
+        max_y += margin
+    print(f'setting up document {bounds=} {margin=}')
+
+    w, h = max_x - min_x, max_y - min_y
+    w = 1.0 if math.isclose(w, 0.0) else w
+    h = 1.0 if math.isclose(h, 0.0) else h
+
+    view = tag('sodipodi:namedview', [], id='namedview1', pagecolor=pagecolor,
+            inkscape__document_units=svg_unit.shorthand)
+
+    svg_unit = 'in' if svg_unit == 'inch' else 'mm'
+    # TODO export apertures as <uses> where reasonable.
+    return tag('svg', [view, *tags],
+            width=f'{w}{svg_unit}', height=f'{h}{svg_unit}',
+            viewBox=f'{min_x} {min_y} {w} {h}',
+            xmlns="http://www.w3.org/2000/svg",
+            xmlns__xlink="http://www.w3.org/1999/xlink",
+            xmlns__sodipodi='http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd',
+            xmlns__inkscape='http://www.inkscape.org/namespaces/inkscape',
+            root=True)
 

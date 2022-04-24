@@ -23,7 +23,7 @@ from copy import deepcopy
 from enum import Enum
 import string
 
-from .utils import LengthUnit, MM, Inch, Tag
+from .utils import LengthUnit, MM, Inch, Tag, sum_bounds, setup_svg
 from . import graphic_primitives as gp
 from . import graphic_objects as go
 
@@ -247,33 +247,23 @@ class CamFile:
         self.import_settings = import_settings
 
     def to_svg(self, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, fg='black', bg='white', tag=Tag):
-
-        if force_bounds is None:
-            (min_x, min_y), (max_x, max_y) = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
+        if force_bounds:
+            bounds = svg_unit.convert_bounds_from(arg_unit, force_bounds)
         else:
-            (min_x, min_y), (max_x, max_y) = force_bounds
-            min_x = svg_unit(min_x, arg_unit)
-            min_y = svg_unit(min_y, arg_unit)
-            max_x = svg_unit(max_x, arg_unit)
-            max_y = svg_unit(max_y, arg_unit)
+            bounds = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
 
-        content_min_x, content_min_y = min_x, min_y
-        content_w, content_h = max_x - min_x, max_y - min_y
-        if margin:
-            margin = svg_unit(margin, arg_unit)
-            min_x -= margin
-            min_y -= margin
-            max_x += margin
-            max_y += margin
+        tags = list(self.svg_objects(svg_unit=svg_unit, tag=tag, fg=fg, bg=bg))
 
-        w, h = max_x - min_x, max_y - min_y
-        w = 1.0 if math.isclose(w, 0.0) else w
-        h = 1.0 if math.isclose(h, 0.0) else h
+        # setup viewport transform flipping y axis
+        (content_min_x, content_min_y), (content_max_x, content_max_y) = bounds
+        content_w, content_h = content_max_x - content_min_x, content_max_y - content_min_y
+        xform = f'translate({content_min_x} {content_min_y+content_h}) scale(1 -1) translate({-content_min_x} {-content_min_y})'
+        tags = [tag('g', tags, transform=xform)]
 
-        view = tag('sodipodi:namedview', [], id='namedview1', pagecolor=bg,
-                inkscape__document_units=svg_unit.shorthand)
+        return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit,
+                pagecolor=bg, tag=tag)
 
-        tags = []
+    def svg_objects(self, svg_unit=MM, fg='black', bg='white', tag=Tag):
         pl = None
         for i, obj in enumerate(self.objects):
             #if isinstance(obj, go.Flash):
@@ -294,29 +284,15 @@ class CamFile:
                             pl = Polyline(primitive)
                         else:
                             if not pl.append(primitive):
-                                tags.append(pl.to_svg(fg, bg, tag=tag))
+                                yield pl.to_svg(fg, bg, tag=tag)
                                 pl = Polyline(primitive)
                     else:
                         if pl:
-                            tags.append(pl.to_svg(fg, bg, tag=tag))
+                            yield pl.to_svg(fg, bg, tag=tag)
                             pl = None
-                        tags.append(primitive.to_svg(fg, bg, tag=tag))
+                        yield primitive.to_svg(fg, bg, tag=tag)
         if pl:
-            tags.append(pl.to_svg(fg, bg, tag=tag))
-
-        # setup viewport transform flipping y axis
-        xform = f'translate({content_min_x} {content_min_y+content_h}) scale(1 -1) translate({-content_min_x} {-content_min_y})'
-
-        svg_unit = 'in' if svg_unit == 'inch' else 'mm'
-        # TODO export apertures as <uses> where reasonable.
-        return tag('svg', [view, tag('g', tags, transform=xform)],
-                width=f'{w}{svg_unit}', height=f'{h}{svg_unit}',
-                viewBox=f'{min_x} {min_y} {w} {h}',
-                xmlns="http://www.w3.org/2000/svg",
-                xmlns__xlink="http://www.w3.org/1999/xlink",
-                xmlns__sodipodi='http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd',
-                xmlns__inkscape='http://www.inkscape.org/namespaces/inkscape',
-                root=True)
+            yield pl.to_svg(fg, bg, tag=tag)
 
     def size(self, unit=MM):
         """ Get the dimensions of the file's axis-aligned bounding box, i.e. the difference in x- and y-direction
@@ -342,16 +318,7 @@ class CamFile:
         :rtype: tuple
         """
 
-        bounds = [ p.bounding_box(unit) for p in self.objects ]
-        if not bounds:
-            return default
-
-        min_x = min(x0 for (x0, y0), (x1, y1) in bounds)
-        min_y = min(y0 for (x0, y0), (x1, y1) in bounds)
-        max_x = max(x1 for (x0, y0), (x1, y1) in bounds)
-        max_y = max(y1 for (x0, y0), (x1, y1) in bounds)
-
-        return ((min_x, min_y), (max_x, max_y))
+        return sum_bounds(( p.bounding_box(unit) for p in self.objects ), default=default)
 
     def to_excellon(self):
         """ Convert to a :py:class:`.ExcellonFile`. Returns ``self`` if it already is one. """

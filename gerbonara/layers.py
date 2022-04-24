@@ -29,6 +29,7 @@ from .rs274x import GerberFile
 from .ipc356 import Netlist
 from .cam import FileSettings
 from .layer_rules import MATCH_RULES
+from .utils import sum_bounds, setup_svg, MM, Tag
 
 
 STANDARD_LAYERS = [
@@ -408,6 +409,51 @@ class LayerStack:
 
     def __repr__(self):
         return str(self)
+
+    def to_svg(self, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag):
+        if force_bounds:
+            bounds = svg_unit.convert_bounds_from(arg_unit, force_bounds)
+        else:
+            bounds = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
+        
+        tags = []
+        for (side, use), layer in self.graphic_layers.items():
+            tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg='black', bg="white", tag=Tag)),
+                id=f'l-{side}-{use}'))
+
+        for i, layer in enumerate(self.drill_layers):
+            tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg='black', bg="white", tag=Tag)),
+                id=f'l-{drill}-{i}'))
+
+        return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor=bg, tag=tag)
+
+    def to_pretty_svg(self, side='top', margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag):
+        if force_bounds:
+            bounds = svg_unit.convert_bounds_from(arg_unit, force_bounds)
+        else:
+            bounds = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
+        
+        tags = []
+        
+        for use, color in {'copper': 'black', 'mask': 'blue', 'silk': 'red'}:
+            if (side, use) not in self:
+                continue
+
+            layer = self[(side, use)]
+            tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg=color, bg="white", tag=Tag)),
+                id=f'l-{side}-{use}'))
+
+        for i, layer in enumerate(self.drill_layers):
+            tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg='magenta', bg="white", tag=Tag)),
+                id=f'l-{drill}-{i}'))
+
+        return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor=bg, tag=tag)
+
+
+
+    def bounding_box(self, unit=MM, default=None):
+        return sum_bounds(( layer.bounding_box(unit, default=default)
+            for layer in (self.graphic_layers + self.drill_layers) ), default=default)
 
     def merge_drill_layers(self):
         target = ExcellonFile(comments='Drill files merged by gerbonara')
