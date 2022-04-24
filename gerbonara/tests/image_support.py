@@ -151,6 +151,8 @@ def svg_soup(filename):
         f.write(str(soup))
 
 def cleanup_gerbv_svg(soup):
+    soup.svg['width'] = f'{float(soup.svg["width"])/72*25.4:.4f}mm'
+    soup.svg['height'] = f'{float(soup.svg["height"])/72*25.4:.4f}mm'
     for group in soup.find_all('g'):
         # gerbv uses Cairo's SVG canvas. Cairo's SVG canvas is kind of broken. It has no support for unit
         # handling at all, which means the output files just end up being in pixels at 72 dpi. Further, it
@@ -186,15 +188,28 @@ def gerber_difference_merge(ref1, ref2, actual, diff_out=None, composite_out=Non
         gerbv_export(ref1, ref1_svg.name, size=size, export_format='svg')
         gerbv_export(ref2, ref2_svg.name, size=size, export_format='svg')
         gerbv_export(actual, act_svg.name, size=size, export_format='svg')
+        for var in ['ref1_svg', 'ref2_svg', 'act_svg']:
+            print(f'=== {var} ===')
+            print(Path(locals()[var].name).read_text().splitlines()[1])
 
         with svg_soup(ref1_svg.name) as soup1:
             if svg_transform1 is not None:
-                soup1.find('g', attrs={'id': 'surface1'})['transform'] = svg_transform1
+                svg = soup1.svg
+                children = list(svg.children)
+                g = soup1.new_tag('g', attrs={'transform': svg_transform1})
+                for c in children:
+                    g.append(c.extract())
+                svg.append(g)
             cleanup_gerbv_svg(soup1)
 
             with svg_soup(ref2_svg.name) as soup2:
                 if svg_transform2 is not None:
-                    soup2.find('g', attrs={'id': 'surface1'})['transform'] = svg_transform2
+                    svg = soup2.svg
+                    children = list(svg.children)
+                    g = soup2.new_tag('g', attrs={'transform': svg_transform2})
+                    for c in children:
+                        g.append(c.extract())
+                    svg.append(g)
                 cleanup_gerbv_svg(soup2)
 
                 defs1 = soup1.find('defs')

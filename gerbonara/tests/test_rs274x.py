@@ -473,6 +473,8 @@ def test_svg_export(reference, tmpfile):
     ref_svg = tmpfile('Reference export', '.svg')
     ref_png = tmpfile('Reference render', '.png')
     gerbv_export(reference, ref_svg, origin=bounds[0], size=bounds[1], fg='#000000', bg='#ffffff')
+    with svg_soup(ref_svg) as soup:
+        cleanup_gerbv_svg(soup)
     svg_to_png(ref_svg, ref_png, dpi=300, bg='white')
 
     out_png = tmpfile('Output render', '.png')
