@@ -277,7 +277,6 @@ def sum_bounds(bounds, *, default=None):
     for (min_x_2, min_y_2), (max_x_2, max_y_2) in bounds:
         min_x, min_y = min_none(min_x, min_x_2), min_none(min_y, min_y_2)
         max_x, max_y = max_none(max_x, max_x_2), max_none(max_y, max_y_2)
-        print('sum_bounds +{', (min_x_2, min_y_2), (max_x_2, max_y_2), '} = ', ((min_x, min_y), (max_x, max_y)))
 
     return ((min_x, min_y), (max_x, max_y))
 
@@ -373,7 +372,7 @@ def arc_bounds(x1, y1, x2, y2, cx, cy, clockwise):
         # Since both points are on the arc (at same radius) in one halfplane, we can use the y coord as a proxy for
         # angle comparisons. 
         small_arc_is_north_to_south = y1 > y2
-        small_arc_is_clockwise = small_arc_is_north_to_south == p1_west
+        small_arc_is_clockwise = small_arc_is_north_to_south != p1_west
         if small_arc_is_clockwise != clockwise:
             min_y, max_y = -r, r # intersect aabb with both north and south
 
@@ -440,7 +439,6 @@ def setup_svg(tags, bounds, margin=0, arg_unit=MM, svg_unit=MM, pagecolor='white
         min_y -= margin
         max_x += margin
         max_y += margin
-    print(f'setting up document {bounds=} {margin=}')
 
     w, h = max_x - min_x, max_y - min_y
     w = 1.0 if math.isclose(w, 0.0) else w
