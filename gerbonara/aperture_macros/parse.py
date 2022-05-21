@@ -56,14 +56,17 @@ class ApertureMacro:
     def parse_macro(cls, name, body, unit):
         macro = cls(name)
 
-        blocks = re.sub(r'\s', '', body).split('*')
+        blocks = body.split('*')
         for block in blocks:
             if not (block := block.strip()): # empty block
                 continue
 
-            if block[0:1] == '0 ': # comment
-                macro.comments.append(Comment(block[2:]))
+            if block.startswith('0 '): # comment
+                macro.comments.append(block[2:])
+                continue
             
+            block = re.sub(r'\s', '', block)
+
             if block[0] == '$': # variable definition
                 name, expr = block.partition('=')
                 number = int(name[1:])
