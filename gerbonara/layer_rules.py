@@ -39,11 +39,11 @@ MATCH_RULES = {
 'kicad': {
     'top copper':       r'.*\.gtl|.*f.cu.(gbr|gtl)',
     'top mask':         r'.*\.gts|.*f.mask.(gbr|gts)',
-    'top silk':         r'.*\.gto|.*f.silks.(gbr|gto)',
+    'top silk':         r'.*\.gto|.*f.silks(creen)?.(gbr|gto)',
     'top paste':        r'.*\.gtp|.*f.paste.(gbr|gtp)',
     'bottom copper':    r'.*\.gbl|.*b.cu.(gbr|gbl)',
     'bottom mask':      r'.*\.gbs|.*b.mask.(gbr|gbs)',
-    'bottom silk':      r'.*\.gbo|.*b.silks.(gbr|gbo)',
+    'bottom silk':      r'.*\.gbo|.*b.silks(creen)?.(gbr|gbo)',
     'bottom paste':     r'.*\.gbp|.*b.paste.(gbr|gbp)',
     'inner copper':     r'.*\.gp?([0-9]+)|.*inn?e?r?([0-9]+).cu.(?:gbr|g[0-9]+)',
     'mechanical outline':    r'.*\.(gm[0-9]+)|.*edge.cuts.(gbr|gm1)',

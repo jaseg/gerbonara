@@ -533,7 +533,7 @@ class GerberParser:
         'eof': r"M0?[02]",
         'ignored': r"(?P<stmt>M01)",
         # NOTE: The official spec says names can be empty or contain commas. I think that doesn't make sense.
-        'attribute': r"(?P<eagle_garbage>G04 #@! %)?(?P<type>TF|TA|TO|TD)(?P<name>[._$a-zA-Z][._$a-zA-Z0-9]*)(,(?P<value>.*))",
+        'attribute': r"(?P<eagle_garbage>G04 #@! %)?(?P<type>TF|TA|TO|TD)(?P<name>[._$a-zA-Z][._$a-zA-Z0-9]*)?(,(?P<value>.*))?",
         # Eagle file attributes handled above.
         'comment': r"G0?4(?P<comment>[^*]*)",
         }

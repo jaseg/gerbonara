@@ -22,6 +22,9 @@ from dataclasses import dataclass
 from copy import deepcopy
 from enum import Enum
 import string
+import shutil
+from pathlib import Path
+from functools import cached_property
 
 from .utils import LengthUnit, MM, Inch, Tag, sum_bounds, setup_svg
 from . import graphic_primitives as gp
@@ -246,6 +249,14 @@ class CamFile:
         self.layer_name = layer_name
         self.import_settings = import_settings
 
+    @property
+    def is_lazy(self):
+        return False
+
+    @property
+    def instance(self):
+        return self
+
     def to_svg(self, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, fg='black', bg='white', tag=Tag):
         if force_bounds:
             bounds = svg_unit.convert_bounds_from(arg_unit, force_bounds)
@@ -385,4 +396,23 @@ class CamFile:
     def __bool__(self):
         """ Test if this file contains any objects """
         return not self.is_empty
+
+class LazyCamFile:
+    def __init__(self, klass, path, *args, **kwargs):
+        self._class = klass
+        self.original_path = Path(path)
+        self._args = args
+        self._kwargs = kwargs
+
+    @cached_property
+    def instance(self):
+        return self._class.open(self.original_path, *self._args, **self._kwargs)
+
+    @property
+    def is_lazy(self):
+        return True
+
+    def save(self, filename, *args, **kwargs):
+        """ Copy this Gerber file to the new path. """
+        shutil.copy(self.original_path, filename)
 

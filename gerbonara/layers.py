@@ -21,13 +21,15 @@ import os
 import re
 import warnings
 import copy
+import itertools
 from collections import namedtuple
 from pathlib import Path
+from zipfile import ZipFile, is_zipfile
 
 from .excellon import ExcellonFile, parse_allegro_ncparam, parse_allegro_logfile
 from .rs274x import GerberFile
 from .ipc356 import Netlist
-from .cam import FileSettings
+from .cam import FileSettings, LazyCamFile
 from .layer_rules import MATCH_RULES
 from .utils import sum_bounds, setup_svg, MM, Tag
 
@@ -208,13 +210,40 @@ class LayerStack:
         self.netlist = netlist
 
     @classmethod
-    def from_directory(kls, directory, board_name=None):
+    def open(kls, path, board_name=None, lazy=False):
+        path = Path(path)
+        if path.is_dir():
+            return kls.from_directory(path, board_name=board_name, lazy=lazy)
+        elif path.suffix.lower() == '.zip' or is_zipfile(path):
+            return kls.from_zipfile(path, board_name=board_name, lazy=lazy)
+        else:
+            return kls.from_files([path], board_name=board_name, lazy=lazy)
+
+    @classmethod
+    def from_zipfile(kls, filename, board_name=None, lazy=False):
+        tmpdir = tempfile.TemporaryDirectory()
+        tmp_indir = Path(tmpdir) / dirname
+        tmp_indir.mkdir()
+
+        with ZipFile(source) as f:
+            f.extractall(path=tmp_indir)
+
+        inst = kls.from_directory(tmp_indir, board_name=board_name, lazy=lazy)
+        inst.tmpdir = tmpdir
+        return inst
+
+    @classmethod
+    def from_directory(kls, directory, board_name=None, lazy=False):
 
         directory = Path(directory)
         if not directory.is_dir():
             raise FileNotFoundError(f'{directory} is not a directory')
 
         files = [ path for path in directory.glob('**/*') if path.is_file() ]
+        return kls.from_files(files, board_name=board_name, lazy=lazy)
+
+    @classmethod
+    def from_files(kls, files, board_name=None, lazy=False):
         generator, filemap = best_match(files)
 
         if sum(len(files) for files in filemap.values()) < 6:
@@ -290,7 +319,7 @@ class LayerStack:
                 id_result = identify_file(path.read_text())
 
                 if 'netlist' in key:
-                    layer = Netlist.open(path)
+                    layer = LazyCamFile(Netlist, path)
 
                 elif ('outline' in key or 'drill' in key) and id_result != 'gerber':
                     if id_result is None:
@@ -304,10 +333,13 @@ class LayerStack:
                         plated = True
                     else:
                         plated = None
-                    layer = ExcellonFile.open(path, plated=plated, settings=excellon_settings, external_tools=external_tools)
+                    layer = LazyCamFile(ExcellonFile, path, plated=plated, settings=excellon_settings, external_tools=external_tools)
                 else:
 
-                    layer = GerberFile.open(path)
+                    layer = LazyCamFile(GerberFile, path)
+
+                if not lazy:
+                    layer = layer.open()
 
                 if key == 'mechanical outline':
                     layers['mechanical', 'outline'] = layer
@@ -325,10 +357,11 @@ class LayerStack:
                     side, _, use = key.partition(' ')
                     layers[(side, use)] = layer
 
-                hints = set(layer.generator_hints) | { generator }
-                if len(hints) > 1:
-                    warnings.warn('File identification returned ambiguous results. Please raise an issue on the gerbonara '
-                            'tracker and if possible please provide these input files for reference.')
+                if not lazy:
+                    hints = set(layer.generator_hints) | { generator }
+                    if len(hints) > 1:
+                        warnings.warn('File identification returned ambiguous results. Please raise an issue on the '
+                                'gerbonara tracker and if possible please provide these input files for reference.')
 
         board_name = common_prefix([l.original_path.name for l in layers.values() if l is not None])
         board_name = re.sub(r'^\W+', '', board_name)
@@ -431,29 +464,30 @@ class LayerStack:
         if force_bounds:
             bounds = svg_unit.convert_bounds_from(arg_unit, force_bounds)
         else:
-            bounds = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
+            bounds = self.outline.instance.bounding_box(svg_unit, default=((0, 0), (0, 0)))
         
         tags = []
         
-        for use, color in {'copper': 'black', 'mask': 'blue', 'silk': 'red'}:
+        for use, color in {'copper': 'black', 'mask': 'blue', 'silk': 'red'}.items():
             if (side, use) not in self:
+                warnings.warn(f'Layer "{side} {use}" not found. Found layers: {", ".join(side + " " + use for side, use in self.graphic_layers)}')
                 continue
 
             layer = self[(side, use)]
-            tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg=color, bg="white", tag=Tag)),
+            tags.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg=color, bg="white", tag=Tag)),
                 id=f'l-{side}-{use}'))
 
         for i, layer in enumerate(self.drill_layers):
-            tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg='magenta', bg="white", tag=Tag)),
-                id=f'l-{drill}-{i}'))
+            tags.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg='magenta', bg="white", tag=Tag)),
+                id=f'l-drill-{i}'))
 
-        return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor=bg, tag=tag)
+        return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor="white", tag=tag)
 
 
 
     def bounding_box(self, unit=MM, default=None):
         return sum_bounds(( layer.bounding_box(unit, default=default)
-            for layer in (self.graphic_layers + self.drill_layers) ), default=default)
+            for layer in itertools.chain(self.graphic_layers.values(), self.drill_layers) ), default=default)
 
     def merge_drill_layers(self):
         target = ExcellonFile(comments='Drill files merged by gerbonara')

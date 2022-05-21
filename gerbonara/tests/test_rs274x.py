@@ -449,7 +449,7 @@ def test_compositing(file_a, file_b, angle, offset, tmpfile, print_on_error):
 
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', REFERENCE_FILES, indirect=True)
-def test_svg_export(reference, tmpfile):
+def test_svg_export_gerber(reference, tmpfile):
     if reference.name in ('silkscreen_bottom.gbr', 'silkscreen_top.gbr', 'top_silk.GTO'):
         # Some weird svg rendering artifact. Might be caused by mismatching svg units between gerbv and us. Result looks
         # fine though.

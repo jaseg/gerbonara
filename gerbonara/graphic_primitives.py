@@ -207,13 +207,14 @@ class Arc(GraphicPrimitive):
         dx, dy = self.x1 - self.cx, self.y1 - self.cy
         x1 = self.x1 + dx/arc_r * r
         y1 = self.y1 + dy/arc_r * r
-
+        
         # same for C -> P2
         dx, dy = self.x2 - self.cx, self.y2 - self.cy
         x2 = self.x2 + dx/arc_r * r
         y2 = self.y2 + dy/arc_r * r
 
         arc = arc_bounds(x1, y1, x2, y2, self.cx, self.cy, self.clockwise)
+
         return add_bounds(endpoints, arc) # FIXME add "include_center" switch
 
     def to_svg(self, fg='black', bg='white', tag=Tag):
