@@ -77,11 +77,12 @@ class GerberFile(CamFile):
     def to_gerber(self):
         return
 
-    def merge(self, other):
+    def merge(self, other, mode='above', keep_settings=False):
         if other is None:
             return
 
-        self.import_settings = None
+        if not keep_settings:
+            self.import_settings = None
         self.comments += other.comments
 
         # dedup apertures
@@ -96,7 +97,13 @@ class GerberFile(CamFile):
                 replace_apertures[id(ap)] = new_apertures[gbr]
         self.apertures = list(new_apertures.values())
 
-        self.objects += other.objects
+        # Join objects
+        if mode == 'below':
+            self.objects = other.objects + self.objects
+        elif mode == 'above':
+            self.objects += other.objects
+        else:
+            raise ValueError(f'Invalid mode "{mode}", must be one of "above" or "below".')
         for obj in self.objects:
             # If object has an aperture attribute, replace that aperture.
             if (ap := replace_apertures.get(id(getattr(obj, 'aperture', None)))):

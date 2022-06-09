@@ -236,7 +236,7 @@ class Polyline:
         (x0, y0), *rest = self.coords
         d = f'M {x0:.6} {y0:.6} ' + ' '.join(f'L {x:.6} {y:.6}' for x, y in rest)
         width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
-        return tag('path', d=d, style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linejoin: round; stroke-linecap: round')
+        return tag('path', d=d, style=f'fill: none; stroke: {color}; stroke-width: {width:.6}; stroke-linejoin: round; stroke-linecap: round')
 
 
 class CamFile:
@@ -268,7 +268,7 @@ class CamFile:
         # setup viewport transform flipping y axis
         (content_min_x, content_min_y), (content_max_x, content_max_y) = bounds
         content_w, content_h = content_max_x - content_min_x, content_max_y - content_min_y
-        xform = f'translate({content_min_x} {content_min_y+content_h}) scale(1 -1) translate({-content_min_x} {-content_min_y})'
+        xform = f'translate({content_min_x:.6} {content_min_y+content_h:.6}) scale(1 -1) translate({-content_min_x:.6} {-content_min_y:.6})'
         tags = [tag('g', tags, transform=xform)]
 
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit,

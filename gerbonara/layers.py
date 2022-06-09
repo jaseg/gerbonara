@@ -203,11 +203,13 @@ def layername_autoguesser(fn):
 
 class LayerStack:
 
-    def __init__(self, graphic_layers, drill_layers, netlist=None, board_name=None):
+    def __init__(self, graphic_layers, drill_layers, netlist=None, board_name=None, original_path=None, was_zipped=False):
         self.graphic_layers = graphic_layers
         self.drill_layers = drill_layers
         self.board_name = board_name
         self.netlist = netlist
+        self.original_path = original_path
+        self.was_zipped = was_zipped
 
     @classmethod
     def open(kls, path, board_name=None, lazy=False):
@@ -230,6 +232,8 @@ class LayerStack:
 
         inst = kls.from_directory(tmp_indir, board_name=board_name, lazy=lazy)
         inst.tmpdir = tmpdir
+        inst.original_path = filename
+        inst.was_zipped = True
         return inst
 
     @classmethod
@@ -240,10 +244,12 @@ class LayerStack:
             raise FileNotFoundError(f'{directory} is not a directory')
 
         files = [ path for path in directory.glob('**/*') if path.is_file() ]
-        return kls.from_files(files, board_name=board_name, lazy=lazy)
+        return kls.from_files(files, board_name=board_name, lazy=lazy, original_path=directory)
+        inst.original_path = directory
+        return inst
 
     @classmethod
-    def from_files(kls, files, board_name=None, lazy=False):
+    def from_files(kls, files, board_name=None, lazy=False, original_path=None, was_zipped=False):
         generator, filemap = best_match(files)
 
         if sum(len(files) for files in filemap.values()) < 6:
@@ -366,7 +372,16 @@ class LayerStack:
         board_name = common_prefix([l.original_path.name for l in layers.values() if l is not None])
         board_name = re.sub(r'^\W+', '', board_name)
         board_name = re.sub(r'\W+$', '', board_name)
-        return kls(layers, drill_layers, netlist, board_name=board_name)
+        return kls(layers, drill_layers, netlist, board_name=board_name,
+                original_path=original_path, was_zipped=was_zipped)
+
+    def save_to_zipfile(self, path, naming_scheme={}):
+        with tempfile.TemporaryDirectory() as tempdir:
+            self.save_to_directory(path, naming_scheme=naming_scheme)
+            with ZipFile(path) as le_zip:
+                for f in Path(tempdir.name).glob('*'):
+                    with le_zip.open(f, 'wb') as out:
+                        out.write(f.read_bytes())
 
     def save_to_directory(self, path, naming_scheme={}, overwrite_existing=True):
         outdir = Path(path)
@@ -483,11 +498,16 @@ class LayerStack:
 
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor="white", tag=tag)
 
-
-
     def bounding_box(self, unit=MM, default=None):
         return sum_bounds(( layer.bounding_box(unit, default=default)
             for layer in itertools.chain(self.graphic_layers.values(), self.drill_layers) ), default=default)
+
+
+    def board_bounds(self, unit=MM, default=None):
+        if self.outline:
+            return self.outline.instance.bounding_box(unit=unit, default=default)
+        else:
+            return self.bounding_box(unit=unit, default=default)
 
     def merge_drill_layers(self):
         target = ExcellonFile(comments='Drill files merged by gerbonara')

@@ -23,6 +23,8 @@ from dataclasses import dataclass, KW_ONLY, replace
 
 from .utils import *
 
+prec = lambda x: f'{x:.6}'
+
 
 @dataclass
 class GraphicPrimitive:
@@ -65,7 +67,7 @@ class Circle(GraphicPrimitive):
 
     def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
-        return tag('circle', cx=self.x, cy=self.y, r=self.r, style=f'fill: {color}')
+        return tag('circle', cx=prec(self.x), cy=prec(self.y), r=prec(self.r), style=f'fill: {color}')
 
 
 @dataclass
@@ -255,6 +257,6 @@ class Rectangle(GraphicPrimitive):
     def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
         x, y = self.x - self.w/2, self.y - self.h/2
-        return tag('rect', x=x, y=y, width=self.w, height=self.h,
+        return tag('rect', x=prec(x), y=prec(y), width=prec(self.w), height=prec(self.h),
                 transform=svg_rotation(self.rotation, self.x, self.y), style=f'fill: {color}')
 
