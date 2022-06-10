@@ -11,7 +11,7 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 
 import subprocess
-def version():
+def get_version():
     res = subprocess.run(['git', 'describe', '--tags', '--match', 'v*'], capture_output=True, check=True, text=True)
     version, _, _rest = res.stdout.strip()[1:].partition('-')
     return version
@@ -27,7 +27,7 @@ copyright = '2022, Jan Götte'
 author = 'jaseg'
 
 # The full version, including alpha/beta/rc tags
-release = version()
+release = get_version()
 
 
 # -- General configuration ---------------------------------------------------
