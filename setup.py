@@ -5,9 +5,13 @@ from setuptools import setup, find_packages
 import subprocess
 
 def version():
-    res = subprocess.run(['git', 'describe', '--tags', '--match', 'v*'], capture_output=True, check=True, text=True)
-    version, _, _rest = res.stdout.strip()[1:].partition('-')
-    return version
+    try:
+        res = subprocess.run(['git', 'describe', '--tags', '--match', 'v*'], capture_output=True, check=True, text=True)
+        version, _, _rest = res.stdout.strip()[1:].partition('-')
+        return version
+    except:
+        subprocess.run(['git', 'describe', '--tags', '--match', 'v*'])
+        raise
 
 setup(
     name='gerbonara',
