@@ -71,6 +71,7 @@ pages:
     GIT_SUBMODULE_STRATEGY: none
   image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
   script:
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
     - sphinx-build -E docs public
   dependencies:
     - build:archlinux
