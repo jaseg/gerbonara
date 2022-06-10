@@ -345,7 +345,7 @@ class LayerStack:
                     layer = LazyCamFile(GerberFile, path)
 
                 if not lazy:
-                    layer = layer.open()
+                    layer = layer.instance
 
                 if key == 'mechanical outline':
                     layers['mechanical', 'outline'] = layer

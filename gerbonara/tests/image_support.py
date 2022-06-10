@@ -172,7 +172,13 @@ def gerber_difference(reference, actual, diff_out=None, svg_transform=None, size
 
         with svg_soup(ref_svg.name) as soup:
             if svg_transform is not None:
-                soup.find('g', attrs={'id': 'surface1'})['transform'] = svg_transform
+                svg = soup.svg
+                children = list(svg.children)
+                g = soup.new_tag('g', attrs={'transform': svg_transform})
+                for c in children:
+                    g.append(c.extract())
+                svg.append(g)
+
             cleanup_gerbv_svg(soup)
 
         with svg_soup(act_svg.name) as soup:

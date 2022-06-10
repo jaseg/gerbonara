@@ -23,7 +23,7 @@ from dataclasses import dataclass, KW_ONLY, replace
 
 from .utils import *
 
-prec = lambda x: f'{x:.6}'
+prec = lambda x: f'{float(x):.6}'
 
 
 @dataclass
