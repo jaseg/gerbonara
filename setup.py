@@ -30,7 +30,6 @@ setup(
         'Tracker': 'https://gitlab.com/gerbolyze/gerbonara/issues',
     },
     packages=find_packages(exclude=['tests']),
-    exclude_package_data={'gerbonara': ['.gitignore']},
     install_requires=['click'],
     entry_points={
         'console_scripts': [
@@ -63,5 +62,5 @@ setup(
         'Typing :: Typed',
     ],
     keywords='gerber excellon pcb',
-    python_requires='>=3.8',
+    python_requires='>=3.10',
 )
