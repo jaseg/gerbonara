@@ -1,0 +1,13 @@
+global-exclude *
+
+include README.md
+include LICENSE
+include MANIFEST.in
+include setup.py
+graft gerbonara
+graft docs
+graft examples
+
+prune gerbonara/tests
+prune **/__pycache__
+prune docs/_build
