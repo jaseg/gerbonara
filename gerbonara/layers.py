@@ -60,9 +60,28 @@ class NamingScheme:
     'bottom paste':         '{board_name}-B.Paste.gbr',
     'inner copper':         '{board_name}-In{layer_number}.Cu.gbr',
     'mechanical outline':   '{board_name}-Edge.Cuts.gbr',
-    'drill unknown':        '{board_name}.drl',
+    'unknown drill':        '{board_name}.drl',
+    'plated drill':         '{board_name}.plated.drl',
+    'nonplated drill':      '{board_name}.nonplated.drl',
     'other netlist':        '{board_name}.d356',
     }
+
+    altium = {
+    'top copper':           '{board_name}.gtl',
+    'top mask':             '{board_name}.gts',
+    'top silk':             '{board_name}.gto',
+    'top paste':            '{board_name}.gtp',
+    'bottom copper':        '{board_name}.gbl',
+    'bottom mask':          '{board_name}.gbs',
+    'bottom silk':          '{board_name}.gbo',
+    'bottom paste':         '{board_name}.gbp',
+    'inner copper':         '{board_name}.gp{layer_number}',
+    'mechanical outline':   '{board_name}.gko',
+    'unknown drill':        '{board_name}.drl',
+    'plated drill':         '{board_name}.plated.drl',
+    'nonplated drill':      '{board_name}.nonplated.drl',
+    }
+
 
 
 def match_files(filenames):
