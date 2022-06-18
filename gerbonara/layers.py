@@ -518,7 +518,7 @@ class LayerStack:
             return self.bounding_box(unit=unit, default=default)
 
     def merge_drill_layers(self):
-        target = ExcellonFile(comments='Drill files merged by gerbonara')
+        target = ExcellonFile(comments=['Drill files merged by gerbonara'])
 
         for layer in self.drill_layers:
             if isinstance(layer, GerberFile):

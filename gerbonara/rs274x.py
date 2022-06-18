@@ -63,14 +63,14 @@ class GerberFile(CamFile):
         new_objs = []
         new_tools = {}
         for obj in self.objects:
-            if not isinstance(obj, go.Line) or isinstance(obj, go.Arc) or isinstance(obj, go.Flash) or \
+            if (not isinstance(obj, go.Line) and isinstance(obj, go.Arc) and isinstance(obj, go.Flash)) or \
                 not isinstance(obj.aperture, apertures.CircleAperture):
-                raise ValueError(f'Cannot convert {type(obj)} to excellon!')
+                raise ValueError(f'Cannot convert {obj} to excellon!')
 
             if not (new_tool := new_tools.get(id(obj.aperture))):
                 # TODO plating?
-                new_tool = new_tools[id(obj.aperture)] = apertures.ExcellonTool(obj.aperture.diameter, plated=plated)
-            new_obj = dataclasses.replace(obj, aperture=new_tool)
+                new_tool = new_tools[id(obj.aperture)] = apertures.ExcellonTool(obj.aperture.diameter, plated=plated, unit=obj.aperture.unit)
+            new_objs.append(dataclasses.replace(obj, aperture=new_tool))
             
         return ExcellonFile(objects=new_objs, comments=self.comments)
 
