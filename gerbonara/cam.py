@@ -416,3 +416,23 @@ class LazyCamFile:
         """ Copy this Gerber file to the new path. """
         shutil.copy(self.original_path, filename)
 
+class CachedLazyCamFile:
+    def __init__(self, klass, data, original_path, *args, **kwargs):
+        self._class = klass
+        self._data = data
+        self.original_path = original_path
+        self._args = args
+        self._kwargs = kwargs
+
+    @cached_property
+    def instance(self):
+        return self._class.from_string(self._data, filename=self.original_path, *self._args, **self._kwargs)
+
+    @property
+    def is_lazy(self):
+        return True
+
+    def save(self, filename, *args, **kwargs):
+        """ Copy this Gerber file to the new path. """
+        Path(filename).write_text(self._data)
+
