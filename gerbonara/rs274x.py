@@ -133,7 +133,7 @@ class GerberFile(CamFile):
         # TODO add tests for this
         self.apertures = [ aperture.dilated(offset, unit) for aperture in self.apertures ]
 
-        offset_circle = CircleAperture(offset, unit=unit)
+        offset_circle = apertures.CircleAperture(offset, unit=unit)
         self.apertures.append(offset_circle)
 
         new_primitives = []
