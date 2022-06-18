@@ -480,13 +480,14 @@ class LayerStack:
 
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor=bg, tag=tag)
 
-    def to_pretty_svg(self, side='top', margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag):
+    def to_pretty_svg(self, side='top', margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag, inkscape=False):
         if force_bounds:
             bounds = svg_unit.convert_bounds_from(arg_unit, force_bounds)
         else:
-            bounds = self.outline.instance.bounding_box(svg_unit, default=((0, 0), (0, 0)))
+            bounds = selfboard_bounds(unit=svg_unit, default=((0, 0), (0, 0)))
         
         tags = []
+        inkscape_attrs = lambda label: dict(inkscape__groupmode='layer', inkscape__label=label) if inkscape else {}
         
         for use, color in {'copper': 'black', 'mask': 'blue', 'silk': 'red'}.items():
             if (side, use) not in self:
@@ -495,13 +496,13 @@ class LayerStack:
 
             layer = self[(side, use)]
             tags.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg=color, bg="white", tag=Tag)),
-                id=f'l-{side}-{use}'))
+                id=f'l-{side}-{use}', **inkscape_attrs(f'{side} {use}')))
 
         for i, layer in enumerate(self.drill_layers):
             tags.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg='magenta', bg="white", tag=Tag)),
-                id=f'l-drill-{i}'))
+                id=f'l-drill-{i}', **inkscape_attrs(f'drill-{i}')))
 
-        return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor="white", tag=tag)
+        return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor="white", tag=tag, inkscape=inkscape)
 
     def bounding_box(self, unit=MM, default=None):
         return sum_bounds(( layer.bounding_box(unit, default=default)

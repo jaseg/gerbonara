@@ -432,7 +432,7 @@ def svg_arc(old, new, center, clockwise):
 def svg_rotation(angle_rad, cx=0, cy=0):
     return f'rotate({float(math.degrees(angle_rad)):.4} {float(cx):.6} {float(cy):.6})'
 
-def setup_svg(tags, bounds, margin=0, arg_unit=MM, svg_unit=MM, pagecolor='white', tag=Tag):
+def setup_svg(tags, bounds, margin=0, arg_unit=MM, svg_unit=MM, pagecolor='white', tag=Tag, inkscape=False):
     (min_x, min_y), (max_x, max_y) = bounds
 
     if margin:
@@ -446,17 +446,25 @@ def setup_svg(tags, bounds, margin=0, arg_unit=MM, svg_unit=MM, pagecolor='white
     w = 1.0 if math.isclose(w, 0.0) else w
     h = 1.0 if math.isclose(h, 0.0) else h
 
-    view = tag('sodipodi:namedview', [], id='namedview1', pagecolor=pagecolor,
-            inkscape__document_units=svg_unit.shorthand)
-
-    svg_unit = 'in' if svg_unit == 'inch' else 'mm'
-    # TODO export apertures as <uses> where reasonable.
-    return tag('svg', [view, *tags],
-            width=f'{w}{svg_unit}', height=f'{h}{svg_unit}',
-            viewBox=f'{min_x} {min_y} {w} {h}',
+    if inkscape:
+        tags.insert(0, tag('sodipodi:namedview', [], id='namedview1', pagecolor=pagecolor,
+                inkscape__document_units=svg_unit.shorthand))
+        namespaces = dict(
             xmlns="http://www.w3.org/2000/svg",
             xmlns__xlink="http://www.w3.org/1999/xlink",
             xmlns__sodipodi='http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd',
-            xmlns__inkscape='http://www.inkscape.org/namespaces/inkscape',
+            xmlns__inkscape='http://www.inkscape.org/namespaces/inkscape')
+
+    else:
+        namespaces = dict(
+            xmlns="http://www.w3.org/2000/svg",
+            xmlns__xlink="http://www.w3.org/1999/xlink")
+
+    svg_unit = 'in' if svg_unit == 'inch' else 'mm'
+    # TODO export apertures as <uses> where reasonable.
+    return tag('svg', tags,
+            width=f'{w}{svg_unit}', height=f'{h}{svg_unit}',
+            viewBox=f'{min_x} {min_y} {w} {h}',
+            **namespaces,
             root=True)
 
