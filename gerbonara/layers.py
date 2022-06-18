@@ -436,8 +436,10 @@ class LayerStack:
 
             if layer_type in naming_scheme:
                 path = naming_scheme[layer_type].format(layer_number=num, board_name=self.board_name)
-            else:
+            elif layer.original_path.name:
                 path = layer.original_path.name
+            else:
+                path = f'{self.board_name}-{layer_type.replace(" ", "_")}.gbr'
 
             return path
 
