@@ -524,7 +524,8 @@ class LayerStack:
 
             target.merge(layer)
 
-        self.drill_layers = [target]
+        self.drill_pth = self.drill_npth = None
+        self.drill_unknown = target
 
     def normalize_drill_layers(self):
         # TODO: maybe also separate into drill and route?
