@@ -378,7 +378,7 @@ class ExcellonFile(CamFile):
 
         yield 'M30'
 
-    def generate_excellon(self, settings=None, drop_comments=True):
+    def write_to_bytes(self, settings=None, drop_comments=True):
         """ Export to Excellon format. This function always generates XNC, which is a well-defined subset of Excellon.
         Uses sane default settings if you don't give any.
 
@@ -397,13 +397,13 @@ class ExcellonFile(CamFile):
                 settings = FileSettings()
             settings.zeros = None
             settings.number_format = (3,5)
-        return '\n'.join(self._generate_statements(settings, drop_comments=drop_comments))
+        return '\n'.join(self._generate_statements(settings, drop_comments=drop_comments)).encode('utf-8')
 
     def save(self, filename, settings=None, drop_comments=True):
         """ Save this Excellon file to the file system. See :py:meth:`~.ExcellonFile.generate_excellon` for the meaning
         of the arguments. """
-        with open(filename, 'w') as f:
-            f.write(self.generate_excellon(settings, drop_comments=drop_comments))
+        with open(filename, 'wb') as f:
+            f.write(self.write_to_bytes(settings, drop_comments=drop_comments))
 
     def offset(self, x=0, y=0, unit=MM):
         for obj in self.objects:

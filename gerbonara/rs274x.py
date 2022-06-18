@@ -59,17 +59,17 @@ class GerberFile(CamFile):
         self.apertures = [] # FIXME get rid of this? apertures are already in the objects.
         self.file_attrs = file_attrs or {}
 
-    def to_excellon(self):
+    def to_excellon(self, plated=None):
         new_objs = []
         new_tools = {}
         for obj in self.objects:
-            if not isinstance(obj, Line) or isinstance(obj, Arc) or isinstance(obj, Flash) or \
-                not isinstance(obj.aperture, CircleAperture):
-                raise ValueError('Cannot convert {type(obj)} to excellon!')
+            if not isinstance(obj, go.Line) or isinstance(obj, go.Arc) or isinstance(obj, go.Flash) or \
+                not isinstance(obj.aperture, apertures.CircleAperture):
+                raise ValueError(f'Cannot convert {type(obj)} to excellon!')
 
             if not (new_tool := new_tools.get(id(obj.aperture))):
                 # TODO plating?
-                new_tool = new_tools[id(obj.aperture)] = ExcellonTool(obj.aperture.diameter)
+                new_tool = new_tools[id(obj.aperture)] = apertures.ExcellonTool(obj.aperture.diameter, plated=plated)
             new_obj = dataclasses.replace(obj, aperture=new_tool)
             
         return ExcellonFile(objects=new_objs, comments=self.comments)
@@ -245,10 +245,10 @@ class GerberFile(CamFile):
     def save(self, filename, settings=None, drop_comments=True):
         """ Save this Gerber file to the file system. See :py:meth:`~.GerberFile.generate_gerber` for the meaning
         of the arguments. """
-        with open(filename, 'w', encoding='utf-8') as f: # Encoding is specified as UTF-8 by spec.
-            f.write(self.generate_gerber(settings, drop_comments=drop_comments))
+        with open(filename, 'wb') as f: # Encoding is specified as UTF-8 by spec.
+            f.write(self.write_to_bytes(settings, drop_comments=drop_comments))
 
-    def generate_gerber(self, settings=None, drop_comments=True):
+    def write_to_bytes(self, settings=None, drop_comments=True):
         """ Export to Gerber format. Uses either the file's original settings or sane default settings if you don't give
         any.
 
@@ -263,7 +263,7 @@ class GerberFile(CamFile):
             settings = self.import_settings.copy() or FileSettings()
             settings.zeros = None
             settings.number_format = (5,6)
-        return '\n'.join(self._generate_statements(settings, drop_comments=drop_comments))
+        return '\n'.join(self._generate_statements(settings, drop_comments=drop_comments)).encode('utf-8')
 
     def __len__(self):
         return len(self.objects)

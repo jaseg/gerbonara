@@ -18,6 +18,8 @@
 #
 
 import os
+import io
+import sys
 import re
 import warnings
 import copy
@@ -213,31 +215,35 @@ class LayerStack:
 
     @classmethod
     def open(kls, path, board_name=None, lazy=False):
+        if str(path) == '-':
+            data_io = io.BytesIO(sys.stdin.buffer.read())
+            return kls.from_zip_data(data_io, original_path='<stdin>', board_name=board_name, lazy=lazy)
+
         path = Path(path)
         if path.is_dir():
-            return kls.from_directory(path, board_name=board_name, lazy=lazy)
+            return kls.open_dir(path, board_name=board_name, lazy=lazy)
         elif path.suffix.lower() == '.zip' or is_zipfile(path):
-            return kls.from_zipfile(path, board_name=board_name, lazy=lazy)
+            return kls.open_zip(path, board_name=board_name, lazy=lazy)
         else:
             return kls.from_files([path], board_name=board_name, lazy=lazy)
 
     @classmethod
-    def from_zipfile(kls, filename, board_name=None, lazy=False):
+    def open_zip(kls, file, original_path=None, board_name=None, lazy=False):
         tmpdir = tempfile.TemporaryDirectory()
-        tmp_indir = Path(tmpdir) / dirname
+        tmp_indir = Path(tmpdir) / 'input'
         tmp_indir.mkdir()
 
-        with ZipFile(source) as f:
+        with ZipFile(file) as f:
             f.extractall(path=tmp_indir)
 
         inst = kls.from_directory(tmp_indir, board_name=board_name, lazy=lazy)
         inst.tmpdir = tmpdir
-        inst.original_path = filename
+        inst.original_path = Path(original_path or file)
         inst.was_zipped = True
         return inst
 
     @classmethod
-    def from_directory(kls, directory, board_name=None, lazy=False):
+    def open_dir(kls, directory, board_name=None, lazy=False):
 
         directory = Path(directory)
         if not directory.is_dir():
@@ -369,30 +375,39 @@ class LayerStack:
                         warnings.warn('File identification returned ambiguous results. Please raise an issue on the '
                                 'gerbonara tracker and if possible please provide these input files for reference.')
 
-        board_name = common_prefix([l.original_path.name for l in layers.values() if l is not None])
-        board_name = re.sub(r'^\W+', '', board_name)
-        board_name = re.sub(r'\W+$', '', board_name)
+        if not board_name:
+            board_name = common_prefix([l.original_path.name for l in layers.values() if l is not None])
+            board_name = re.sub(r'^\W+', '', board_name)
+            board_name = re.sub(r'\W+$', '', board_name)
+
         return kls(layers, drill_layers, netlist, board_name=board_name,
                 original_path=original_path, was_zipped=was_zipped)
 
-    def save_to_zipfile(self, path, naming_scheme={}):
-        with tempfile.TemporaryDirectory() as tempdir:
-            self.save_to_directory(path, naming_scheme=naming_scheme)
-            with ZipFile(path) as le_zip:
-                for f in Path(tempdir.name).glob('*'):
-                    with le_zip.open(f, 'wb') as out:
-                        out.write(f.read_bytes())
+    def save_to_zipfile(self, path, naming_scheme={}, overwrite_existing=True, prefix=''):
+        if path.is_file():
+            if overwrite_existing:
+                path.unlink()
+            else:
+                raise ValueError('output zip file already exists and overwrite_existing is False')
+
+        with ZipFile(path) as le_zip:
+            for path, layer in self._save_files_iter(naming_scheme=naming_scheme):
+                with le_zip.open(prefix + str(path), 'wb') as out:
+                    out.write(layer.write_to_bytes())
 
     def save_to_directory(self, path, naming_scheme={}, overwrite_existing=True):
         outdir = Path(path)
         outdir.mkdir(parents=True, exist_ok=overwrite_existing)
 
-        def check_not_exists(path):
-            if path.exists() and not overwrite_existing:
-                raise SystemError(f'Path exists but overwrite_existing is False: {path}')
+        for path, layer in self._save_files_iter(naming_scheme=naming_scheme):
+            out = outdir / path
+            if out.exists() and not overwrite_existing:
+                raise SystemError(f'Path exists but overwrite_existing is False: {out}')
+            layer.save(out)
 
+    def _save_files_iter(self, naming_scheme={}):
         def get_name(layer_type, layer):
-            nonlocal naming_scheme, overwrite_existing
+            nonlocal naming_scheme
 
             if (m := re.match('inner_([0-9]*) copper', layer_type)):
                 layer_type = 'inner copper'
@@ -401,55 +416,26 @@ class LayerStack:
                 num = None
 
             if layer_type in naming_scheme:
-                path = outdir / naming_scheme[layer_type].format(layer_num=num, board_name=self.board_name)
+                path = naming_scheme[layer_type].format(layer_number=num, board_name=self.board_name)
             else:
-                path = outdir / layer.original_path.name
+                path = layer.original_path.name
 
-            check_not_exists(path)
             return path
 
         for (side, use), layer in self.graphic_layers.items():
-            outpath = get_name(f'{side} {use}', layer)
-            layer.save(outpath)
+            yield get_name(f'{side} {use}', layer), layer
 
-        if naming_scheme:
-            self.normalize_drill_layers()
+        #self.normalize_drill_layers()
 
-            def save_layer(layer, layer_name):
-                nonlocal self, outdir, drill_layers, check_not_exists
-                path = outdir / drill_layers[layer_name].format(board_name=self.board_name)
-                check_not_exists(path)
-                layer.save(path)
-
-            drill_layers = { key.partition()[2]: value for key, value in naming_scheme if 'drill' in key }
-            if set(drill_layers) == {'plated', 'nonplated', 'unknown'}:
-                save_layer(self.drill_pth, 'plated')
-                save_layer(self.drill_npth, 'nonplated')
-                save_layer(self.drill_unknown, 'unknown')
-
-            elif 'plated' in drill_layers and len(drill_layers) == 2:
-                save_layer(self.drill_pth, 'plated')
-                merged = copy.copy(self.drill_npth)
-                merged.merge(self.drill_unknown)
-                save_layer(merged, list(set(drill_layers) - {'plated'})[0])
-
-            elif 'unknown' in drill_layers:
-                merged = copy.copy(self.drill_pth)
-                merged.merge(self.drill_npth)
-                merged.merge(self.drill_unknown)
-                save_layer(merged, 'unknown')
-
-            else:
-                raise ValueError('Namin scheme does not specify unknown drill layer')
-
-        else:
-            for layer in self.drill_layers:
-                outpath = outdir / layer.original_path.name
-                check_not_exists(outpath)
-                layer.save(outpath)
+        if self.drill_pth is not None:
+            yield get_name('plated drill', self.drill_pth), self.drill_pth
+        if self.drill_npth is not None:
+            yield get_name('nonplated drill', self.drill_npth), self.drill_npth
+        if self.drill_unknown is not None:
+            yield get_name('unknown drill', self.drill_unknown), self.drill_unknown
 
         if self.netlist:
-            layer.save(get_name('other netlist', self.netlist))
+            yield get_name('other netlist', self.netlist), self.netlist
 
     def __str__(self):
         names = [ f'{side} {use}' for side, use in self.graphic_layers ]
