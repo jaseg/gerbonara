@@ -409,9 +409,9 @@ class LayerStack:
             else:
                 raise ValueError('output zip file already exists and overwrite_existing is False')
 
-        with ZipFile(path) as le_zip:
+        with ZipFile(path, 'w') as le_zip:
             for path, layer in self._save_files_iter(naming_scheme=naming_scheme):
-                with le_zip.open(prefix + str(path), 'wb') as out:
+                with le_zip.open(prefix + str(path), 'w') as out:
                     out.write(layer.write_to_bytes())
 
     def save_to_directory(self, path, naming_scheme={}, overwrite_existing=True):
