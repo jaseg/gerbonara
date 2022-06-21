@@ -151,8 +151,12 @@ def svg_soup(filename):
         f.write(str(soup))
 
 def cleanup_gerbv_svg(soup):
-    soup.svg['width'] = f'{float(soup.svg["width"])/72*25.4:.4f}mm'
-    soup.svg['height'] = f'{float(soup.svg["height"])/72*25.4:.4f}mm'
+    width = soup.svg["width"]
+    height = soup.svg["height"]
+    width = width[:-2] if width.endswith('pt') else width
+    height = height[:-2] if height.endswith('pt') else height
+    soup.svg['width'] = f'{float(width)/72*25.4:.4f}mm'
+    soup.svg['height'] = f'{float(height)/72*25.4:.4f}mm'
     for group in soup.find_all('g'):
         # gerbv uses Cairo's SVG canvas. Cairo's SVG canvas is kind of broken. It has no support for unit
         # handling at all, which means the output files just end up being in pixels at 72 dpi. Further, it
