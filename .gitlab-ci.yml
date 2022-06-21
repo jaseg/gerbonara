@@ -43,6 +43,7 @@ test:ubuntu2004:
   stage: test
   image: "registry.gitlab.com/gerbolyze/build-containers/ubuntu:22.04"
   script:
+    - python3 -m pip install pytest
     - pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
   dependencies:
     - build:archlinux
