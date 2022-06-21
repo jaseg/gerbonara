@@ -3,6 +3,10 @@
 set -e 
 git clone /data/git git
 cd git
-#python3 -m pytest --workers auto
-python3 -m pytest -x
+
+if [ $# -ge 1 -a "$1" = "--parallel" ]; then
+    python3 -m pytest --workers auto
+else
+    python3 -m pytest -x
+fi
 
