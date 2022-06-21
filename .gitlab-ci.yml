@@ -39,7 +39,7 @@ test:archlinux:
     paths:
       - gerbonara_test_failures/*
 
-test:ubuntu2004:
+test:ubuntu2204:
   stage: test
   image: "registry.gitlab.com/gerbolyze/build-containers/ubuntu:22.04"
   script:
