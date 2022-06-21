@@ -269,7 +269,7 @@ def sum_bounds(bounds, *, default=None):
     :rtype: tuple
     """
 
-    bounds = iter(bounds)
+    bounds = iter([ b for b in bounds if b is not None ])
 
     for (min_x, min_y), (max_x, max_y) in bounds:
         break

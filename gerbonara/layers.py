@@ -27,6 +27,7 @@ import itertools
 from collections import namedtuple
 from pathlib import Path
 from zipfile import ZipFile, is_zipfile
+import tempfile
 
 from .excellon import ExcellonFile, parse_allegro_ncparam, parse_allegro_logfile
 from .rs274x import GerberFile
@@ -249,13 +250,13 @@ class LayerStack:
     @classmethod
     def open_zip(kls, file, original_path=None, board_name=None, lazy=False):
         tmpdir = tempfile.TemporaryDirectory()
-        tmp_indir = Path(tmpdir) / 'input'
+        tmp_indir = Path(tmpdir.name) / 'input'
         tmp_indir.mkdir()
 
         with ZipFile(file) as f:
             f.extractall(path=tmp_indir)
 
-        inst = kls.from_directory(tmp_indir, board_name=board_name, lazy=lazy)
+        inst = kls.open_dir(tmp_indir, board_name=board_name, lazy=lazy)
         inst.tmpdir = tmpdir
         inst.original_path = Path(original_path or file)
         inst.was_zipped = True
@@ -486,7 +487,7 @@ class LayerStack:
         if force_bounds:
             bounds = svg_unit.convert_bounds_from(arg_unit, force_bounds)
         else:
-            bounds = selfboard_bounds(unit=svg_unit, default=((0, 0), (0, 0)))
+            bounds = self.board_bounds(unit=svg_unit, default=((0, 0), (0, 0)))
         
         tags = []
         inkscape_attrs = lambda label: dict(inkscape__groupmode='layer', inkscape__label=label) if inkscape else {}

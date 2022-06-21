@@ -267,6 +267,8 @@ class CamFile:
 
         # setup viewport transform flipping y axis
         (content_min_x, content_min_y), (content_max_x, content_max_y) = bounds
+        content_min_x, content_min_y = float(content_min_x), float(content_min_y)
+        content_max_x, content_max_y = float(content_max_x), float(content_max_y)
         content_w, content_h = content_max_x - content_min_x, content_max_y - content_min_y
         xform = f'translate({content_min_x:.6} {content_min_y+content_h:.6}) scale(1 -1) translate({-content_min_x:.6} {-content_min_y:.6})'
         tags = [tag('g', tags, transform=xform)]
