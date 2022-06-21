@@ -3,7 +3,7 @@ variables:
 
 stages:
   - build
-#  - test
+  - test
   - docs
   - publish
 
@@ -21,35 +21,35 @@ build:archlinux:
     paths:
       - dist/*
 
-#test:archlinux:
-#  stage: test
-#  image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
-#  script:
-#    - pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
-#  dependencies:
-#    - build:archlinux
-#  cache:
-#    key: test-image-cache
-#    paths:
-#      - gerbonara/tests/image_cache/*.svg
-#      - gerbonara/tests/image_cache/*.png
-#  artifacts:
-#    name: "gerbolyze-$CI_COMMIT_REF_NAME-gerbonara"
-#    when: on_failure
-#    paths:
-#      - gerbonara_test_failures/*
-#
-#docs:archlinux:
-#  stage: test
-#  image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
-#  script:
-#    - sphinx-build -E docs docs/_build
-#  dependencies:
-#    - build:archlinux
-#  artifacts:
-#    name: "docs-gerbonara-$CI_COMMIT_REF_NAME"
-#    paths:
-#      - docs/_build
+test:archlinux:
+  stage: test
+  image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
+  script:
+    - pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
+  dependencies:
+    - build:archlinux
+  cache:
+    key: test-image-cache
+    paths:
+      - gerbonara/tests/image_cache/*.svg
+      - gerbonara/tests/image_cache/*.png
+  artifacts:
+    name: "gerbolyze-$CI_COMMIT_REF_NAME-gerbonara"
+    when: on_failure
+    paths:
+      - gerbonara_test_failures/*
+
+docs:archlinux:
+  stage: test
+  image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
+  script:
+    - sphinx-build -E docs docs/_build
+  dependencies:
+    - build:archlinux
+  artifacts:
+    name: "docs-gerbonara-$CI_COMMIT_REF_NAME"
+    paths:
+      - docs/_build
 
 publish:gerbonara:
   stage: publish
