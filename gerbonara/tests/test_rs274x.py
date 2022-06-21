@@ -303,7 +303,7 @@ def test_idempotence(reference, tmpfile):
     assert tmp_gbr_1.read_text() == tmp_gbr_2.read_text()
 
 
-TEST_ANGLES = [90, 180, 270, 30, 1.5, 10, 360, 1024, -30, -90]
+TEST_ANGLES = [90, 180, 270, 1.5, 30, 360, 1024, -30]
 TEST_OFFSETS = [(0, 0), (100, 0), (0, 100), (2, 0), (10, 100)]
 
 @filter_syntax_warnings
@@ -329,7 +329,7 @@ def test_rotation(reference, angle, tmpfile):
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', MIN_REFERENCE_FILES, indirect=True)
 @pytest.mark.parametrize('angle', TEST_ANGLES)
-@pytest.mark.parametrize('center', [(0, 0), (-10, -10), (10, 10), (10, 0), (0, -10), (-10, 10), (10, 20)])
+@pytest.mark.parametrize('center', [(0, 0), (10, 0), (0, -10), (10, 20)])
 def test_rotation_center(reference, angle, center, tmpfile):
     if 'flash_rectangle' in str(reference) and angle in (30, 1024):
         # gerbv's rendering of this is broken, the hole is missing.
@@ -372,7 +372,7 @@ def test_offset(reference, offset, tmpfile):
 @pytest.mark.parametrize('reference', MIN_REFERENCE_FILES, indirect=True)
 @pytest.mark.parametrize('angle', TEST_ANGLES)
 @pytest.mark.parametrize('center', [(0, 0), (10, 0), (0, -10), (10, 20)])
-@pytest.mark.parametrize('offset', [(0, 0), (100, 0), (0, 100), (100, 100), (100, 10)])
+@pytest.mark.parametrize('offset', [(0, 0), (100, 0), (0, 100), (100, 10)])
 def test_combined(reference, angle, center, offset, tmpfile):
     if 'flash_rectangle' in str(reference) and angle in (30, 1024):
         # gerbv's rendering of this is broken, the hole is missing.
