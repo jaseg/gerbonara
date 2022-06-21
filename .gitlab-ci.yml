@@ -39,6 +39,25 @@ test:archlinux:
     paths:
       - gerbonara_test_failures/*
 
+test:ubuntu2004:
+  stage: test
+  image: "registry.gitlab.com/gerbolyze/build-containers/ubuntu:22.04"
+  script:
+    - pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
+  dependencies:
+    - build:archlinux
+  cache:
+    key: test-image-cache
+    paths:
+      - gerbonara/tests/image_cache/*.svg
+      - gerbonara/tests/image_cache/*.png
+  artifacts:
+    name: "gerbolyze-$CI_COMMIT_REF_NAME-gerbonara"
+    when: on_failure
+    paths:
+      - gerbonara_test_failures/*
+
+
 docs:archlinux:
   stage: test
   image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
