@@ -23,7 +23,7 @@ import math
 import re
 from enum import Enum
 import warnings
-from dataclasses import dataclass, KW_ONLY
+from dataclasses import dataclass
 from pathlib import Path
 
 from .cam import CamFile, FileSettings
@@ -414,7 +414,6 @@ class TestRecord:
     rotation : float = 0
     solder_mask : SoldermaskInfo = None
     lefover : str = None
-    _ : KW_ONLY
     unit : LengthUnit = None
 
     def __str__(self):
@@ -563,7 +562,6 @@ def format_coord_chain(line, settings, coords, cont, unit):
 class Outline:
     outline_type : OutlineType
     outline : [(float,)]
-    _ : KW_ONLY
     unit : LengthUnit = None
 
     @classmethod
@@ -596,7 +594,6 @@ class Conductor:
     layer : int
     aperture : (float,)
     coords : [(float,)]
-    _ : KW_ONLY
     unit : LengthUnit = None
 
     @classmethod

@@ -18,7 +18,7 @@
 
 import math
 import copy
-from dataclasses import dataclass, KW_ONLY, astuple, replace, field, fields
+from dataclasses import dataclass, astuple, replace, field, fields
 
 from .utils import MM, InterpMode, to_unit, rotate_point
 from . import graphic_primitives as gp
@@ -45,6 +45,8 @@ class GraphicObject:
 
     # hackety hack: Work around python < 3.10 not having dataclasses.KW_ONLY. Once we drop python 3.8 and 3.9, we can
     # get rid of this, just set these as normal fields, and decorate GraphicObject with @dataclass.
+    # 
+    # See also: apertures.py, graphic_primitives.py
     def __init_subclass__(cls):
         #: bool representing the *color* of this feature: whether this is a *dark* or *clear* feature. Clear and dark are
         #: meant in the sense that they are used in the Gerber spec and refer to whether the transparency film that this
@@ -61,7 +63,11 @@ class GraphicObject:
         #: which are stored in the :py:class:`.GerberFile` object instead.
         cls.attrs = field(default_factory=dict)
 
-        cls.__annotations__.update({'polarity_dark' : bool, 'unit' : str, 'attrs': dict})
+        d = {'polarity_dark' : bool, 'unit' : str, 'attrs': dict}
+        if hasattr(cls, '__annotations__'):
+            cls.__annotations__.update(d)
+        else:
+            cls.__annotations__ = d
 
 
     def converted(self, unit):

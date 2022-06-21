@@ -24,7 +24,7 @@ mkdir -p podman/testdata/git
 git ls-tree --full-tree -r HEAD --name-only | rsync -lptgoDv --delete . --files-from - podman/testdata/git/
 #git clone --depth 1 . podman/testdata/git
 
-for distro in ubuntu arch
+for distro in ubuntu-old ubuntu arch
 do
     podman build $NO_CACHE -t gerbonara-$distro-testenv -f podman/$distro-testenv
     mkdir -p /tmp/gerbonara-test-out

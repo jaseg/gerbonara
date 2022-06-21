@@ -17,7 +17,7 @@
 #
 
 import math
-from dataclasses import dataclass, replace, field, fields, InitVar, KW_ONLY
+from dataclasses import dataclass, replace, field, fields, InitVar
 
 from .aperture_macros.parse import GenericMacros
 from .utils import MM, Inch
@@ -60,16 +60,26 @@ class Length:
 @dataclass
 class Aperture:
     """ Base class for all apertures. """
-    _ : KW_ONLY
-    #: :py:class:`gerbonara.utils.LengthUnit` used for all length fields of this aperture.
-    unit : str = None
-    #: GerberX2 attributes of this aperture. Note that this will only contain aperture attributes, not file attributes.
-    #: File attributes are stored in the :py:attr:`~.GerberFile.attrs` of the :py:class:`.GerberFile`.
-    attrs : dict = field(default_factory=dict)
-    #: Aperture index this aperture had when it was read from the Gerber file. This field is purely informational since
-    #: apertures are de-duplicated and re-numbered when writing a Gerber file. For `D10`, this field would be `10`. When
-    #: you programmatically create a new aperture, you do not have to set this.
-    original_number : int = None
+
+    # hackety hack: Work around python < 3.10 not having dataclasses.KW_ONLY.
+    # 
+    # For details, refer to graphic_objects.py
+    def __init_subclass__(cls):
+        #: :py:class:`gerbonara.utils.LengthUnit` used for all length fields of this aperture.
+        cls.unit = None
+        #: GerberX2 attributes of this aperture. Note that this will only contain aperture attributes, not file attributes.
+        #: File attributes are stored in the :py:attr:`~.GerberFile.attrs` of the :py:class:`.GerberFile`.
+        cls.attrs = field(default_factory=dict)
+        #: Aperture index this aperture had when it was read from the Gerber file. This field is purely informational since
+        #: apertures are de-duplicated and re-numbered when writing a Gerber file. For `D10`, this field would be `10`. When
+        #: you programmatically create a new aperture, you do not have to set this.
+        cls.original_number = None
+
+        d = {'unit': str, 'attrs': dict, 'original_number': int}
+        if hasattr(cls, '__annotations__'):
+            cls.__annotations__.update(d)
+        else:
+            cls.__annotations__ = d
 
     @property
     def hole_shape(self):

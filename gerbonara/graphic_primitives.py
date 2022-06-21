@@ -19,7 +19,7 @@
 import math
 import itertools
 
-from dataclasses import dataclass, KW_ONLY, replace
+from dataclasses import dataclass, replace
 
 from .utils import *
 
@@ -28,8 +28,18 @@ prec = lambda x: f'{float(x):.6}'
 
 @dataclass
 class GraphicPrimitive:
-    _ : KW_ONLY
-    polarity_dark : bool = True
+
+    # hackety hack: Work around python < 3.10 not having dataclasses.KW_ONLY.
+    # 
+    # For details, refer to graphic_objects.py
+    def __init_subclass__(cls):
+        cls.polarity_dark = True
+
+        d = {'polarity_dark': bool}
+        if hasattr(cls, '__annotations__'):
+            cls.__annotations__.update(d)
+        else:
+            cls.__annotations__ = d
 
     def bounding_box(self):
         """ Return the axis-aligned bounding box of this feature.
