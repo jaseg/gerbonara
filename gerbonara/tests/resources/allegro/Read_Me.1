@@ -1,0 +1,85 @@
+-----------------------------
+ANALOG DEVICES - Division
+-----------------------------
+
+Product Line:
+
+Board Name: 08_057494d
+
+P/N: 09-057494 Rev d
+
+PEOPLE INVOLVED
+---------------------------------------
+Design Engineer involved: 
+Layout Designer involved: 1
+
+CAD TOOLS
+----------------------------------------
+Layout Software and Version: Allegro 17.2
+Schematic Software and Version: 17.2
+
+
+Notes:
+
+FLASH PAD GEOMETRY:
+
+	NEGATIVE LAYER FLASH PADS;
+
+		1. Thermal Relief flash Pads. Are dimensioned in mils,
+			without leading zeros. They are encoded as follows:
+
+			t 90 70 15x45 sp4
+			| |  |    |    |_ number of spokes
+			| |  |    |
+			| |  |    |_spoke width and angle
+			| |  |
+			| |  |_inside diameter
+			| |
+			| |_outside diameter
+			|
+			|_thermal relief
+
+		2. tdirect is used to make full contact with the plane.
+			A 5 mil circle or blank flash may be substituted.
+
+		3. Anti-pad with copper pad retained. Used on negative layers
+			where pad must be used as land contact for blind or buried vias
+
+			s ap 20 12
+			| |  |  |_ inside pad dimention
+			| |  |
+			| |  |_ outside anti-pad dimention
+			| |
+			| |_ anti-pad designator
+			|
+			|_ s = square i.d. o.d. dimentions
+			   c = circular i.d. o.d. dimentions
+
+	POSITIVE LAYER FLASH PADS;
+
+		1. cir40 (cir#) is used to indicate a spotting pad for non-plated holes.
+			A 40 (or #) mil circle or blank flash may be substituted.
+
+		2. Doughnut pads are used where land is required around non-plated holes
+			with relief of the land for the non-plated drill. They are encoded as follows:
+
+			dp 250 x 190
+			|  |     |_ inside diameter
+			|  |
+			|  |_ outside diameter
+			|
+			|_ doughnut pad
+
+________________________________________________________________________
+
+The following listed contacts are for the initial design order indicated
+by the lot and dock delivery date listed below. Subsequent questions are
+to be routed through the agent indicated on the purchase order.
+
+Analog Devices Inc. - 
+
+Primary Contact : 1
+Phone : 
+Fax : 
+Boards to be bare board tested : YES
+Boards to be TDR tested : YES
