@@ -40,26 +40,29 @@ class Length:
         # This makes the automatically generated method signatures in the Sphinx docs look nice
         return 'float'
 
-@dataclass
 class GraphicObject:
     """ Base class for the graphic objects that make up a :py:class:`.GerberFile` or :py:class:`.ExcellonFile`. """
-    _ : KW_ONLY
 
-    #: bool representing the *color* of this feature: whether this is a *dark* or *clear* feature. Clear and dark are
-    #: meant in the sense that they are used in the Gerber spec and refer to whether the transparency film that this
-    #: file describes ends up black or clear at this spot. In a standard green PCB, a *polarity_dark=True* line will
-    #: show up as copper on the copper layer, white ink on the silkscreen layer, or an opening on the soldermask layer.
-    #: Clear features erase dark features, they are not transparent in the colloquial meaning. This property is ignored
-    #: for features of an :py:class:`.ExcellonFile`.
-    polarity_dark : bool = True
+    # hackety hack: Work around python < 3.10 not having dataclasses.KW_ONLY. Once we drop python 3.8 and 3.9, we can
+    # get rid of this, just set these as normal fields, and decorate GraphicObject with @dataclass.
+    def __init_subclass__(cls):
+        #: bool representing the *color* of this feature: whether this is a *dark* or *clear* feature. Clear and dark are
+        #: meant in the sense that they are used in the Gerber spec and refer to whether the transparency film that this
+        #: file describes ends up black or clear at this spot. In a standard green PCB, a *polarity_dark=True* line will
+        #: show up as copper on the copper layer, white ink on the silkscreen layer, or an opening on the soldermask layer.
+        #: Clear features erase dark features, they are not transparent in the colloquial meaning. This property is ignored
+        #: for features of an :py:class:`.ExcellonFile`.
+        cls.polarity_dark = True
 
-    #: :py:class:`.LengthUnit` used for all coordinate fields of this object (such as ``x`` or ``y``).
-    unit : str = None
+        #: :py:class:`.LengthUnit` used for all coordinate fields of this object (such as ``x`` or ``y``).
+        cls.unit = None
 
+        #: `dict` containing GerberX2 attributes attached to this feature. Note that this does not include file attributes,
+        #: which are stored in the :py:class:`.GerberFile` object instead.
+        cls.attrs = field(default_factory=dict)
 
-    #: `dict` containing GerberX2 attributes attached to this feature. Note that this does not include file attributes,
-    #: which are stored in the :py:class:`.GerberFile` object instead.
-    attrs : dict = field(default_factory=dict)
+        cls.__annotations__.update({'polarity_dark' : bool, 'unit' : str, 'attrs': dict})
+
 
     def converted(self, unit):
         """ Convert this gerber object to another :py:class:`.LengthUnit`.
@@ -255,7 +258,8 @@ class Region(GraphicObject):
     """
 
     def __init__(self, outline=None, arc_centers=None, *, unit, polarity_dark):
-        super().__init__(unit=unit, polarity_dark=polarity_dark)
+        self.unit = unit
+        self.polarity_dark = polarity_dark
         outline = [] if outline is None else outline
         arc_centers = [] if arc_centers is None else arc_centers
         self.poly = gp.ArcPoly(outline, arc_centers)
