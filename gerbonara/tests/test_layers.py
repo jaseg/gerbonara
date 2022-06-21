@@ -315,7 +315,7 @@ def test_layer_classifier(ref_dir):
     rev_file_map = { tuple(value.split()): key for key, value in file_map.items() }
     drill_files = { filename: role for filename, role in file_map.items() if role.startswith('drill') }
 
-    stack = LayerStack.from_directory(path)
+    stack = LayerStack.open_dir(path)
     print('loaded layers:', ', '.join(f'{side} {use}' for side, use in stack.graphic_layers))
 
     for side in 'top', 'bottom':
