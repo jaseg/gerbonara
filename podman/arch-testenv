@@ -1,0 +1,6 @@
+
+FROM docker.io/archlinux:latest
+MAINTAINER gerbolyze@jaseg.de
+RUN pacman --noconfirm -Syu
+RUN pacman --noconfirm -Sy git python python-pip base-devel python-numpy python-slugify python-lxml python-click python-pillow librsvg python-scipy python-sphinx python-pytest twine python-beautifulsoup4 gerbv
+
