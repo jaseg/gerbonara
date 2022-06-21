@@ -43,7 +43,8 @@ test:ubuntu2004:
   stage: test
   image: "registry.gitlab.com/gerbolyze/build-containers/ubuntu:22.04"
   script:
-    - python3 -m pip install pytest
+    - python3 -m pip install pytest beautifulsoup4 pillow numpy slugify lxml click scipy
+    - sudo apt install gerbv
     - python3 -m pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
   dependencies:
     - build:archlinux
