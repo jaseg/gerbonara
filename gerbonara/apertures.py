@@ -464,7 +464,7 @@ class ApertureMacroInstance(Aperture):
 
     def __eq__(self, other):
         return hasattr(other, 'macro') and self.macro == other.macro and \
-                hasattr(other, 'params') and self.params == other.params and \
+                hasattr(other, 'parameters') and self.parameters == other.parameters and \
                 hasattr(other, 'rotation') and self.rotation == other.rotation
 
     def _params(self, unit=None):
