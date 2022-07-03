@@ -426,7 +426,7 @@ class LayerStack:
         with ZipFile(path, 'w') as le_zip:
             for path, layer in self._save_files_iter(naming_scheme=naming_scheme):
                 with le_zip.open(prefix + str(path), 'w') as out:
-                    out.write(layer.write_to_bytes())
+                    out.write(layer.instance.write_to_bytes())
 
     def save_to_directory(self, path, naming_scheme={}, overwrite_existing=True):
         outdir = Path(path)
@@ -436,7 +436,7 @@ class LayerStack:
             out = outdir / path
             if out.exists() and not overwrite_existing:
                 raise SystemError(f'Path exists but overwrite_existing is False: {out}')
-            layer.save(out)
+            layer.instance.save(out)
 
     def _save_files_iter(self, naming_scheme={}):
         def get_name(layer_type, layer):
