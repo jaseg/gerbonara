@@ -26,7 +26,7 @@ from .utils import *
 prec = lambda x: f'{float(x):.6}'
 
 
-@dataclass
+@dataclass(frozen=True)
 class GraphicPrimitive:
 
     # hackety hack: Work around python < 3.10 not having dataclasses.KW_ONLY.
@@ -63,7 +63,7 @@ class GraphicPrimitive:
         raise NotImplementedError()
 
 
-@dataclass
+@dataclass(frozen=True)
 class Circle(GraphicPrimitive):
     #: Center X coordinate
     x : float
@@ -80,7 +80,7 @@ class Circle(GraphicPrimitive):
         return tag('circle', cx=prec(self.x), cy=prec(self.y), r=prec(self.r), style=f'fill: {color}')
 
 
-@dataclass
+@dataclass(frozen=True)
 class ArcPoly(GraphicPrimitive):
     """ Polygon whose sides may be either straight lines or circular arcs. """
 
@@ -132,7 +132,7 @@ class ArcPoly(GraphicPrimitive):
         """ Return ``True`` if this polygon has any outline points. """
         return bool(len(self))
 
-    def _path_d(self):
+    def path_d(self):
         if len(self.outline) == 0:
             return
 
@@ -147,10 +147,10 @@ class ArcPoly(GraphicPrimitive):
 
     def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
-        return tag('path', d=' '.join(self._path_d()), style=f'fill: {color}')
+        return tag('path', d=' '.join(self.path_d()), style=f'fill: {color}')
 
 
-@dataclass
+@dataclass(frozen=True)
 class Line(GraphicPrimitive):
     """ Straight line with round end caps. """
     #: Start X coordinate. As usual in modern graphics APIs, this is at the center of the half-circle capping off this
@@ -164,6 +164,9 @@ class Line(GraphicPrimitive):
     y2 : float
     #: Line width
     width : float
+
+    def flip(self):
+        return replace(self, x1=self.x2, y1=self.y2, x2=self.x1, y2=self.y1)
 
     @classmethod
     def from_obround(kls, x:float, y:float, w:float, h:float, rotation:float=0, polarity_dark:bool=True):
@@ -188,7 +191,7 @@ class Line(GraphicPrimitive):
         return tag('path', d=f'M {self.x1:.6} {self.y1:.6} L {self.x2:.6} {self.y2:.6}',
                 style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linecap: round')
 
-@dataclass
+@dataclass(frozen=True)
 class Arc(GraphicPrimitive):
     """ Circular arc with line width ``width`` going from ``(x1, y1)`` to ``(x2, y2)`` around center at ``(cx, cy)``. """
     #: Start X coodinate
@@ -208,6 +211,10 @@ class Arc(GraphicPrimitive):
     clockwise : bool
     #: Line width of this arc.
     width : float
+
+    def flip(self):
+        return replace(self, x1=self.x2, y1=self.y2, x2=self.x1, y2=self.y1,
+            cx=(self.x + self.cx) - self.x2, cy=(self.y + self.cy) - self.y2, clockwise=not self.clockwise)
 
     def bounding_box(self):
         r = self.width/2
@@ -236,7 +243,7 @@ class Arc(GraphicPrimitive):
         return tag('path', d=f'M {self.x1:.6} {self.y1:.6} {arc}',
                 style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linecap: round; fill: none')
 
-@dataclass
+@dataclass(frozen=True)
 class Rectangle(GraphicPrimitive):
     #: **Center** X coordinate
     x : float

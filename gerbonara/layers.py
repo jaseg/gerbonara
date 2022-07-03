@@ -23,6 +23,8 @@ import sys
 import re
 import warnings
 import copy
+import bisect
+import textwrap
 import itertools
 from collections import namedtuple
 from pathlib import Path
@@ -35,6 +37,8 @@ from .ipc356 import Netlist
 from .cam import FileSettings, LazyCamFile
 from .layer_rules import MATCH_RULES
 from .utils import sum_bounds, setup_svg, MM, Tag
+from . import graphic_objects as go
+from . import graphic_primitives as gp
 
 
 STANDARD_LAYERS = [
@@ -48,6 +52,15 @@ STANDARD_LAYERS = [
         'bottom silk',
         'bottom paste',
         ]
+
+DEFAULT_COLORS = {
+        'copper': '#cccccc',
+        'mask': '#004200bf',
+        'paste': '#999999',
+        'silk': '#e0e0e0',
+        'drill': '#303030',
+        'outline': '#F0C000',
+    }
 
 class NamingScheme:
     kicad = {
@@ -483,27 +496,63 @@ class LayerStack:
 
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor=bg, tag=tag)
 
-    def to_pretty_svg(self, side='top', margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag, inkscape=False):
+    def to_pretty_svg(self, side='top', margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag, inkscape=False, colors=None):
+        if colors is None:
+            colors = DEFAULT_COLORS
+
+        colors_alpha = {}
+        for layer, color in colors.items():
+            if isinstance(color, str):
+                if re.match(r'#[0-9a-fA-F]{8}', color):
+                    colors_alpha[layer] = (color[:-2], int(color[-2:], 16)/255)
+                else:
+                    colors_alpha[layer] = (color, 1)
+            else:
+                colors_alpha[layer] = color
+
         if force_bounds:
             bounds = svg_unit.convert_bounds_from(arg_unit, force_bounds)
         else:
             bounds = self.board_bounds(unit=svg_unit, default=((0, 0), (0, 0)))
         
-        tags = []
+        filter_defs = []
+
+        for layer, (color, alpha) in colors_alpha.items():
+            filter_defs.append(textwrap.dedent(f'''
+                <filter id="f-{layer}">
+                <feFlood result="flood-black" flood-color="black" flood-opacity="1"/>
+                <feFlood result="flood-green" flood-color="{color}"/>
+                <feBlend in="SourceGraphic" in2="flood-black" result="overlay" mode="normal"/>
+                <feBlend in="overlay" in2="flood-green" result="colored" mode="multiply"/>
+                <feColorMatrix in="overlay" type="matrix" result="alphaOut" values="0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0 0
+                {alpha} 0 0 0 0"/>
+                <feComposite in="colored" in2="alphaOut" operator="in"/>
+                </filter>'''.strip()))
+
+        tags = [tag('defs', filter_defs)]
         inkscape_attrs = lambda label: dict(inkscape__groupmode='layer', inkscape__label=label) if inkscape else {}
         
-        for use, color in {'copper': 'black', 'mask': 'blue', 'silk': 'red'}.items():
+        for use in ['copper', 'mask', 'silk', 'paste']:
             if (side, use) not in self:
                 warnings.warn(f'Layer "{side} {use}" not found. Found layers: {", ".join(side + " " + use for side, use in self.graphic_layers)}')
                 continue
 
             layer = self[(side, use)]
-            tags.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg=color, bg="white", tag=Tag)),
-                id=f'l-{side}-{use}', **inkscape_attrs(f'{side} {use}')))
+            fg, bg = ('white', 'black') if use != 'mask' else ('black', 'white')
+            objects = list(layer.instance.svg_objects(svg_unit=svg_unit, fg=fg, bg=bg, tag=Tag))
+            if use == 'mask':
+                objects.insert(0, tag('path', id='outline-path', d=self.outline_svg_d(unit=svg_unit), style='fill:white'))
+            tags.append(tag('g', objects, id=f'l-{side}-{use}', filter=f'url(#f-{use})', **inkscape_attrs(f'{side} {use}')))
 
         for i, layer in enumerate(self.drill_layers):
-            tags.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg='magenta', bg="white", tag=Tag)),
+            tags.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
                 id=f'l-drill-{i}', **inkscape_attrs(f'drill-{i}')))
+
+        if self.outline:
+            tags.append(tag('g', list(self.outline.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
+                id=f'l-outline-{i}', **inkscape_attrs(f'outline-{i}')))
 
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor="white", tag=tag, inkscape=inkscape)
 
@@ -635,7 +684,67 @@ class LayerStack:
     @property
     def outline(self):
         return self['mechanical outline']
-    
+
+    def outline_svg_d(self, tol=0.01, unit=MM):
+        chains = self.outline_polygons(tol, unit)
+        polys = []
+        for chain in chains:
+            outline = [ (chain[0].x1, chain[0].y1), *((elem.x2, elem.y2) for elem in chain) ]
+            arcs = [ (elem.clockwise, (elem.cx, elem.cy)) if isinstance(elem, gp.Arc) else None for elem in chain ]
+            poly = gp.ArcPoly(outline=outline, arc_centers=arcs)
+            polys.append(' '.join(poly.path_d()) + ' Z')
+        return ' '.join(polys)
+
+    def outline_polygons(self, tol=0.01, unit=MM):
+        polygons = []
+        lines = [ obj.as_primitive(unit) for obj in self.outline.instance.objects if isinstance(obj, (go.Line, go.Arc)) ]
+
+        by_x = sorted([ (obj.x1, obj) for obj in lines ] + [ (obj.x2, obj) for obj in lines ], key=lambda x: x[0])
+        dist_sq = lambda x1, y1, x2, y2: (x2-x1)**2 + (y2-y1)**2
+
+        joins = {}
+        for cur in lines:
+            for i, (x, y) in enumerate([(cur.x1, cur.y1), (cur.x2, cur.y2)]):
+                x_left  = bisect.bisect_left (by_x, x, key=lambda elem: elem[0] + tol)
+                x_right = bisect.bisect_right(by_x, x, key=lambda elem: elem[0] - tol)
+                selected = { elem for elem_x, elem in by_x[x_left:x_right] if elem != cur }
+
+                if not selected:
+                    continue # loose end
+
+                nearest = sorted(selected, key=lambda elem: min(dist_sq(elem.x1, elem.y1, x, y), dist_sq(elem.x2, elem.y2, x, y)))[0]
+
+                d1, d2 = dist_sq(nearest.x1, nearest.y1, x, y), dist_sq(nearest.x2, nearest.y2, x, y)
+                j = 0 if d1 < d2 else 1
+
+                if (nearest, j) in joins and joins[(nearest, j)] != (cur, i):
+                    raise ValueError(f'Error: three-way intersection of {(nearest, j)}; {(cur, i)}; and {joins[(nearest, j)]}')
+
+                if (cur, i) in joins and joins[(cur, i)] != (nearest, j):
+                    raise ValueError(f'Error: three-way intersection of {(nearest, j)}; {(cur, i)}; and {joins[(nearest, j)]}')
+
+                joins[(cur, i)] = (nearest, j)
+                joins[(nearest, j)] = (cur, i)
+
+        def flip_if(obj, i):
+            if i:
+                c = copy.copy(obj)
+                c.flip()
+                return c
+            else:
+                return obj
+
+        while joins:
+            (first, i), (cur, j) = joins.popitem()
+            del joins[(cur, j)]
+            l = [ flip_if(first, not i), flip_if(cur, j) ]
+            while cur != first and (cur, not j) in joins:
+                cur, j = joins.pop((cur, not j))
+                del joins[(cur, j)]
+                l.append(flip_if(cur, j))
+            yield l
+
+
     def _merge_layer(self, target, source):
         if source is None:
             return

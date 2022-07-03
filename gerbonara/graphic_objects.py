@@ -18,7 +18,7 @@
 
 import math
 import copy
-from dataclasses import dataclass, astuple, replace, field, fields
+from dataclasses import dataclass, astuple, field, fields
 
 from .utils import MM, InterpMode, to_unit, rotate_point
 from . import graphic_primitives as gp
@@ -258,56 +258,51 @@ class Region(GraphicObject):
 
     There is one exception from the last two rules: To emulate a region with a hole in it, *cut-ins* are allowed. At a
     cut-in, the region is allowed to touch (but never overlap!) itself.
-
-    :attr poly: :py:class:`~.graphic_primitives.ArcPoly` describing the actual outline of this Region. The coordinates of
-                this poly are in the unit of this instance's :py:attr:`unit` field.
     """
 
     def __init__(self, outline=None, arc_centers=None, *, unit, polarity_dark):
         self.unit = unit
         self.polarity_dark = polarity_dark
-        outline = [] if outline is None else outline
-        arc_centers = [] if arc_centers is None else arc_centers
-        self.poly = gp.ArcPoly(outline, arc_centers)
+        self.outline = [] if outline is None else outline
+        self.arc_centers = [] if arc_centers is None else arc_centers
 
     def __len__(self):
-        return len(self.poly)
+        return len(self.outline)
 
     def __bool__(self):
-        return bool(self.poly)
+        return bool(self.outline)
 
     def _offset(self, dx, dy):
-        self.poly.outline = [ (x+dx, y+dy) for x, y in self.poly.outline ]
+        self.outline = [ (x+dx, y+dy) for x, y in self.outline ]
 
     def _rotate(self, angle, cx=0, cy=0):
-        self.poly.outline = [ gp.rotate_point(x, y, angle, cx, cy) for x, y in self.poly.outline ]
-        self.poly.arc_centers = [
+        self.outline = [ gp.rotate_point(x, y, angle, cx, cy) for x, y in self.outline ]
+        self.arc_centers = [
                 (arc[0], gp.rotate_point(*arc[1], angle, cx-p[0], cy-p[1])) if arc else None
-                for p, arc in zip(self.poly.outline, self.poly.arc_centers) ]
+                for p, arc in zip(self.outline, self.arc_centers) ]
 
     def append(self, obj):
         if obj.unit != self.unit:
             obj = obj.converted(self.unit)
 
-        if not self.poly.outline:
-            self.poly.outline.append(obj.p1)
-        self.poly.outline.append(obj.p2)
+        if not self.outline:
+            self.outline.append(obj.p1)
+        self.outline.append(obj.p2)
 
         if isinstance(obj, Arc):
-            self.poly.arc_centers.append((obj.clockwise, obj.center_relative))
+            self.arc_centers.append((obj.clockwise, obj.center_relative))
         else:
-            self.poly.arc_centers.append(None)
+            self.arc_centers.append(None)
 
     def to_primitives(self, unit=None):
-        self.poly.polarity_dark = self.polarity_dark # FIXME: is this the right spot to do this?
         if unit == self.unit:
-            yield self.poly
+            yield gp.ArcPoly(outline=self.outline, arc_centers=self.arc_centers, polarity_dark=self.polarity_dark)
 
         else:
             to = lambda value: self.unit.convert_to(unit, value)
-            conv_outline = [ (to(x), to(y)) for x, y in self.poly.outline ]
+            conv_outline = [ (to(x), to(y)) for x, y in self.outline ]
             convert_entry = lambda entry: (entry[0], (to(entry[1][0]), to(entry[1][1])))
-            conv_arc = [ None if entry is None else convert_entry(entry) for entry in self.poly.arc_centers ]
+            conv_arc = [ None if entry is None else convert_entry(entry) for entry in self.arc_centers ]
 
             yield gp.ArcPoly(conv_outline, conv_arc, polarity_dark=self.polarity_dark)
 
@@ -319,9 +314,9 @@ class Region(GraphicObject):
         # TODO report gerbv issue upstream
         yield gs.interpolation_mode_statement() + '*'
 
-        yield from gs.set_current_point(self.poly.outline[0], unit=self.unit)
+        yield from gs.set_current_point(self.outline[0], unit=self.unit)
 
-        for point, arc_center in zip(self.poly.outline[1:], self.poly.arc_centers):
+        for point, arc_center in zip(self.outline[1:], self.arc_centers):
             if arc_center is None:
                 yield from gs.set_interpolation_mode(InterpMode.LINEAR)
 
@@ -410,10 +405,13 @@ class Line(GraphicObject):
         """
         return self.tool.plated
 
-    def to_primitives(self, unit=None):
+    def as_primitive(self, unit=None):
         conv = self.converted(unit)
         w = self.aperture.equivalent_width(unit) if self.aperture else 0.1 # for debugging
-        yield gp.Line(*conv.p1, *conv.p2, w, polarity_dark=self.polarity_dark)
+        return gp.Line(*conv.p1, *conv.p2, w, polarity_dark=self.polarity_dark)
+
+    def to_primitives(self, unit=None):
+        yield self.as_primitive(unit=unit)
 
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
@@ -613,15 +611,18 @@ class Arc(GraphicObject):
         self.x2, self.y2 = gp.rotate_point(self.x2, self.y2, rotation, cx, cy)
         self.cx, self.cy = new_cx - self.x1, new_cy - self.y1
 
-    def to_primitives(self, unit=None):
+    def as_primitive(self, unit=None):
         conv = self.converted(unit)
         w = self.aperture.equivalent_width(unit) if self.aperture else 0.1 # for debugging
-        yield gp.Arc(x1=conv.x1, y1=conv.y1,
+        return gp.Arc(x1=conv.x1, y1=conv.y1,
                 x2=conv.x2, y2=conv.y2,
                 cx=conv.cx, cy=conv.cy,
                 clockwise=self.clockwise,
                 width=w,
                 polarity_dark=self.polarity_dark)
+
+    def to_primitives(self, unit=None):
+        yield self.as_primitive(unit=unit)
 
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
