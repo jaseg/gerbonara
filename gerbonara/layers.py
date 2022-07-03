@@ -531,9 +531,9 @@ class LayerStack:
                 <feComposite in="colored" in2="alphaOut" operator="in"/>
                 </filter>'''.strip()))
 
-        tags = [tag('defs', filter_defs)]
         inkscape_attrs = lambda label: dict(inkscape__groupmode='layer', inkscape__label=label) if inkscape else {}
         
+        layers = []
         for use in ['copper', 'mask', 'silk', 'paste']:
             if (side, use) not in self:
                 warnings.warn(f'Layer "{side} {use}" not found. Found layers: {", ".join(side + " " + use for side, use in self.graphic_layers)}')
@@ -544,16 +544,18 @@ class LayerStack:
             objects = list(layer.instance.svg_objects(svg_unit=svg_unit, fg=fg, bg=bg, tag=Tag))
             if use == 'mask':
                 objects.insert(0, tag('path', id='outline-path', d=self.outline_svg_d(unit=svg_unit), style='fill:white'))
-            tags.append(tag('g', objects, id=f'l-{side}-{use}', filter=f'url(#f-{use})', **inkscape_attrs(f'{side} {use}')))
+            layers.append(tag('g', objects, id=f'l-{side}-{use}', filter=f'url(#f-{use})', **inkscape_attrs(f'{side} {use}')))
 
         for i, layer in enumerate(self.drill_layers):
-            tags.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
+            layers.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
                 id=f'l-drill-{i}', filter=f'url(#f-drill)', **inkscape_attrs(f'drill-{i}')))
 
         if self.outline:
-            tags.append(tag('g', list(self.outline.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
+            layers.append(tag('g', list(self.outline.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
                 id=f'l-outline-{i}', **inkscape_attrs(f'outline-{i}')))
 
+        layer_group = tag('g', layers, transform=f'translate(0 {bounds[0][1] + bounds[1][1]}) scale(1 -1)')
+        tags = [tag('defs', filter_defs), layer_group]
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor="white", tag=tag, inkscape=inkscape)
 
     def bounding_box(self, unit=MM, default=None):
