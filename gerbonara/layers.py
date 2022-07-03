@@ -548,7 +548,7 @@ class LayerStack:
 
         for i, layer in enumerate(self.drill_layers):
             tags.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
-                id=f'l-drill-{i}', **inkscape_attrs(f'drill-{i}')))
+                id=f'l-drill-{i}', filter=f'url(#f-drill)', **inkscape_attrs(f'drill-{i}')))
 
         if self.outline:
             tags.append(tag('g', list(self.outline.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
