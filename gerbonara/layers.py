@@ -879,7 +879,13 @@ class LayerStack:
                 id=f'l-mechanical-outline', **stroke_attrs, **inkscape_attrs(f'outline'),
                 transform=layer_transform))
 
-        tags = [tag('defs', filter_defs + use_defs), *layers]
+        sc_y, tl_y = -1, (bounds[0][1] + bounds[1][1])
+        if side == 'bottom':
+            sc_x, sc_y = -1, (bounds[0][0] + bounds[1][0])
+        else:
+            sc_x, tl_x =  1, 0
+        layer_group = tag('g', layers, transform=f'translate({tl_x} {tl_y}) scale({sc_x} {sc_y})')
+        tags = [tag('defs', filter_defs + use_defs), layer_group]
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor="white", tag=tag, inkscape=inkscape)
 
     def bounding_box(self, unit=MM, default=None):
