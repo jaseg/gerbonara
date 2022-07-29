@@ -479,7 +479,7 @@ class LayerStack:
     def __repr__(self):
         return str(self)
 
-    def to_svg(self, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag):
+    def to_svg(self, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag, page_bg="white"):
         if force_bounds:
             bounds = svg_unit.convert_bounds_from(arg_unit, force_bounds)
         else:
@@ -492,9 +492,9 @@ class LayerStack:
 
         for i, layer in enumerate(self.drill_layers):
             tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg='black', bg="white", tag=Tag)),
-                id=f'l-{drill}-{i}'))
+                id=f'l-drill-{i}'))
 
-        return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor=bg, tag=tag)
+        return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor=page_bg, tag=tag)
 
     def to_pretty_svg(self, side='top', margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag, inkscape=False, colors=None):
         if colors is None:
