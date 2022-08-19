@@ -572,9 +572,9 @@ class GraphicsState:
 
     def interpolation_mode_statement(self):
         return {
-                InterpMode.LINEAR: 'G01',
-                InterpMode.CIRCULAR_CW: 'G02',
-                InterpMode.CIRCULAR_CCW: 'G03'}[self.interpolation_mode]
+                InterpMode.LINEAR: 'G01*',
+                InterpMode.CIRCULAR_CW: 'G02*',
+                InterpMode.CIRCULAR_CCW: 'G03*'}[self.interpolation_mode]
 
 
 class GerberParser:
