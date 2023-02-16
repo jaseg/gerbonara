@@ -93,6 +93,12 @@ class Circle(Primitive):
     def dilate(self, offset, unit):
         self.diameter += UnitExpression(offset, unit)
 
+    def scale(self, scale):
+        self.x *= UnitExpression(scale)
+        self.y *= UnitExpression(scale)
+        self.diameter *= UnitExpression(scale)
+
+
 class VectorLine(Primitive):
     code = 20
     exposure : Expression
@@ -120,6 +126,12 @@ class VectorLine(Primitive):
     def dilate(self, offset, unit):
         self.width += UnitExpression(2*offset, unit)
 
+    def scale(self, scale):
+        self.start_x *= UnitExpression(scale)
+        self.start_y *= UnitExpression(scale)
+        self.end_x *= UnitExpression(scale)
+        self.end_y *= UnitExpression(scale)
+
 
 class CenterLine(Primitive):
     code = 21
@@ -142,6 +154,12 @@ class CenterLine(Primitive):
 
     def dilate(self, offset, unit):
         self.width += UnitExpression(2*offset, unit)
+
+    def scale(self, scale):
+        self.width *= UnitExpression(scale)
+        self.height *= UnitExpression(scale)
+        self.x *= UnitExpression(scale)
+        self.y *= UnitExpression(scale)
             
 
 class Polygon(Primitive):
@@ -165,6 +183,11 @@ class Polygon(Primitive):
     def dilate(self, offset, unit):
         self.diameter += UnitExpression(2*offset, unit)
 
+    def scale(self, scale):
+        self.diameter *= UnitExpression(scale)
+        self.x *= UnitExpression(scale)
+        self.y *= UnitExpression(scale)
+            
 
 class Thermal(Primitive):
     code = 7
@@ -196,6 +219,13 @@ class Thermal(Primitive):
         # I'd rather print a warning and produce graphically slightly incorrect output in these few cases here than
         # producing macros that may evaluate to primitives with negative values.
         warnings.warn('Attempted dilation of macro aperture thermal primitive. This is not supported.')
+
+    def scale(self, scale):
+        self.d_outer *= UnitExpression(scale)
+        self.d_inner *= UnitExpression(scale)
+        self.gap_w *= UnitExpression(scale)
+        self.x *= UnitExpression(scale)
+        self.y *= UnitExpression(scale)
 
 
 class Outline(Primitive):
@@ -244,6 +274,9 @@ class Outline(Primitive):
         # we would need a whole polygon offset/clipping library here
         warnings.warn('Attempted dilation of macro aperture outline primitive. This is not supported.')
 
+    def scale(self, scale):
+        self.coords = [(x*UnitExpression(scale), y*UnitExpression(scale)) for x, y in self.coords]
+
 
 class Comment:
     code = 0
@@ -253,6 +286,9 @@ class Comment:
 
     def to_gerber(self, unit=None):
         return f'0 {self.comment}'
+
+    def scale(self, scale):
+        pass
 
 PRIMITIVE_CLASSES = {
     **{cls.code: cls for cls in [

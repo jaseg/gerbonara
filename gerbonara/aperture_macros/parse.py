@@ -142,6 +142,12 @@ class ApertureMacro:
             primitive.rotation -= rad_to_deg(angle)
         return dup
 
+    def scaled(self, scale):
+        dup = copy.deepcopy(self)
+        for primitive in dup.primitives:
+            primitive.scale(scale)
+        return dup
+
 
 var = VariableExpression
 deg_per_rad = 180 / math.pi

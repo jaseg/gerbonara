@@ -157,7 +157,7 @@ class GerberFile(CamFile):
         self.primitives.extend(new_primitives)
 
     @classmethod
-    def open(kls, filename, enable_includes=False, enable_include_dir=None):
+    def open(kls, filename, enable_includes=False, enable_include_dir=None, override_settings=None):
         """ Load a Gerber file from the file system. The Gerber standard contains this wonderful and totally not
         insecure "include file" setting. We disable it by default and do not parse Gerber includes because a) nobody
         actually uses them, and b) they're a bad idea from a security point of view. In case you actually want these,
@@ -173,15 +173,16 @@ class GerberFile(CamFile):
         with open(filename, "r") as f:
             if enable_includes and enable_include_dir is None:
                 enable_include_dir = filename.parent
-            return kls.from_string(f.read(), enable_include_dir, filename=filename)
+            return kls.from_string(f.read(), enable_include_dir, filename=filename, override_settings=override_settings)
 
     @classmethod
-    def from_string(kls, data, enable_include_dir=None, filename=None):
+    def from_string(kls, data, enable_include_dir=None, filename=None, override_settings=None):
         """ Parse given string as Gerber file content. For the meaning of the parameters, see
         :py:meth:`~.GerberFile.open`. """
         # filename arg is for error messages
         obj = kls()
-        GerberParser(obj, include_dir=enable_include_dir).parse(data, filename=filename)
+        parser = GerberParser(obj, include_dir=enable_include_dir, override_settings=override_settings)
+        parser.parse(data, filename=filename)
         return obj
 
     def _generate_statements(self, settings, drop_comments=True):
@@ -194,8 +195,10 @@ class GerberFile(CamFile):
 
         zeros = 'T' if settings.zeros == 'trailing' else 'L' # default to leading if "None" is specified
         notation = 'I' if settings.notation == 'incremental' else 'A' # default to absolute
-        number_format = str(settings.number_format[0]) + str(settings.number_format[1])
-        yield f'%FS{zeros}{notation}X{number_format}Y{number_format}*%'
+        num_int, num_frac = settings.number_format or (4,5)
+        assert 1 <= num_int <= 9
+        assert 1 <= num_frac <= 9
+        yield f'%FS{zeros}{notation}X{num_int}{num_frac}Y{num_int}{num_frac}*%'
         yield '%IPPOS*%'
         yield 'G75'
         yield '%LPD*%'
@@ -262,11 +265,22 @@ class GerberFile(CamFile):
         if settings is None:
             settings = self.import_settings.copy() or FileSettings()
             settings.zeros = None
-            settings.number_format = (5,6)
+            settings.number_format = (4,5) # up to 10m by 10m with 10nm resolution
         return '\n'.join(self._generate_statements(settings, drop_comments=drop_comments)).encode('utf-8')
 
     def __len__(self):
         return len(self.objects)
+
+    def scale(self, scale, unit=MM):
+        scaled_apertures = {}
+
+        for obj in self.objects:
+            obj.scale(sx, sy)
+
+            if (aperture := getattr(obj, 'aperture', None)):
+                if not (scaled := scaled_apertures.get(aperture)):
+                    scaled = scaled_apertures[aperture] = aperture.scaled(scale)
+                obj.aperture = scaled
 
     def offset(self, dx=0,  dy=0, unit=MM):
         # TODO round offset to file resolution
@@ -545,12 +559,12 @@ class GerberParser:
         'comment': r"G0?4(?P<comment>[^*]*)",
         }
 
-    def __init__(self, target, include_dir=None):
+    def __init__(self, target, include_dir=None, override_settings=None):
         """ Pass an include dir to enable IF include statements (potentially DANGEROUS!). """
         self.target = target
         self.include_dir = include_dir
         self.include_stack = []
-        self.file_settings = FileSettings()
+        self.file_settings = override_settings or FileSettings()
         self.graphics_state = GraphicsState(warn=self.warn, file_settings=self.file_settings)
         self.aperture_map = {}
         self.aperture_macros = {}
@@ -774,19 +788,30 @@ class GerberParser:
                 match['name'], match['macro'], self.file_settings.unit)
     
     def _parse_format_spec(self, match):
-        # This is a common problem in Eagle files, so just suppress it
-        self.file_settings.zeros = {'L': 'leading', 'T': 'trailing'}.get(match['zero'], 'leading')
+        if self.file_settings.zeros is not None:
+            self.warn('Re-definition of zero suppression setting. Ignoring.')
+        else:
+            # This is a common problem in Eagle files, so just suppress it
+            self.file_settings.zeros = {'L': 'leading', 'T': 'trailing'}.get(match['zero'], 'leading')
+
         self.file_settings.notation = 'incremental' if match['notation'] == 'I' else 'absolute'
 
         if match['x'] != match['y']:
             raise SyntaxError(f'FS specifies different coordinate formats for X and Y ({match["x"]} != {match["y"]})')
-        self.file_settings.number_format = int(match['x'][0]), int(match['x'][1])
+
+        if self.file_settings.number_format != (None, None):
+            self.warn('Re-definition of number format setting. Ignoring.')
+        else:
+            self.file_settings.number_format = int(match['x'][0]), int(match['x'][1])
 
     def _parse_unit_mode(self, match):
-        if match['unit'] == 'MM':
-            self.graphics_state.unit = self.file_settings.unit = MM
+        if self.file_settings.unit is not None:
+            self.warn('Re-definition of file units. Ignoring.')
         else:
-            self.graphics_state.unit = self.file_settings.unit = Inch
+            if match['unit'] == 'MM':
+                self.graphics_state.unit = self.file_settings.unit = MM
+            else:
+                self.graphics_state.unit = self.file_settings.unit = Inch
 
     def _parse_allegro_format_spec(self, match):
         self._parse_format_spec(match)

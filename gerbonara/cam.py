@@ -44,17 +44,18 @@ class FileSettings:
     #: (relative) mode is technically still supported, but exceedingly rare in the wild.
     notation : str = 'absolute'
     #: Export unit. :py:attr:`~.utilities.MM` or :py:attr:`~.utilities.Inch`
-    unit : LengthUnit = MM
+    unit : LengthUnit = None
     #: Angle unit. Should be ``'degree'`` unless you really know what you're doing.
     angle_unit : str = 'degree'
-    #: Zero suppression settings. See note at :py:class:`.FileSettings` for meaning.
+    #: Zero suppression settings. Must be one of ``None``, ``'leading'`` or ``'trailing'``. See note at
+    #: :py:class:`.FileSettings` for meaning.
     zeros : bool = None
     #: Number format. ``(integer, decimal)`` tuple of number of integer and decimal digits. At most ``(6,7)`` by spec.
-    number_format : tuple = (2, 5)
+    number_format : tuple = (None, None)
 
     # input validation
     def __setattr__(self, name, value):
-        if name == 'unit' and value not in [MM, Inch]:
+        if name == 'unit' and value not in [None, MM, Inch]:
             raise ValueError(f'Unit must be either Inch or MM, not {value}')
         elif name == 'notation' and value not in ['absolute', 'incremental']:
             raise ValueError(f'Notation must be either "absolute" or "incremental", not {value}')
@@ -141,8 +142,8 @@ class FileSettings:
 
         if '.' in value or value == '00':
             return float(value)
-
-        integer_digits, decimal_digits = self.number_format
+ 
+        integer_digits, decimal_digits = self.number_format or (2, 5)
 
         if self.zeros == 'leading':
             value = self._pad + value # pad with zeros to ensure we have enough decimals
@@ -158,7 +159,7 @@ class FileSettings:
         if unit is not None:
             value = self.unit(value, unit)
         
-        integer_digits, decimal_digits = self.number_format
+        integer_digits, decimal_digits = self.number_format or (2, 5)
         if integer_digits is None:
             integer_digits = 3
         if decimal_digits is None:
@@ -188,7 +189,7 @@ class FileSettings:
         if unit is not None:
             value = self.unit(value, unit)
         
-        integer_digits, decimal_digits = self.number_format
+        integer_digits, decimal_digits = self.number_format or (2, 5)
         if integer_digits is None:
             integer_digits = 2
         if decimal_digits is None:

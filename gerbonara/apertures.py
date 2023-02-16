@@ -251,6 +251,12 @@ class CircleAperture(Aperture):
         else:
             return self.to_macro(self.rotation)
 
+    def scaled(self, scale):
+        return replace(self, 
+                       diameter=self.diameter*scale,
+                       hold_dia=None if self.hole_dia is None else self.hole_dia*scale,
+                       hold_rect_h=None if self.hole_rect_h is None else self.hole_rect_h*scale)
+
     def to_macro(self):
         return ApertureMacroInstance(GenericMacros.circle, self._params(unit=MM))
 
@@ -299,6 +305,13 @@ class RectangleAperture(Aperture):
             return replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=0)
         else: # odd angle
             return self.to_macro()
+
+    def scaled(self, scale):
+        return replace(self, 
+                       w=self.w*scale,
+                       h=self.h*scale,
+                       hold_dia=None if self.hole_dia is None else self.hole_dia*scale,
+                       hold_rect_h=None if self.hole_rect_h is None else self.hole_rect_h*scale)
 
     def to_macro(self):
         return ApertureMacroInstance(GenericMacros.rect,
@@ -358,6 +371,13 @@ class ObroundAperture(Aperture):
         else:
             return self.to_macro()
 
+    def scaled(self, scale):
+        return replace(self, 
+                       w=self.w*scale,
+                       h=self.h*scale,
+                       hold_dia=None if self.hole_dia is None else self.hole_dia*scale,
+                       hold_rect_h=None if self.hole_rect_h is None else self.hole_rect_h*scale)
+
     def to_macro(self):
         # generic macro only supports w > h so flip x/y if h > w
         inst = self if self.w > self.h else replace(self, w=self.h, h=self.w, **_rotate_hole_90(self), rotation=self.rotation-90)
@@ -411,6 +431,11 @@ class PolygonAperture(Aperture):
     def _rotated(self):
         return self
 
+    def scaled(self, scale):
+        return replace(self, 
+                       diameter=self.diameter*scale,
+                       hold_dia=None if self.hole_dia is None else self.hole_dia*scale)
+
     def to_macro(self):
         return ApertureMacroInstance(GenericMacros.polygon, self._params(MM))
 
@@ -461,6 +486,9 @@ class ApertureMacroInstance(Aperture):
 
     def to_macro(self):
         return replace(self, macro=self.macro.rotated(self.rotation), rotation=0)
+
+    def scaled(self, scale):
+        return replace(self, macro=self.macro.scaled(scale))
 
     def __eq__(self, other):
         return hasattr(other, 'macro') and self.macro == other.macro and \
