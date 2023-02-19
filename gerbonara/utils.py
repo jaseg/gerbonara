@@ -68,6 +68,9 @@ class LengthUnit:
         self.shorthand = shorthand
         self.factor = this_in_mm
 
+    def __hash__(self):
+        return hash((self.name, self.shorthand, self.factor))
+
     def convert_from(self, unit, value):
         """ Convert ``value`` from ``unit`` into this unit.
 

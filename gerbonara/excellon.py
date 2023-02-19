@@ -207,18 +207,21 @@ class ExcellonFile(CamFile):
 
     def __str__(self):
         name = f'{self.original_path.name} ' if self.original_path else ''
-        if self.is_plated:
-            plating = 'plated'
-        elif self.is_nonplated:
-            plating = 'nonplated'
-        elif self.is_mixed_plating:
-            plating = 'mixed plating'
-        else:
-            plating = 'unknown plating'
-        return f'<ExcellonFile {name}{plating} with {len(list(self.drills()))} drills, {len(list(self.slots()))} slots using {len(self.drill_sizes())} tools>'
+        return f'<ExcellonFile {name}{self.plating_type} with {len(list(self.drills()))} drills, {len(list(self.slots()))} slots using {len(self.drill_sizes())} tools>'
 
     def __repr__(self):
         return str(self)
+
+    @property
+    def plating_type(self):
+        if self.is_plated:
+            return 'plated'
+        elif self.is_nonplated:
+            return 'nonplated'
+        elif self.is_mixed_plating:
+            return 'mixed plating'
+        else:
+            return 'unknown plating'
 
     @property
     def is_plated(self):

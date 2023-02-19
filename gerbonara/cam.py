@@ -76,6 +76,11 @@ class FileSettings:
             num = self.number_format[1 if self.zeros == 'leading' else 0] or 0
             self._pad = '0'*num
 
+    @classmethod
+    def defaults(kls):
+        """ Return a set of good default FileSettings that will work for all gerber or excellon files. """
+        return FileSettings(unit=MM, number_format=(4,5), zeros=None)
+
     def to_radian(self, value):
         """ Convert a given numeric string or a given float from file units into radians. """
         value = float(value)
@@ -382,6 +387,16 @@ class CamFile:
         :param float angle: Rotation angle in radians, *clockwise*.
         :param float cx: Center of rotation X coordinate
         :param float cy: Center of rotation Y coordinate
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Unit ``cx`` and ``cy`` are passed in. Default: mm
+        """
+        raise NotImplementedError()
+
+    def scale(self, factor, unit=MM):
+        """ Scale all objects in this file by the given factor. Only uniform scaling using a single factor in both
+        directions is supported as for both Gerber and Excellon files, nonuniform scaling would distort circular
+        flashes, which would lead to garbage results.
+
+        :param float factor: Scale factor
         :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Unit ``cx`` and ``cy`` are passed in. Default: mm
         """
         raise NotImplementedError()

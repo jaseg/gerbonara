@@ -105,20 +105,19 @@ class GraphicObject:
         dx, dy = self.unit(dx, unit), self.unit(dy, unit)
         self._offset(dx, dy)
 
-    def scale(self, sx, sy, unit=MM):
+    def scale(self, factor, unit=MM):
         """ Scale this feature in both its dimensions and location.
 
-        .. note:: The scale values are scalars, and the unit argument is irrelevant, but is kept for API consistency.
+        .. note:: The scale factor is a scalar, and the unit argument is irrelevant, but is kept for API consistency.
         
         .. note:: If this object references an aperture, this aperture is not modified. You will have to transform this
                   aperture yourself.
 
-        :param float sx: X scale, 1 to keep the object as is, larger values to enlarge, smaller values to shrink.
-                         Negative values are permitted.
-        :param float sy: Y scale as above.
+        :param float factor: Scale factor, 1 to keep the object as is, larger values to enlarge, smaller values to
+                             shrink. Negative values are permitted.
         """
 
-        self._scale(sx, sy)
+        self._scale(factor)
 
     def rotate(self, rotation, cx=0, cy=0, unit=MM):
         """ Rotate this object. The center of rotation can be given in either unit, and is automatically converted into
@@ -232,9 +231,9 @@ class Flash(GraphicObject):
     def _rotate(self, rotation, cx=0, cy=0):
         self.x, self.y = gp.rotate_point(self.x, self.y, rotation, cx, cy)
 
-    def _scale(self, sx, sy):
-        self.x *= sx
-        self.y *= sy
+    def _scale(self, factor):
+        self.x *= factor
+        self.y *= factor
 
     def to_primitives(self, unit=None):
         conv = self.converted(unit)
@@ -303,10 +302,10 @@ class Region(GraphicObject):
                 (arc[0], gp.rotate_point(*arc[1], angle, cx-p[0], cy-p[1])) if arc else None
                 for p, arc in zip(self.outline, self.arc_centers) ]
 
-    def _scale(self, sx, sy):
-        self.outline = [ (x*sx, y*sy) for x, y in self.outline ]
+    def _scale(self, factor):
+        self.outline = [ (x*factor, y*factor) for x, y in self.outline ]
         self.arc_centers = [
-                (arc[0], (arc[1][0]*sx, arc[1][1]*sy)) if arc else None
+                (arc[0], (arc[1][0]*factor, arc[1][1]*factor)) if arc else None
                 for p, arc in zip(self.outline, self.arc_centers) ]
 
     def append(self, obj):
@@ -407,11 +406,11 @@ class Line(GraphicObject):
         self.x1, self.y1 = gp.rotate_point(self.x1, self.y1, rotation, cx, cy)
         self.x2, self.y2 = gp.rotate_point(self.x2, self.y2, rotation, cx, cy)
 
-    def _scale(self, sx=1, sy=1):
-        self.x1 *= sx
-        self.y1 *= sy
-        self.x2 *= sx
-        self.y2 *= sy
+    def _scale(self, factor):
+        self.x1 *= factor
+        self.y1 *= factor
+        self.x2 *= factor
+        self.y2 *= factor
 
     @property
     def p1(self):
@@ -645,13 +644,13 @@ class Arc(GraphicObject):
         self.x2, self.y2 = gp.rotate_point(self.x2, self.y2, rotation, cx, cy)
         self.cx, self.cy = new_cx - self.x1, new_cy - self.y1
 
-    def _scale(self, sx=1, sy=1):
-        self.x1 *= sx
-        self.y1 *= sy
-        self.x2 *= sx
-        self.y2 *= sy
-        self.cx *= sx
-        self.cy *= sy
+    def _scale(self, factor):
+        self.x1 *= factor
+        self.y1 *= factor
+        self.x2 *= factor
+        self.y2 *= factor
+        self.cx *= factor
+        self.cy *= factor
 
     def as_primitive(self, unit=None):
         conv = self.converted(unit)

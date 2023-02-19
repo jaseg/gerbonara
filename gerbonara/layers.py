@@ -144,8 +144,8 @@ def common_prefix(l):
         baseline = score(1)
         if len(l) - baseline > 5:
             continue
-        for n in range(2, len(cand)):
-            if len(l) - score(n) > 5:
+        for n in range(len(cand) if '.' not in cand else cand.index('.')+1, 2, -1):
+            if len(l) - score(n) < 5:
                 break
         out.append(cand[:n-1])
  
@@ -237,31 +237,31 @@ def layername_autoguesser(fn):
 
 
 class LayerStack:
-
-    def __init__(self, graphic_layers, drill_layers, netlist=None, board_name=None, original_path=None, was_zipped=False):
+    def __init__(self, graphic_layers, drill_layers, netlist=None, board_name=None, original_path=None, was_zipped=False, generator=None):
         self.graphic_layers = graphic_layers
         self.drill_layers = drill_layers
         self.board_name = board_name
         self.netlist = netlist
         self.original_path = original_path
         self.was_zipped = was_zipped
+        self.generator = generator
 
     @classmethod
-    def open(kls, path, board_name=None, lazy=False):
+    def open(kls, path, board_name=None, lazy=False, overrides=None, autoguess=True):
         if str(path) == '-':
             data_io = io.BytesIO(sys.stdin.buffer.read())
             return kls.from_zip_data(data_io, original_path='<stdin>', board_name=board_name, lazy=lazy)
 
         path = Path(path)
         if path.is_dir():
-            return kls.open_dir(path, board_name=board_name, lazy=lazy)
+            return kls.open_dir(path, board_name=board_name, lazy=lazy, overrides=overrides, autoguess=autoguess)
         elif path.suffix.lower() == '.zip' or is_zipfile(path):
-            return kls.open_zip(path, board_name=board_name, lazy=lazy)
+            return kls.open_zip(path, board_name=board_name, lazy=lazy, overrides=overrides, autoguess=autoguess)
         else:
-            return kls.from_files([path], board_name=board_name, lazy=lazy)
+            return kls.from_files([path], board_name=board_name, lazy=lazy, overrides=overrides, autoguess=autoguess)
 
     @classmethod
-    def open_zip(kls, file, original_path=None, board_name=None, lazy=False):
+    def open_zip(kls, file, original_path=None, board_name=None, lazy=False, overrides=None, autoguess=True):
         tmpdir = tempfile.TemporaryDirectory()
         tmp_indir = Path(tmpdir.name) / 'input'
         tmp_indir.mkdir()
@@ -276,20 +276,39 @@ class LayerStack:
         return inst
 
     @classmethod
-    def open_dir(kls, directory, board_name=None, lazy=False):
+    def open_dir(kls, directory, board_name=None, lazy=False, overrides=None, autoguess=True):
 
         directory = Path(directory)
         if not directory.is_dir():
             raise FileNotFoundError(f'{directory} is not a directory')
 
         files = [ path for path in directory.glob('**/*') if path.is_file() ]
-        return kls.from_files(files, board_name=board_name, lazy=lazy, original_path=directory)
+        return kls.from_files(files, board_name=board_name, lazy=lazy, original_path=directory, overrides=overrides,
+                              autoguess=autoguess)
         inst.original_path = directory
         return inst
 
     @classmethod
-    def from_files(kls, files, board_name=None, lazy=False, original_path=None, was_zipped=False):
-        generator, filemap = best_match(files)
+    def from_files(kls, files, board_name=None, lazy=False, original_path=None, was_zipped=False, overrides=None,
+                   autoguess=True):
+        if autoguess:
+            generator, filemap = best_match(files)
+        else:
+            generator, filemap = 'custom', {}
+        all_generator_hints = set()
+
+        if overrides:
+            for fn in files:
+                for expr, layer in overrides.items():
+                    if re.fullmatch(expr, fn.name):
+                        if layer == 'ignore':
+                            for entries in filemap.values():
+                                if fn in entries:
+                                    entries.remove(fn)
+                        else:
+                            if layer in filemap and fn in filemap[layer]:
+                                filemap[layer].remove(fn)
+                            filemap[layer] = filemap.get(layer, []) + [fn]
 
         if sum(len(files) for files in filemap.values()) < 6:
             warnings.warn('Ambiguous gerber filenames. Trying last-resort autoguesser.')
@@ -404,6 +423,7 @@ class LayerStack:
 
                 if not lazy:
                     hints = set(layer.generator_hints) | { generator }
+                    all_generator_hints |= hints
                     if len(hints) > 1:
                         warnings.warn('File identification returned ambiguous results. Please raise an issue on the '
                                 'gerbonara tracker and if possible please provide these input files for reference.')
@@ -414,7 +434,7 @@ class LayerStack:
             board_name = re.sub(r'\W+$', '', board_name)
 
         return kls(layers, drill_layers, netlist, board_name=board_name,
-                original_path=original_path, was_zipped=was_zipped)
+                original_path=original_path, was_zipped=was_zipped, generator=[*all_generator_hints, None][0])
 
     def save_to_zipfile(self, path, naming_scheme={}, overwrite_existing=True, prefix=''):
         if path.is_file():
@@ -428,7 +448,8 @@ class LayerStack:
                 with le_zip.open(prefix + str(path), 'w') as out:
                     out.write(layer.instance.write_to_bytes())
 
-    def save_to_directory(self, path, naming_scheme={}, overwrite_existing=True):
+    def save_to_directory(self, path, naming_scheme={}, overwrite_existing=True,
+                          gerber_settings=None, excellon_settings=None):
         outdir = Path(path)
         outdir.mkdir(parents=True, exist_ok=overwrite_existing)
 
@@ -442,7 +463,7 @@ class LayerStack:
         def get_name(layer_type, layer):
             nonlocal naming_scheme
 
-            if (m := re.match('inner_([0-9]*) copper', layer_type)):
+            if (m := re.match('inner_([0-9]+) copper', layer_type)):
                 layer_type = 'inner copper'
                 num = int(m[1])
             else:
@@ -568,6 +589,18 @@ class LayerStack:
             return self.outline.instance.bounding_box(unit=unit, default=default)
         else:
             return self.bounding_box(unit=unit, default=default)
+
+    def offset(self, x=0, y=0, unit=MM):
+        for layer in itertools.chain(self.graphic_layers.values(), self.drill_layers):
+            layer.offset(x, y, unit=unit)
+
+    def rotate(self, angle, cx=0, cy=0, unit=MM):
+        for layer in itertools.chain(self.graphic_layers.values(), self.drill_layers):
+            layer.rotate(angle, cx, cy, unit=unit)
+
+    def scale(self, factor, unit=MM):
+        for layer in itertools.chain(self.graphic_layers.values(), self.drill_layers):
+            layer.scale(factor)
 
     def merge_drill_layers(self):
         target = ExcellonFile(comments=['Drill files merged by gerbonara'])

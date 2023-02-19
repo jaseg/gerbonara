@@ -67,7 +67,7 @@ class GerberFile(CamFile):
                 not isinstance(obj.aperture, apertures.CircleAperture):
                 raise ValueError(f'Cannot convert {obj} to excellon!')
 
-            if not (new_tool := new_tools.get(id(obj.aperture))):
+            if not (new_tool := new_tools.get(obj.aperture)):
                 # TODO plating?
                 new_tool = new_tools[id(obj.aperture)] = apertures.ExcellonTool(obj.aperture.diameter, plated=plated, unit=obj.aperture.unit)
             new_objs.append(dataclasses.replace(obj, aperture=new_tool))
@@ -271,16 +271,19 @@ class GerberFile(CamFile):
     def __len__(self):
         return len(self.objects)
 
-    def scale(self, scale, unit=MM):
+    def scale(self, factor, unit=MM):
         scaled_apertures = {}
 
-        for obj in self.objects:
-            obj.scale(sx, sy)
+        for ap in self.apertures:
+            scaled_apertures[id(ap)] = ap.scaled(factor)
 
-            if (aperture := getattr(obj, 'aperture', None)):
-                if not (scaled := scaled_apertures.get(aperture)):
-                    scaled = scaled_apertures[aperture] = aperture.scaled(scale)
-                obj.aperture = scaled
+        for obj in self.objects:
+            obj.scale(factor)
+
+            if (obj_ap := getattr(obj, 'aperture', None)):
+                obj.aperture = scaled_apertures[id(obj_ap)]
+
+        self.apertures = list(scaled_apertures.values())
 
     def offset(self, dx=0,  dy=0, unit=MM):
         # TODO round offset to file resolution
