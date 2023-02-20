@@ -245,7 +245,7 @@ class ExcellonFile(CamFile):
 
     def append(self, obj_or_comment):
         """ Add a :py:class:`.GraphicObject` or a comment (str) to this file. """
-        if isinstnace(obj_or_comment, str):
+        if isinstance(obj_or_comment, str):
             self.comments.append(obj_or_comment)
         else:
             self.objects.append(obj_or_comment)
@@ -396,10 +396,10 @@ class ExcellonFile(CamFile):
         if settings is None:
             if self.import_settings:
                 settings = self.import_settings.copy()
+                settings.zeros = None
+                settings.number_format = (3,5)
             else:
-                settings = FileSettings()
-            settings.zeros = None
-            settings.number_format = (3,5)
+                settings = FileSettings.defaults()
         return '\n'.join(self._generate_statements(settings, drop_comments=drop_comments)).encode('utf-8')
 
     def save(self, filename, settings=None, drop_comments=True):

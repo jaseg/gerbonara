@@ -263,9 +263,11 @@ class GerberFile(CamFile):
         :rtype: str
         """
         if settings is None:
-            settings = self.import_settings.copy() or FileSettings()
-            settings.zeros = None
-            settings.number_format = (4,5) # up to 10m by 10m with 10nm resolution
+            if self.import_settings:
+                settings = self.import_settings.copy()
+                settings.zeros = None
+            else:
+                settings = FileSettings.defaults()
         return '\n'.join(self._generate_statements(settings, drop_comments=drop_comments)).encode('utf-8')
 
     def __len__(self):

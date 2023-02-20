@@ -2,9 +2,11 @@
 
 import math
 import click
+import dataclasses
 import re
 import warnings
 import json
+import itertools
 from pathlib import Path
 
 from .utils import MM, Inch
@@ -13,8 +15,6 @@ from .rs274x import GerberFile
 from .layers import LayerStack, NamingScheme
 from . import __version__
 
-
-NAMING_SCHEMES = [n for n in dir(NamingScheme) if not n.startswith('_')]
 
 def print_version(ctx, param, value):
     if value and not ctx.resilient_parsing:
@@ -51,6 +51,44 @@ def apply_transform(transform, unit, layer_or_stack):
     exec(transform, {key: value for key, value in math.__dict__.items() if not key.startswith('_')}, locals())
 
 
+class Coordinate(click.ParamType):
+    name = 'coordinate'
+
+    def __init__(self, dimension=2):
+        self.dimension = dimension
+    
+    def convert(self, value, param, ctx):
+        try:
+            coords = map(float, value.split(','))
+            if len(coords) != self.dimension:
+                raise ValueError()
+            return coords
+
+        except ValueError:
+            self.fail(f'{value!r} is not a valid coordinate. A coordinate consists of exactly {self.dimension} comma-separate floating-point numbers.')
+
+
+class Unit(click.Choice):
+    name = 'unit'
+
+    def __init__(self):
+        super().__init__(['metric', 'us-customary'])
+
+    def convert(self, value, param, ctx):
+        value = super().convert(value, param, ctx)
+        return MM if value == 'metric' else Inch
+
+
+class NamingScheme(click.Choice):
+    name = 'naming_scheme'
+
+    def __init__(self):
+        super().__init__([n for n in dir(NamingScheme) if not n.startswith('_')])
+
+    def convert(self, value, param, ctx):
+        return getattr(NamingScheme, super().convert(value, param, ctx))
+
+
 @click.group()
 @click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
 def cli():
@@ -58,8 +96,8 @@ def cli():
 
 
 @cli.command()
-@click.option('--format-warnings/--no-warnings', ' /-s', default=False, help='''Enable or disable file format warnings
-              during parsing (default: off)''')
+@click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
+              help='''Enable or disable file format warnings during parsing (default: on)''')
 @click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
 @click.option('-m', '--input-map', type=click.Path(exists=True, path_type=Path), help='''Extend or override layer name
               mapping with name map from JSON file. The JSON file must contain a single JSON dict with an arbitrary
@@ -70,8 +108,8 @@ def cli():
               rules and use only rules given by --input-map''')
 @click.option('--force-zip', is_flag=True, help='''Force treating input path as a zip file (default: guess file type
               from extension and contents)''')
-@click.option('--top/--bottom', help='Which side of the board to render')
-@click.option('--command-line-units', type=click.Choice(['metric', 'us-customary']), default='metric', help='Units for values given in --transform. Default: millimeter')
+@click.option('--top/--bottom', default=True, help='Which side of the board to render')
+@click.option('--command-line-units', type=Unit(), default=MM, help='Units for values given in other options. Default: millimeter')
 @click.option('--margin', type=float, default=0.0, help='Add space around the board inside the viewport')
 @click.option('--force-bounds', help='Force SVG bounding box to value given as "min_x,min_y,max_x,max_y"')
 @click.option('--inkscape/--standard-svg', default=True, help='Export in Inkscape SVG format with layers and stuff.')
@@ -88,13 +126,11 @@ def render(inpath, outfile, format_warnings, input_map, use_builtin_name_rules, 
 
     overrides = json.loads(input_map.read_bytes()) if input_map else None
     with warnings.catch_warnings():
-        warnings.simplefilter('default' if format_warnings else 'ignore')
+        warnings.simplefilter(format_warnings)
         if force_zip:
             stack = LayerStack.open_zip(inpath, overrides=overrides, autoguess=use_builtin_name_rules)
         else:
             stack = LayerStack.open(inpath, overrides=overrides, autoguess=use_builtin_name_rules)
-
-    unit = MM if command_line_units == 'metric' else Inch
 
     if force_bounds:
         min_x, min_y, max_x, max_y = list(map(float, force_bounds.split(',')))
@@ -103,32 +139,35 @@ def render(inpath, outfile, format_warnings, input_map, use_builtin_name_rules, 
     if colorscheme:
         colorscheme = json.loads(colorscheme.read_text())
 
-    outfile.write(str(stack.to_pretty_svg(side='top' if top else 'bottom', margin=margin, arg_unit=unit, svg_unit=MM,
-                        force_bounds=force_bounds, inkscape=inkscape, colors=colorscheme)))
+    outfile.write(str(stack.to_pretty_svg(side='top' if top else 'bottom', margin=margin, arg_unit=command_line_units,
+                      svg_unit=MM, force_bounds=force_bounds, inkscape=inkscape, colors=colorscheme)))
 
 
 @cli.command()
 @click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
-@click.option('--format-warnings/--no-warnings', ' /-s', default=True, help='''Enable or disable file format warnings
-              during parsing (default: on)''')
+@click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
+              help='''Enable or disable file format warnings during parsing (default: on)''')
 @click.option('-t', '--transform', help='''Execute python transformation script on input. You have access to the functions
               translate(x, y), scale(factor) and rotate(angle, center_x?, center_y?), the bounding box variables x_min,
               y_min, x_max, y_max, width and height, and everything from python\'s built-in math module (e.g. pi, sqrt,
               sin). As convenience methods, center() and origin() are provided to center the board resp. move its
               bottom-left corner to the origin. Coordinates are given in --command-line-units, angles in degrees, and
               scale as a scale factor (as opposed to a percentage). Example: "translate(-10, 0); rotate(45, 0, 5)"''')
-@click.option('--command-line-units', type=click.Choice(['metric', 'us-customary']), default='metric', help='Units for values given in --transform. Default: millimeter')
+@click.option('--command-line-units', type=Unit(), default=MM, help='Units for values given in other options. Default: millimeter')
 @click.option('-n', '--number-format', help='Override number format to use during export in "[integer digits].[decimal digits]" notation, e.g. "2.6".')
-@click.option('-u', '--units', type=click.Choice(['metric', 'us-customary']), help='Override export file units')
+@click.option('-u', '--units', type=Unit(), help='Override export file units')
 @click.option('-z', '--zero-suppression', type=click.Choice(['off', 'leading', 'trailing']), help='Override export zero suppression setting. Note: The meaning of this value is like in the Gerber spec for both Gerber and Excellon files!')
 @click.option('--keep-comments/--drop-comments', help='Keep gerber comments. Note: Comments will be prepended to the start of file, and will not occur in their old position.')
-@click.option('--reuse-input-settings/--default-settings,', default=False, help='Use the same export settings as the input file instead of sensible defaults.')
+@click.option('--reuse-input-settings', 'output_format', flag_value='reuse', help='''Use the same export settings as the
+              input file instead of sensible defaults.''')
+@click.option('--default-settings', 'output_format', default=True, flag_value='defaults', help='''Use sensible defaults
+              for the output file format settings (default).''')
 @click.option('--input-number-format', help='Override number format of input file (mostly useful for Excellon files)')
-@click.option('--input-units', type=click.Choice(['us-customary', 'metric']), help='Override units of input file')
+@click.option('--input-units', type=Unit(), help='Override units of input file')
 @click.option('--input-zero-suppression', type=click.Choice(['off', 'leading', 'trailing']), help='Override zero suppression setting of input file')
 @click.argument('infile')
 @click.argument('outfile')
-def rewrite(transform, command_line_units, number_format, units, zero_suppression, keep_comments, reuse_input_settings,
+def rewrite(transform, command_line_units, number_format, units, zero_suppression, keep_comments, output_format,
             input_number_format, input_units, input_zero_suppression, infile, outfile, format_warnings):
     """ Parse a gerber file, apply transformations, and re-serialize it into a new gerber file. Without transformations,
     this command can be used to convert a gerber file to use different settings (e.g. units, precision), but can also be
@@ -143,33 +182,26 @@ def rewrite(transform, command_line_units, number_format, units, zero_suppressio
     if input_zero_suppression:
         input_settings.zeros = None if input_zero_suppression == 'off' else input_zero_suppression
 
-    if input_units:
-        input_settings.unit = MM if input_units == 'metric' else Inch
+    input_settings.unit = input_units
 
     with warnings.catch_warnings():
-        warnings.simplefilter('default' if format_warnings else 'ignore')
+        warnings.simplefilter(format_warnings)
         f = GerberFile.open(infile, override_settings=input_settings)
 
     if transform:
-        command_line_units = MM if command_line_units == 'metric' else Inch
         apply_transform(transform, command_line_units, f)
 
-    if reuse_input_settings:
-        output_settings = FileSettings()
-    else:
-        output_settings = FileSettings.defaults()
-
+    output_format = FileSettings() if output_format == 'reuse' else FileSettings.defaults()
     if number_format:
         a, _, b = number_format.partition('.')
-        output_settings.number_format = (int(a), int(b))
+        output_format.number_format = (int(a), int(b))
 
-    if units:
-        output_settings.unit = MM if units == 'metric' else Inch
+    output_format.unit = units
 
     if zero_suppression:
-        output_settings.zeros = None if zero_suppression == 'off' else zero_suppression
+        output_format.zeros = None if zero_suppression == 'off' else zero_suppression
 
-    f.save(outfile, output_settings, not keep_comments)
+    f.save(outfile, output_format, not keep_comments)
 
 
 @cli.command()
@@ -181,29 +213,24 @@ def rewrite(transform, command_line_units, number_format, units, zero_suppressio
               automatic guesses, or a gerbonara layer name such as "top copper", "inner_2 copper" or "bottom silk".''')
 @click.option('--use-builtin-name-rules/--no-builtin-name-rules', default=True, help='''Disable built-in layer name
               rules and use only rules given by --input-map''')
-@click.option('--format-warnings/--no-warnings', ' /-s', default=True, help='''Enable or disable file format warnings
-              during parsing (default: on)''')
-@click.option('--units', type=click.Choice(['metric', 'us-customary']), default='metric', help='''Units for values given
-              in transform script. Default: millimeter''')
+@click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
+              help='''Enable or disable file format warnings during parsing (default: on)''')
+@click.option('--units', type=Unit(), default=MM, help='Units for values given in other options. Default: millimeter')
 @click.option('-n', '--number-format', help='''Override number format to use during export in
               "[integer digits].[decimal digits]" notation, e.g. "2.6".''')
-@click.option('-u', '--units', type=click.Choice(['metric', 'us-customary']), help='Override export file units')
-@click.option('-z', '--zero-suppression', type=click.Choice(['off', 'leading', 'trailing']), help='''Override export zero
-              suppression setting for exported Gerber files. Note: This does not affect Excellon output, which *always*
-              uses explicit decimal points to avoid mismatches between output format and metadata in job files untouched
-              by gerbonara.''')
-@click.option('--reuse-input-settings/--default-settings,', default=False, help='''Use the same export settings as the
+@click.option('--reuse-input-settings', 'output_format', flag_value='reuse', help='''Use the same export settings as the
               input file instead of sensible defaults.''')
+@click.option('--default-settings', 'output_format', default=True, flag_value='defaults', help='''Use sensible defaults
+              for the output file format settings (default).''')
 @click.option('--force-zip', is_flag=True, help='''Force treating input path as a zip file (default: guess file type
               from extension and contents)''')
-@click.option('--output-naming-scheme', type=click.Choice(NAMING_SCHEMES), help=f'''Name output files according to the
-              selected naming scheme instead of keeping the old file names. Supported values are:
-              {", ".join(NAMING_SCHEMES)}''')
+@click.option('--output-naming-scheme', type=NamingScheme(), help=f'''Name output files according to the selected naming
+              scheme instead of keeping the old file names.''')
 @click.argument('transform')
 @click.argument('inpath')
 @click.argument('outpath')
-def transform(transform, units, number_format, zero_suppression, reuse_input_settings, inpath, outpath,
-            format_warnings, input_map, use_builtin_name_rules):
+def transform(transform, units, output_format, inpath, outpath,
+            format_warnings, input_map, use_builtin_name_rules, output_naming_scheme):
     """ Transform all gerber files in a given directory or zip file using the given python transformation script.
         
         In the python transformation script you have access to the functions translate(x, y), scale(factor) and
@@ -216,39 +243,92 @@ def transform(transform, units, number_format, zero_suppression, reuse_input_set
 
     overrides = json.loads(input_map.read_bytes()) if input_map else None
     with warnings.catch_warnings():
-        warnings.simplefilter('default' if format_warnings else 'ignore')
+        warnings.simplefilter(format_warnings)
         if force_zip:
             stack = LayerStack.open_zip(path, overrides=overrides, autoguess=use_builtin_name_rules)
         else:
             stack = LayerStack.open(path, overrides=overrides, autoguess=use_builtin_name_rules)
 
-    units = MM if units == 'metric' else Inch
     apply_transform(transform, units, stack)
 
-    output_settings = FileSettings() if reuse_input_settings else FileSettings.defaults()
+    output_format = FileSettings() if output_format == 'reuse' else FileSettings.defaults()
+    stack.save_to_directory(outpath, naming_scheme=output_naming_scheme or {},
+                            gerber_settings=output_format,
+                            excellon_settings=dataclasses.replace(output_format, zeros=None))
 
-    if number_format:
-        a, _, b = number_format.partition('.')
-        output_settings.number_format = (int(a), int(b))
 
-    if units:
-        output_settings.unit = MM if units == 'metric' else Inch
+@cli.command()
+@click.option('--command-line-units', type=click.Choice(['metric', 'us-customary']), default='metric', help='Units for values given in --transform. Default: millimeter')
+@click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
+              help='''Enable or disable file format warnings during parsing (default: on)''')
+@click.option('--offset', multiple=True, type=Coordinate(), help="""Offset for the n'th file as a "x,y" string in unit
+              given by --command-line-units (default: millimeter). Can be given multiple times, and the first option
+              affects the first input, the second option affects the second input, and so on.""")
+@click.option('--rotation', multiple=True, type=int, help="""Rotation for the n'th file in degrees clockwise. Can be
+              given multiple times, and the first option affects the first input, the second option affects the second
+              input, and so on.""")
+@click.option('-m', '--input-map', type=click.Path(exists=True, path_type=Path), multiple=True, help='''Extend or
+              override layer name mapping with name map from JSON file. This option can be given multiple times, in
+              which case the n'th option affects only the n'th input, like with --offset and --rotation. The JSON file
+              must contain a single JSON dict with an arbitrary number of string: string entries. The keys are
+              interpreted as regexes applied to the filenames via re.fullmatch, and each value must either be the string
+              "ignore" to remove this layer from previous automatic guesses, or a gerbonara layer name such as "top
+              copper", "inner_2 copper" or "bottom silk".''')
+@click.option('--reuse-input-settings', 'output_format', flag_value='reuse', help='''Use the same export settings as the
+              input file instead of sensible defaults.''')
+@click.option('--default-settings', 'output_format', default=True, flag_value='defaults', help='''Use sensible defaults
+              for the output file format settings (default).''')
+@click.option('--output-naming-scheme', type=NamingScheme(), help=f'''Name output files according to the selected naming
+              scheme instead of keeping the old file names of the first input.''')
+@click.option('--output-board-name', help=f'''Override board name used with --output-naming-scheme''')
+@click.option('--use-builtin-name-rules/--no-builtin-name-rules', default=True, help='''Disable built-in layer name
+              rules and use only rules given by --input-map''')
+@click.argument('inpath', nargs=-1, type=click.Path(exists=True, path_type=Path))
+@click.argument('outpath', type=click.Path(path_type=Path))
+def merge(inpath, outpath, offset, rotation, input_map, command_line_units, output_format, output_naming_scheme,
+          output_board_name, format_warnings, use_builtin_name_rules):
+    """ Merge multiple single Gerber or Excellon files, or multiple stacks of Gerber files, into one. Hint: When used
+    with only one input, this command "normalizes" the input, converting all files to a well-defined, widely supported
+    Gerber subset with sane settings. When a --output-naming-scheme is given, it additionally renames all files to a
+    standardized naming convention. """
+    if not inpath:
+        return
 
-    if zero_suppression:
-        output_settings.zeros = None if zero_suppression == 'off' else zero_suppression
+    target = None
+    for p, offset, rotation, input_map in itertools.zip_longest(inpath, offset, rotation, input_map):
+        if p is None:
+            raise click.UsageError('More --offset, --rotation or --input-map options than input files')
 
-    stack.save_to_directory(outpath, naming_scheme=naming_scheme,
-                            gerber_settings=output_settings,
-                            excellon_settings=output_settings.replace(zeros=None))
+        offset = offset or (0, 0)
+        rotation = rotation or 0
+
+        overrides = json.loads(input_map.read_bytes()) if input_map else None
+        with warnings.catch_warnings():
+            warnings.simplefilter(format_warnings)
+
+            stack = LayerStack.open(p, overrides=overrides, autoguess=use_builtin_name_rules)
+            if target is None:
+                target = stack
+            else:
+                target.merge(stack)
+
+    if output_board_name:
+        if not output_naming_scheme:
+            warnings.warn('--output-board-name given without --output-naming-scheme. This will be ignored.')
+        target.board_name = output_board_name
+    output_format = FileSettings() if output_format == 'reuse' else FileSettings.defaults()
+    target.save_to_directory(outpath, naming_scheme=output_naming_scheme or {},
+                            gerber_settings=output_format,
+                            excellon_settings=dataclasses.replace(output_format, zeros=None))
 
 
 @cli.command()
 @click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
-@click.option('--format-warnings/--no-warnings', ' /-s', default=True, help='''Enable or disable file format warnings
-              during parsing (default: on)''')
-@click.option('--units', type=click.Choice(['us-customary', 'metric']), default='metric', help='Output bounding box in this unit (default: millimeter)')
+@click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
+              help='''Enable or disable file format warnings during parsing (default: on)''')
+@click.option('--units', type=Unit(), default=MM, help='Output bounding box in this unit (default: millimeter)')
 @click.option('--input-number-format', help='Override number format of input file (mostly useful for Excellon files)')
-@click.option('--input-units', type=click.Choice(['us-customary', 'metric']), help='Override units of input file')
+@click.option('--input-units', type=Unit(), help='Override units of input file')
 @click.option('--input-zero-suppression', type=click.Choice(['off', 'leading', 'trailing']), help='Override zero suppression setting of input file')
 @click.argument('infile')
 def bounding_box(infile, format_warnings, input_number_format, input_units, input_zero_suppression, units):
@@ -265,26 +345,24 @@ def bounding_box(infile, format_warnings, input_number_format, input_units, inpu
     if input_zero_suppression:
         input_settings.zeros = None if input_zero_suppression == 'off' else input_zero_suppression
 
-    if input_units:
-        input_settings.unit = MM if input_units == 'metric' else Inch
+    input_settings.unit = input_units
 
     with warnings.catch_warnings():
-        warnings.simplefilter('default' if format_warnings else 'ignore')
+        warnings.simplefilter(format_warnings)
         f = GerberFile.open(infile, override_settings=input_settings)
 
-    units = MM if units == 'metric' else Inch
     (x_min, y_min), (x_max, y_max) = f.bounding_box(unit=units)
     print(f'{x_min:.6f} {y_min:.6f} {x_max:.6f} {y_max:.6f} [{units}]')
 
 
 @cli.command()
-@click.option('--format-warnings/--no-warnings', ' /-s', default=True, help='''Enable or disable file format warnings
-              during parsing (default: on)''')
+@click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
+              help='''Enable or disable file format warnings during parsing (default: on)''')
 @click.option('--force-zip', is_flag=True, help='Force treating input path as zip file (default: guess file type from extension and contents)')
 @click.argument('path', type=click.Path(exists=True))
 def layers(path, force_zip, format_warnings):
     with warnings.catch_warnings():
-        warnings.simplefilter('default' if format_warnings else 'ignore')
+        warnings.simplefilter(format_warnings)
         if force_zip:
             stack = LayerStack.open_zip(path)
         else:
@@ -313,8 +391,8 @@ def layers(path, force_zip, format_warnings):
 
 
 @cli.command()
-@click.option('--format-warnings/--no-warnings', ' /-s', default=False, help='''Enable or disable file format warnings
-              during parsing (default: off)''')
+@click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), help='''Enable or
+              disable file format warnings during parsing (default: on)''')
 @click.option('--force-zip', is_flag=True, help='Force treating input path as zip file (default: guess file type from extension and contents)')
 @click.argument('path', type=click.Path(exists=True))
 def meta(path, force_zip, format_warnings):
@@ -322,7 +400,7 @@ def meta(path, force_zip, format_warnings):
     the "layers" command. All lengths in the JSON are given in millimeter. """
 
     with warnings.catch_warnings():
-        warnings.simplefilter('default' if format_warnings else 'ignore')
+        warnings.simplefilter(format_warnings)
         if force_zip:
             stack = LayerStack.open_zip(path)
         else:
@@ -348,20 +426,39 @@ def meta(path, force_zip, format_warnings):
     for (side, function), layer in stack.graphic_layers.items():
         d = out['graphical_layers'][side] = out['graphical_layers'].get(side, {})
         (min_x, min_y), (max_x, max_y) = layer.bounding_box(default=((None, None), (None, None)))
+
+        if layer.import_settings:
+            numf = layer.import_settings.number_format
+            format_settings = {
+                'unit': str(layer.import_settings.unit),
+                'number_format': f'{numf[0]}.{numf[1]}' if numf else None,
+                'zero_suppression': str(layer.import_settings.zeros),
+            }
+
         d[function] = {
                 'format': 'Gerber',
                 'path': str(layer.original_path),
                 'apertures': len(layer.apertures),
                 'objects': len(layer.objects),
                 'bounding_box': {'min_x': min_x, 'min_y': min_y, 'max_x': max_x, 'max_y': max_y},
+                'format_settings': format_settings,
         }
 
     out['drill_layers'] = []
     for layer in stack.drill_layers:
+        if layer.import_settings:
+            numf = layer.import_settings.number_format
+            format_settings = {
+                'unit': str(layer.import_settings.unit),
+                'number_format': f'{numf[0]}.{numf[1]}' if numf else None,
+                'zero_suppression': str(layer.import_settings.zeros),
+            }
+
         out['drill_layers'].append({
             'format': 'Excellon',
             'path': str(layer.original_path),
             'plating': layer.plating_type,
+            'format_settings': format_settings,
         })
 
     print(json.dumps(out))

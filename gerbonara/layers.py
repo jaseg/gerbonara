@@ -471,7 +471,7 @@ class LayerStack:
 
             if layer_type in naming_scheme:
                 path = naming_scheme[layer_type].format(layer_number=num, board_name=self.board_name)
-            elif layer.original_path.name:
+            elif layer.original_path:
                 path = layer.original_path.name
             else:
                 path = f'{self.board_name}-{layer_type.replace(" ", "_")}.gbr'
@@ -695,16 +695,16 @@ class LayerStack:
 
     @property
     def copper_layers(self):
-        copper_layers = [ (key, layer) for key, layer in self.layers.items() if key.endswith('copper') ]
+        copper_layers = [ ((side, use), layer) for (side, use), layer in self.graphic_layers.items() if use == 'copper' ]
 
         def sort_layername(val):
-            key, _layer = val
-            if key.startswith('top'):
+            (side, use), _layer = val
+            if side == 'top':
                 return -1
-            if key.startswith('bottom'):
+            if side == 'bottom':
                 return 1e99
-            assert key.startswith('inner_')
-            return int(key[len('inner_'):])
+            assert side.startswith('inner_')
+            return int(side[len('inner_'):])
 
         return [ layer for _key, layer in sorted(copper_layers, key=sort_layername) ]
 
@@ -791,15 +791,16 @@ class LayerStack:
             self[target].merge(source)
 
     def merge(self, other):
-        all_keys = set(self.layers.keys()) | set(other.layers.keys())
-        exclude = { key.split() for key in STANDARD_LAYERS }
+        all_keys = set(self.graphic_layers.keys()) | set(other.graphic_layers.keys())
+        exclude = { tuple(key.split()) for key in STANDARD_LAYERS }
         all_keys = { key for key in all_keys if key not in exclude }
         if all_keys:
             warnings.warn('Cannot merge unknown layer types: {" ".join(all_keys)}')
 
         for side in 'top', 'bottom':
             for use in 'copper', 'mask', 'silk', 'paste':
-                self._merge_layer((side, use), other[side, use])
+                if (side, use) in other:
+                    self._merge_layer((side, use), other[side, use])
 
         our_inner, their_inner = self.copper_layers[1:-1], other.copper_layers[1:-1]
 
@@ -834,5 +835,9 @@ class LayerStack:
         self.drill_pth.merge(other.drill_pth)
         self.drill_npth.merge(other.drill_npth)
         self.drill_unknown.merge(other.drill_unknown)
-        self.netlist.merge(other.netlist)
+
+        if self.netlist:
+            self.netlist.merge(other.netlist)
+        else:
+            self.netlist = other.netlist
 
