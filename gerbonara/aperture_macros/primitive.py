@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # Copyright 2019 Hiroshi Murayama <opiopan@gmail.com>
-# Copyright 2022 Jan Götte <gerbonara@jaseg.de>
+# Copyright 2022 Jan Sebastian Götte <gerbonara@jaseg.de>
 
 import warnings
 import contextlib

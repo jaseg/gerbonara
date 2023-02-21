@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# Copyright 2021 Jan Götte <gerbonara@jaseg.de>
+# Copyright 2021 Jan Sebastian Götte <gerbonara@jaseg.de>
 
 import operator
 import re

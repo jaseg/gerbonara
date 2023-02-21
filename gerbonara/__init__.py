@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# Copyright 2022 Jan Götte <code@jaseg.de>
+# Copyright 2022 Jan Sebastian Götte <code@jaseg.de>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
