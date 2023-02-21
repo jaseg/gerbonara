@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2014 Hamilton Kibbe <ham@hamiltonkib.be>
-# Copyright 2022 Jan Götte <code@jaseg.de>
+# Copyright 2022 Jan Sebastian Götte <gerbonara@jaseg.de>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -258,7 +258,7 @@ class LayerStack:
         elif path.suffix.lower() == '.zip' or is_zipfile(path):
             return kls.open_zip(path, board_name=board_name, lazy=lazy, overrides=overrides, autoguess=autoguess)
         else:
-            return kls.from_files([path], board_name=board_name, lazy=lazy, overrides=overrides, autoguess=autoguess)
+            return kls.from_files([path], board_name=board_name, lazy=lazy, overrides=overrides, autoguess=False)
 
     @classmethod
     def open_zip(kls, file, original_path=None, board_name=None, lazy=False, overrides=None, autoguess=True):
@@ -294,7 +294,11 @@ class LayerStack:
         if autoguess:
             generator, filemap = best_match(files)
         else:
-            generator, filemap = 'custom', {}
+            generator = 'custom'
+            if overrides:
+                filemap = {}
+            else:
+                filemap = {'unknown unknown': files}
         all_generator_hints = set()
 
         if overrides:
@@ -310,7 +314,7 @@ class LayerStack:
                                 filemap[layer].remove(fn)
                             filemap[layer] = filemap.get(layer, []) + [fn]
 
-        if sum(len(files) for files in filemap.values()) < 6:
+        if sum(len(files) for files in filemap.values()) < 6 and autoguess:
             warnings.warn('Ambiguous gerber filenames. Trying last-resort autoguesser.')
             generator = None
             filemap = do_autoguess(files)
@@ -665,18 +669,18 @@ class LayerStack:
         self.drill_pth = self.drill_npth = self.drill_unknown = None
 
     def __len__(self):
-        return len(self.layers)
+        return len(self.graphic_layers)
 
     def get(self, index, default=None):
-        if self.contains(key):
-            return self[key]
+        if index in self:
+            return self[index]
         else:
             return default
 
     def __contains__(self, index):
         if isinstance(index, str):
             side, _, use = index.partition(' ')
-            return (side, use) in self.layers
+            return (side, use) in self.graphic_layers
 
         elif isinstance(index, tuple):
             return index in self.graphic_layers
@@ -718,7 +722,7 @@ class LayerStack:
 
     @property
     def outline(self):
-        return self['mechanical outline']
+        return self.get('mechanical outline')
 
     def outline_svg_d(self, tol=0.01, unit=MM):
         chains = self.outline_polygons(tol, unit)

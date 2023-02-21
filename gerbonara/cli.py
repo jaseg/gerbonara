@@ -1,4 +1,21 @@
-#!/usr/bin/env python3
+#! /usr/bin/env python
+# -*- coding: utf-8 -*-
+#
+# Copyright 2023 Jan Sebastian Götte <gerbonara@jaseg.de>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 
 import math
 import click
@@ -124,7 +141,7 @@ def cli():
 @click.option('--force-zip', is_flag=True, help='''Force treating input path as a zip file (default: guess file type
               from extension and contents)''')
 @click.option('--top/--bottom', default=True, help='Which side of the board to render')
-@click.option('--command-line-units', type=Unit(), default=MM, help='''Units for values given in other options. Default:
+@click.option('--command-line-units', type=Unit(), help='''Units for values given in other options. Default:
               millimeter''')
 @click.option('--margin', type=float, default=0.0, help='Add space around the board inside the viewport')
 @click.option('--force-bounds', help='Force SVG bounding box to value given as "min_x,min_y,max_x,max_y"')
@@ -155,7 +172,8 @@ def render(inpath, outfile, format_warnings, input_map, use_builtin_name_rules, 
     if colorscheme:
         colorscheme = json.loads(colorscheme.read_text())
 
-    outfile.write(str(stack.to_pretty_svg(side='top' if top else 'bottom', margin=margin, arg_unit=command_line_units,
+    outfile.write(str(stack.to_pretty_svg(side='top' if top else 'bottom', margin=margin,
+                                          arg_unit=(command_line_units or MM),
                       svg_unit=MM, force_bounds=force_bounds, inkscape=inkscape, colors=colorscheme)))
 
 
@@ -170,7 +188,7 @@ def render(inpath, outfile, format_warnings, input_map, use_builtin_name_rules, 
               move its bottom-left corner to the origin. Coordinates are given in --command-line-units, angles in
               degrees, and scale as a scale factor (as opposed to a percentage). Example: "translate(-10, 0); rotate(45,
               0, 5)"''')
-@click.option('--command-line-units', type=Unit(), default=MM, help='''Units for values given in other options. Default:
+@click.option('--command-line-units', type=Unit(), help='''Units for values given in other options. Default:
               millimeter''')
 @click.option('-n', '--number-format', help='''Override number format to use during export in "[integer digits].[decimal
               digits]" notation, e.g. "2.6".''')
@@ -212,7 +230,7 @@ def rewrite(transform, command_line_units, number_format, units, zero_suppressio
         f = GerberFile.open(infile, override_settings=input_settings)
 
     if transform:
-        apply_transform(transform, command_line_units, f)
+        apply_transform(transform, command_line_units or MM, f)
 
     output_format = FileSettings() if output_format == 'reuse' else FileSettings.defaults()
     if number_format:
@@ -238,7 +256,7 @@ def rewrite(transform, command_line_units, number_format, units, zero_suppressio
               rules and use only rules given by --input-map''')
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
               help='''Enable or disable file format warnings during parsing (default: on)''')
-@click.option('--units', type=Unit(), default=MM, help='Units for values given in other options. Default: millimeter')
+@click.option('--units', type=Unit(), help='Units for values given in other options. Default: millimeter')
 @click.option('-n', '--number-format', help='''Override number format to use during export in
               "[integer digits].[decimal digits]" notation, e.g. "2.6".''')
 @click.option('--reuse-input-settings', 'output_format', flag_value='reuse', help='''Use the same export settings as the
@@ -281,8 +299,8 @@ def transform(transform, units, output_format, inpath, outpath,
 
 
 @cli.command()
-@click.option('--command-line-units', type=Unit(), default=MM, help='Units for values given in --transform. Default:
-              millimeter')
+@click.option('--command-line-units', type=Unit(), help='''Units for values given in --transform. Default:
+              millimeter''')
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
               help='''Enable or disable file format warnings during parsing (default: on)''')
 @click.option('--offset', multiple=True, type=Coordinate(), help="""Offset for the n'th file as a "x,y" string in unit
@@ -333,7 +351,7 @@ def merge(inpath, outpath, offset, rotation, input_map, command_line_units, outp
             stack = LayerStack.open(p, overrides=overrides, autoguess=use_builtin_name_rules)
 
             if not math.isclose(offset[0], 0, abs_tol=1e-3) and math.isclose(offset[1], 0, abs_tol=1e-3):
-                stack.offset(*offset, command_line_units)
+                stack.offset(*offset, command_line_units or MM)
 
             if not math.isclose(theta, 0, abs_tol=1e-2):
                 stack.rotate(theta, cx, cy)
@@ -357,7 +375,7 @@ def merge(inpath, outpath, offset, rotation, input_map, command_line_units, outp
 @click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
               help='''Enable or disable file format warnings during parsing (default: on)''')
-@click.option('--units', type=Unit(), default=MM, help='Output bounding box in this unit (default: millimeter)')
+@click.option('--units', type=Unit(), help='Output bounding box in this unit (default: millimeter)')
 @click.option('--input-number-format', help='Override number format of input file (mostly useful for Excellon files)')
 @click.option('--input-units', type=Unit(), help='Override units of input file')
 @click.option('--input-zero-suppression', type=click.Choice(['off', 'leading', 'trailing']), help='Override zero suppression setting of input file')
