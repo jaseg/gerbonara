@@ -31,8 +31,8 @@ from .utils import *
 from ..utils import Inch, MM
 
 REFERENCE_FILES = {
-        'easyeda/Gerber_Drill_NPTH.DRL': (None, None),
-        'easyeda/Gerber_Drill_PTH.DRL': (None, 'easyeda/Gerber_TopLayer.GTL'),
+        'easyeda/Gerber_Drill_NPTH.DRL': (('inch', 'leading', 4), None),
+        'easyeda/Gerber_Drill_PTH.DRL': (('inch', 'leading', 4), 'easyeda/Gerber_TopLayer.GTL'),
         # Altium uses an excellon format specification format that gerbv doesn't understand, so we have to fix that.
         'altium-composite-drill/NC Drill/LimeSDR-QPCIe_1v2-SlotHoles.TXT': (('mm', 'trailing', 4), None),
         'altium-composite-drill/NC Drill/LimeSDR-QPCIe_1v2-RoundHoles.TXT': (('mm', 'trailing', 4), 'altium-composite-drill/Gerber/LimeSDR-QPCIe_1v2.GTL'),
@@ -57,7 +57,6 @@ REFERENCE_FILES = {
 def test_round_trip(reference, tmpfile):
     reference, (unit_spec, _) = reference
     tmp = tmpfile('Output excellon', '.drl')
-    print('unit spec', unit_spec)
 
     f = ExcellonFile.open(reference)
     f.save(tmp)
@@ -79,7 +78,6 @@ def test_first_level_idempotence_svg(reference, tmpfile):
     tmp = tmpfile('Output excellon', '.drl')
     ref_svg = tmpfile('Reference SVG render', '.svg')
     out_svg = tmpfile('Output SVG render', '.svg')
-    print('unit spec', unit_spec)
 
     a = ExcellonFile.open(reference)
     a.save(tmp)

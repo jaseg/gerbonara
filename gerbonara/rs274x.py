@@ -88,7 +88,7 @@ class GerberFile(CamFile):
         # dedup apertures
         new_apertures = {}
         replace_apertures = {}
-        mock_settings = FileSettings()
+        mock_settings = FileSettings.defaults()
         for ap in self.apertures + other.apertures:
             gbr = ap.to_gerber(mock_settings)
             if gbr not in new_apertures:

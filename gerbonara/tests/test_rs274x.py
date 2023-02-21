@@ -150,7 +150,6 @@ REFERENCE_FILES = [ l.strip() for l in '''
     pcb-rnd/power-art.gko
     pcb-rnd/power-art.ast
     pcb-rnd/power-art.gtl
-    pcb-rnd/power-art.lht
     pcb-rnd/power-art.gto
     pcb-rnd/power-art.gtp
     pcb-rnd/power-art.asb
@@ -206,7 +205,6 @@ REFERENCE_FILES = [ l.strip() for l in '''
     siemens-2/Gerber/SolderPasteBottom.gdo
     siemens-2/Gerber/SolderPasteTop.gdo
     siemens-2/Gerber/EtchLayerBottom.gdo
-    siemens-2/Gerber/GerberPlot.gpf
     siemens-2/Gerber/BoardOutlline.gdo
     upverter/design_export.gko
     upverter/design_export.gtl

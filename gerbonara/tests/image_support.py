@@ -104,6 +104,7 @@ def gerbv_export(in_gbr, out_svg, export_format='svg', origin=(0, 0), size=(6, 6
     cachefile = cachedir / f'{digest}.svg'
 
     if not cachefile.is_file():
+        print(f'Building cache for {Path(in_gbr).name}')
         # NOTE: gerbv seems to always export 'clear' polarity apertures as white, irrespective of --foreground, --background
         # and project file color settings.
         # TODO: File issue upstream.
@@ -138,6 +139,8 @@ def gerbv_export(in_gbr, out_svg, export_format='svg', origin=(0, 0), size=(6, 6
                 f'--foreground={fg}',
                 '-o', str(cachefile), '-p', f.name]
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        print(f'Re-using cache for {Path(in_gbr).name}')
     shutil.copy(cachefile, out_svg)
 
 @contextmanager

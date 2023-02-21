@@ -67,6 +67,21 @@ class Coordinate(click.ParamType):
         except ValueError:
             self.fail(f'{value!r} is not a valid coordinate. A coordinate consists of exactly {self.dimension} comma-separate floating-point numbers.')
 
+class Rotation(click.ParamType):
+    name = 'rotation'
+
+    def convert(self, value, param, ctx):
+        try:
+            coords = map(float, value.split(','))
+            if len(coords) not in (1, 3):
+                raise ValueError()
+
+            theta, x, y, *_rest = *coords, 0, 0
+            return theta, x, y
+
+        except ValueError:
+            self.fail(f'{value!r} is not a valid rotation. A rotation is either a floating point angle ("[theta]"), or the same angle followed by comma-separated X and Y coordinates of the rotation center ("[theta],[cx],[cy]").')
+
 
 class Unit(click.Choice):
     name = 'unit'
@@ -109,7 +124,8 @@ def cli():
 @click.option('--force-zip', is_flag=True, help='''Force treating input path as a zip file (default: guess file type
               from extension and contents)''')
 @click.option('--top/--bottom', default=True, help='Which side of the board to render')
-@click.option('--command-line-units', type=Unit(), default=MM, help='Units for values given in other options. Default: millimeter')
+@click.option('--command-line-units', type=Unit(), default=MM, help='''Units for values given in other options. Default:
+              millimeter''')
 @click.option('--margin', type=float, default=0.0, help='Add space around the board inside the viewport')
 @click.option('--force-bounds', help='Force SVG bounding box to value given as "min_x,min_y,max_x,max_y"')
 @click.option('--inkscape/--standard-svg', default=True, help='Export in Inkscape SVG format with layers and stuff.')
@@ -147,24 +163,31 @@ def render(inpath, outfile, format_warnings, input_map, use_builtin_name_rules, 
 @click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
               help='''Enable or disable file format warnings during parsing (default: on)''')
-@click.option('-t', '--transform', help='''Execute python transformation script on input. You have access to the functions
-              translate(x, y), scale(factor) and rotate(angle, center_x?, center_y?), the bounding box variables x_min,
-              y_min, x_max, y_max, width and height, and everything from python\'s built-in math module (e.g. pi, sqrt,
-              sin). As convenience methods, center() and origin() are provided to center the board resp. move its
-              bottom-left corner to the origin. Coordinates are given in --command-line-units, angles in degrees, and
-              scale as a scale factor (as opposed to a percentage). Example: "translate(-10, 0); rotate(45, 0, 5)"''')
-@click.option('--command-line-units', type=Unit(), default=MM, help='Units for values given in other options. Default: millimeter')
-@click.option('-n', '--number-format', help='Override number format to use during export in "[integer digits].[decimal digits]" notation, e.g. "2.6".')
+@click.option('-t', '--transform', help='''Execute python transformation script on input. You have access to the
+              functions translate(x, y), scale(factor) and rotate(angle, center_x?, center_y?), the bounding box
+              variables x_min, y_min, x_max, y_max, width and height, and everything from python\'s built-in math module
+              (e.g. pi, sqrt, sin). As convenience methods, center() and origin() are provided to center the board resp.
+              move its bottom-left corner to the origin. Coordinates are given in --command-line-units, angles in
+              degrees, and scale as a scale factor (as opposed to a percentage). Example: "translate(-10, 0); rotate(45,
+              0, 5)"''')
+@click.option('--command-line-units', type=Unit(), default=MM, help='''Units for values given in other options. Default:
+              millimeter''')
+@click.option('-n', '--number-format', help='''Override number format to use during export in "[integer digits].[decimal
+              digits]" notation, e.g. "2.6".''')
 @click.option('-u', '--units', type=Unit(), help='Override export file units')
-@click.option('-z', '--zero-suppression', type=click.Choice(['off', 'leading', 'trailing']), help='Override export zero suppression setting. Note: The meaning of this value is like in the Gerber spec for both Gerber and Excellon files!')
-@click.option('--keep-comments/--drop-comments', help='Keep gerber comments. Note: Comments will be prepended to the start of file, and will not occur in their old position.')
+@click.option('-z', '--zero-suppression', type=click.Choice(['off', 'leading', 'trailing']), help='''Override export
+              zero suppression setting. Note: The meaning of this value is like in the Gerber spec for both Gerber and
+              Excellon files!''')
+@click.option('--keep-comments/--drop-comments', help='''Keep gerber comments. Note: Comments will be prepended to the
+              start of file, and will not occur in their old position.''')
 @click.option('--reuse-input-settings', 'output_format', flag_value='reuse', help='''Use the same export settings as the
               input file instead of sensible defaults.''')
 @click.option('--default-settings', 'output_format', default=True, flag_value='defaults', help='''Use sensible defaults
               for the output file format settings (default).''')
 @click.option('--input-number-format', help='Override number format of input file (mostly useful for Excellon files)')
 @click.option('--input-units', type=Unit(), help='Override units of input file')
-@click.option('--input-zero-suppression', type=click.Choice(['off', 'leading', 'trailing']), help='Override zero suppression setting of input file')
+@click.option('--input-zero-suppression', type=click.Choice(['off', 'leading', 'trailing']), help='''Override zero
+              suppression setting of input file''')
 @click.argument('infile')
 @click.argument('outfile')
 def rewrite(transform, command_line_units, number_format, units, zero_suppression, keep_comments, output_format,
@@ -258,15 +281,16 @@ def transform(transform, units, output_format, inpath, outpath,
 
 
 @cli.command()
-@click.option('--command-line-units', type=click.Choice(['metric', 'us-customary']), default='metric', help='Units for values given in --transform. Default: millimeter')
+@click.option('--command-line-units', type=Unit(), default=MM, help='Units for values given in --transform. Default:
+              millimeter')
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
               help='''Enable or disable file format warnings during parsing (default: on)''')
 @click.option('--offset', multiple=True, type=Coordinate(), help="""Offset for the n'th file as a "x,y" string in unit
               given by --command-line-units (default: millimeter). Can be given multiple times, and the first option
               affects the first input, the second option affects the second input, and so on.""")
-@click.option('--rotation', multiple=True, type=int, help="""Rotation for the n'th file in degrees clockwise. Can be
-              given multiple times, and the first option affects the first input, the second option affects the second
-              input, and so on.""")
+@click.option('--rotation', multiple=True, type=Rotation(), help="""Rotation for the n'th file in degrees clockwise,
+              optionally followed by comma-separated rotation center X and Y coordinates. Can be given multiple times,
+              and the first option affects the first input, the second option affects the second input, and so on.""")
 @click.option('-m', '--input-map', type=click.Path(exists=True, path_type=Path), multiple=True, help='''Extend or
               override layer name mapping with name map from JSON file. This option can be given multiple times, in
               which case the n'th option affects only the n'th input, like with --offset and --rotation. The JSON file
@@ -300,13 +324,20 @@ def merge(inpath, outpath, offset, rotation, input_map, command_line_units, outp
             raise click.UsageError('More --offset, --rotation or --input-map options than input files')
 
         offset = offset or (0, 0)
-        rotation = rotation or 0
+        theta, cx, cy = rotation or 0, 0, 0
 
         overrides = json.loads(input_map.read_bytes()) if input_map else None
         with warnings.catch_warnings():
             warnings.simplefilter(format_warnings)
 
             stack = LayerStack.open(p, overrides=overrides, autoguess=use_builtin_name_rules)
+
+            if not math.isclose(offset[0], 0, abs_tol=1e-3) and math.isclose(offset[1], 0, abs_tol=1e-3):
+                stack.offset(*offset, command_line_units)
+
+            if not math.isclose(theta, 0, abs_tol=1e-2):
+                stack.rotate(theta, cx, cy)
+
             if target is None:
                 target = stack
             else:

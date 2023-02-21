@@ -1,7 +1,6 @@
 G04 ex2: overlapping*
 %FSLAX24Y24*%
 %MOMM*%
-%SRX1Y1I0.000J0.000*%
 %ADD10C,1.00000*%
 G01*
 %LPD*%

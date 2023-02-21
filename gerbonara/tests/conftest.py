@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from .image_support import ImageDifference
+from .image_support import ImageDifference, run_cargo_cmd
 
 def pytest_assertrepr_compare(op, left, right):
     if isinstance(left, ImageDifference) or isinstance(right, ImageDifference):
@@ -28,3 +28,8 @@ def pytest_sessionstart(session):
     # on coordinator
     for f in chain(fail_dir.glob('*.gbr'), fail_dir.glob('*.png')):
         f.unlink()
+
+    try:
+        run_cargo_cmd('resvg', '--help')
+    except FileNotFoundError:
+        pytest.exit('resvg binary not found, aborting test.', 2)

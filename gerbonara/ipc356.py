@@ -326,17 +326,17 @@ class NetlistParser(object):
 
             if name == 'UNITS':
                 if value in ('CUST', 'CUST 0'):
-                    self.settings.units = Inch
+                    self.settings.unit = Inch
                     self.settings.angle_unit = 'degree'
                     self.has_unit = True
 
                 elif value == 'CUST 1':
-                    self.settings.units = MM
+                    self.settings.unit = MM
                     self.settings.angle_unit = 'degree'
                     self.has_unit = True
 
                 elif value == 'CUST 2':
-                    self.settings.units = Inch
+                    self.settings.unit = Inch
                     self.settings.angle_unit = 'radian'
                     self.has_unit = True
 

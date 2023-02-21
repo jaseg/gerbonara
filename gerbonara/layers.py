@@ -154,7 +154,7 @@ def common_prefix(l):
  
     return sorted(out, key=len)[-1]
 
-def autoguess(filenames):
+def do_autoguess(filenames):
     prefix = common_prefix([f.name for f in filenames])
 
     matches = {}
@@ -313,7 +313,7 @@ class LayerStack:
         if sum(len(files) for files in filemap.values()) < 6:
             warnings.warn('Ambiguous gerber filenames. Trying last-resort autoguesser.')
             generator = None
-            filemap = autoguess(files)
+            filemap = do_autoguess(files)
             if len(filemap) < 6:
                 raise ValueError('Cannot figure out gerber file mapping. Partial map is: ', filemap)
 
@@ -338,13 +338,13 @@ class LayerStack:
             # Ignore if we can't find the param file -- maybe the user has convinced Allegro to actually put this
             # information into a comment, or maybe they have made Allegro just use decimal points like XNC does.
 
-            filemap = autoguess([ f for files in filemap.values() for f in files ])
+            filemap = do_autoguess([ f for files in filemap.values() for f in files ])
             if len(filemap) < 6:
                 raise SystemError('Cannot figure out gerber file mapping')
             # FIXME use layer metadata from comments and ipc file if available
 
         elif generator == 'zuken':
-            filemap = autoguess([ f for files in filemap.values() for f in files ])
+            filemap = do_autoguess([ f for files in filemap.values() for f in files ])
             if len(filemap) < 6:
                 raise SystemError('Cannot figure out gerber file mapping')
             # FIXME use layer metadata from comments and ipc file if available
