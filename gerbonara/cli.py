@@ -299,6 +299,7 @@ def transform(transform, units, output_format, inpath, outpath,
 
 
 @cli.command()
+@click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
 @click.option('--command-line-units', type=Unit(), help='''Units for values given in --transform. Default:
               millimeter''')
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
