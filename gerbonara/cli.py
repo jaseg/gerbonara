@@ -29,7 +29,7 @@ from pathlib import Path
 from .utils import MM, Inch
 from .cam import FileSettings
 from .rs274x import GerberFile
-from .layers import LayerStack, NamingScheme
+from . import layers as lyr
 from . import __version__
 
 
@@ -54,7 +54,7 @@ def apply_transform(transform, unit, layer_or_stack):
         layer_or_stack.scale(factor)
 
     def rotate(angle, cx=0, cy=0):
-        layer_or_stack.rotate(math.radians(angle), (cx, cy), unit)
+        layer_or_stack.rotate(math.radians(angle), cx, cy, unit)
 
     (x_min, y_min), (x_max, y_max) = layer_or_stack.bounding_box(unit, default=((0, 0), (0, 0)))
     width, height = x_max - x_min, y_max - y_min
@@ -76,7 +76,7 @@ class Coordinate(click.ParamType):
     
     def convert(self, value, param, ctx):
         try:
-            coords = map(float, value.split(','))
+            coords = [float(e) for e in value.split(',')]
             if len(coords) != self.dimension:
                 raise ValueError()
             return coords
@@ -89,7 +89,7 @@ class Rotation(click.ParamType):
 
     def convert(self, value, param, ctx):
         try:
-            coords = map(float, value.split(','))
+            coords = [float(e) for e in value.split(',')]
             if len(coords) not in (1, 3):
                 raise ValueError()
 
@@ -115,10 +115,10 @@ class NamingScheme(click.Choice):
     name = 'naming_scheme'
 
     def __init__(self):
-        super().__init__([n for n in dir(NamingScheme) if not n.startswith('_')])
+        super().__init__([n for n in dir(lyr.NamingScheme) if not n.startswith('_')])
 
     def convert(self, value, param, ctx):
-        return getattr(NamingScheme, super().convert(value, param, ctx))
+        return getattr(lyr.NamingScheme, super().convert(value, param, ctx))
 
 
 @click.group()
@@ -161,9 +161,9 @@ def render(inpath, outfile, format_warnings, input_map, use_builtin_name_rules, 
     with warnings.catch_warnings():
         warnings.simplefilter(format_warnings)
         if force_zip:
-            stack = LayerStack.open_zip(inpath, overrides=overrides, autoguess=use_builtin_name_rules)
+            stack = lyr.LayerStack.open_zip(inpath, overrides=overrides, autoguess=use_builtin_name_rules)
         else:
-            stack = LayerStack.open(inpath, overrides=overrides, autoguess=use_builtin_name_rules)
+            stack = lyr.LayerStack.open(inpath, overrides=overrides, autoguess=use_builtin_name_rules)
 
     if force_bounds:
         min_x, min_y, max_x, max_y = list(map(float, force_bounds.split(',')))
@@ -210,10 +210,10 @@ def render(inpath, outfile, format_warnings, input_map, use_builtin_name_rules, 
 @click.argument('outfile')
 def rewrite(transform, command_line_units, number_format, units, zero_suppression, keep_comments, output_format,
             input_number_format, input_units, input_zero_suppression, infile, outfile, format_warnings):
-    """ Parse a gerber file, apply transformations, and re-serialize it into a new gerber file. Without transformations,
-    this command can be used to convert a gerber file to use different settings (e.g. units, precision), but can also be
-    used to "normalize" gerber files in a weird format into a more standards-compatible one as gerbonara's gerber parser
-    is significantly more robust for weird inputs than others. """
+    """ Parse a single gerber file, apply transformations, and re-serialize it into a new gerber file. Without
+    transformations, this command can be used to convert a gerber file to use different settings (e.g. units,
+    precision), but can also be used to "normalize" gerber files in a weird format into a more standards-compatible one
+    as gerbonara's gerber parser is significantly more robust for weird inputs than others. """
 
     input_settings = FileSettings()
     if input_number_format:
@@ -232,12 +232,13 @@ def rewrite(transform, command_line_units, number_format, units, zero_suppressio
     if transform:
         apply_transform(transform, command_line_units or MM, f)
 
-    output_format = FileSettings() if output_format == 'reuse' else FileSettings.defaults()
+    output_format = f.import_settings if output_format == 'reuse' else FileSettings.defaults()
     if number_format:
         a, _, b = number_format.partition('.')
         output_format.number_format = (int(a), int(b))
 
-    output_format.unit = units
+    if units:
+        output_format.unit = units
 
     if zero_suppression:
         output_format.zeros = None if zero_suppression == 'off' else zero_suppression
@@ -286,13 +287,13 @@ def transform(transform, units, output_format, inpath, outpath,
     with warnings.catch_warnings():
         warnings.simplefilter(format_warnings)
         if force_zip:
-            stack = LayerStack.open_zip(path, overrides=overrides, autoguess=use_builtin_name_rules)
+            stack = lyr.LayerStack.open_zip(path, overrides=overrides, autoguess=use_builtin_name_rules)
         else:
-            stack = LayerStack.open(path, overrides=overrides, autoguess=use_builtin_name_rules)
+            stack = lyr.LayerStack.open(path, overrides=overrides, autoguess=use_builtin_name_rules)
 
     apply_transform(transform, units, stack)
 
-    output_format = FileSettings() if output_format == 'reuse' else FileSettings.defaults()
+    output_format = None if output_format == 'reuse' else FileSettings.defaults()
     stack.save_to_directory(outpath, naming_scheme=output_naming_scheme or {},
                             gerber_settings=output_format,
                             excellon_settings=dataclasses.replace(output_format, zeros=None))
@@ -343,13 +344,13 @@ def merge(inpath, outpath, offset, rotation, input_map, command_line_units, outp
             raise click.UsageError('More --offset, --rotation or --input-map options than input files')
 
         offset = offset or (0, 0)
-        theta, cx, cy = rotation or 0, 0, 0
+        theta, cx, cy = rotation or (0, 0, 0)
 
         overrides = json.loads(input_map.read_bytes()) if input_map else None
         with warnings.catch_warnings():
             warnings.simplefilter(format_warnings)
 
-            stack = LayerStack.open(p, overrides=overrides, autoguess=use_builtin_name_rules)
+            stack = lyr.LayerStack.open(p, overrides=overrides, autoguess=use_builtin_name_rules)
 
             if not math.isclose(offset[0], 0, abs_tol=1e-3) and math.isclose(offset[1], 0, abs_tol=1e-3):
                 stack.offset(*offset, command_line_units or MM)
@@ -366,7 +367,7 @@ def merge(inpath, outpath, offset, rotation, input_map, command_line_units, outp
         if not output_naming_scheme:
             warnings.warn('--output-board-name given without --output-naming-scheme. This will be ignored.')
         target.board_name = output_board_name
-    output_format = FileSettings() if output_format == 'reuse' else FileSettings.defaults()
+    output_format = None if output_format == 'reuse' else FileSettings.defaults()
     target.save_to_directory(outpath, naming_scheme=output_naming_scheme or {},
                             gerber_settings=output_format,
                             excellon_settings=dataclasses.replace(output_format, zeros=None))
@@ -406,17 +407,19 @@ def bounding_box(infile, format_warnings, input_number_format, input_units, inpu
 
 
 @cli.command()
+@click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
               help='''Enable or disable file format warnings during parsing (default: on)''')
 @click.option('--force-zip', is_flag=True, help='Force treating input path as zip file (default: guess file type from extension and contents)')
 @click.argument('path', type=click.Path(exists=True))
 def layers(path, force_zip, format_warnings):
+    """ Read layers from a directory or zip with Gerber files and list the found layer / path assignment. """ 
     with warnings.catch_warnings():
         warnings.simplefilter(format_warnings)
         if force_zip:
-            stack = LayerStack.open_zip(path)
+            stack = lyr.LayerStack.open_zip(path)
         else:
-            stack = LayerStack.open(path)
+            stack = lyr.LayerStack.open(path)
 
     print(f'Detected board name: {stack.board_name}')
     print(f'Probably exported by: {stack.generator or "Unknown"}')
@@ -441,6 +444,7 @@ def layers(path, force_zip, format_warnings):
 
 
 @cli.command()
+@click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), help='''Enable or
               disable file format warnings during parsing (default: on)''')
 @click.option('--force-zip', is_flag=True, help='Force treating input path as zip file (default: guess file type from extension and contents)')
@@ -452,9 +456,9 @@ def meta(path, force_zip, format_warnings):
     with warnings.catch_warnings():
         warnings.simplefilter(format_warnings)
         if force_zip:
-            stack = LayerStack.open_zip(path)
+            stack = lyr.LayerStack.open_zip(path)
         else:
-            stack = LayerStack.open(path)
+            stack = lyr.LayerStack.open(path)
 
     out = {}
     out['board_name'] = stack.board_name

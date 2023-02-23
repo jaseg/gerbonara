@@ -292,7 +292,7 @@ class GerberFile(CamFile):
         for obj in self.objects:
             obj.offset(dx, dy, unit)
 
-    def rotate(self, angle:'radian', center=(0,0), unit=MM):
+    def rotate(self, angle:'radian', cx=0, cy=0, unit=MM):
         if math.isclose(angle % (2*math.pi), 0):
             return
 
@@ -302,7 +302,7 @@ class GerberFile(CamFile):
             ap.rotation += angle
 
         for obj in self.objects:
-            obj.rotate(angle, *center, unit)
+            obj.rotate(angle, cx, cy, unit)
 
     def invert_polarity(self):
         """ Invert the polarity (color) of each object in this file. """

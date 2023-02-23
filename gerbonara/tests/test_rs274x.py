@@ -336,7 +336,7 @@ def test_rotation_center(reference, angle, center, tmpfile):
     tmp_gbr = tmpfile('Output gerber', '.gbr')
 
     f = GerberFile.open(reference)
-    f.rotate(math.radians(angle), center=center)
+    f.rotate(math.radians(angle), *center)
     f.save(tmp_gbr)
 
     # calculate circle center in SVG coordinates 
@@ -379,7 +379,7 @@ def test_combined(reference, angle, center, offset, tmpfile):
     tmp_gbr = tmpfile('Output gerber', '.gbr')
 
     f = GerberFile.open(reference)
-    f.rotate(math.radians(angle), center=center)
+    f.rotate(math.radians(angle), *center)
     f.offset(*offset)
     f.save(tmp_gbr, settings=FileSettings(unit=f.unit, number_format=(4,7)))
 
