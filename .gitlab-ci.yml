@@ -99,6 +99,7 @@ publish:gerbonara:
   cache: {}
   script:
     - export TWINE_USERNAME TWINE_PASSWORD
+    - pip3 install --user twine rich
     - twine upload dist/*
   dependencies:
     - build:archlinux
