@@ -247,9 +247,10 @@ class LayerStack:
     """ :py:class:`LayerStack` represents a set of Gerber files that describe different layers of the same board.
 
     :ivar graphic_layers: :py:obj:`dict` mapping :py:obj:`(side, use)` tuples to the Gerber layers of the board.
-                          :py:obj:`side` can be one of :py:obj:`"top"` or :py:obj:`"bottom"`, or a numbered internal
-                          layer such as :py:obj:`"inner2"`. :py:obj:`use` can be one of :py:obj:`"silk", :py:obj:`mask`,
-                          :py:obj:`paste` or :py:obj:`copper`. For internal layers, only :py:obj:`copper` is valid.
+                          :py:obj:`side` can be one of :py:obj:`"top"`, :py:obj:`"bottom"`, :py:obj:`"mechanical"`, or a
+                          numbered internal layer such as :py:obj:`"inner2"`. :py:obj:`use` can be one of
+                          :py:obj:`"silk", :py:obj:`mask`, :py:obj:`paste` or :py:obj:`copper`. For internal layers,
+                          only :py:obj:`copper` is valid.
     :ivar board_name: Name of this board as parse from the input filenames, as a :py:obj:`str`. You can overwrite this
                       attribute with a different name, which will then be used during saving with the built-in file
                       naming rules.
@@ -664,10 +665,10 @@ class LayerStack:
                        color scheme. When given, must be a dict mapping semantic :py:obj:`"side use"` layer names such
                        as :py:obj:`"top copper"` to a HTML-like hex color code such as :py:obj:`#ff00ea`. Transparency
                        is supported through 8-digit color codes. When 8 digits are given, the last two digits are used
-                       as the layer's alpha channel. Valid side values in the layer name strings are :py:obj:`"top"` and
-                       :py:obj:`"bottom"` as well as :py:obj:`"inner1"`, :py:obj:`"inner2"` etc. for internal layers.
-                       Valid use values are :py:obj:`"mask"`, :py:obj:`"silk"`, :py:obj:`"paste"`, and
-                       :py:obj:`"copper"`. For internal layers, only :py:obj:`"copper"` is valid.
+                       as the layer's alpha channel. Valid side values in the layer name strings are :py:obj:`"top"`,
+                       :py:obj:`"bottom"`, and :py:obj:`"mechanical"` as well as :py:obj:`"inner1"`, :py:obj:`"inner2"`
+                       etc. for internal layers. Valid use values are :py:obj:`"mask"`, :py:obj:`"silk"`,
+                       :py:obj:`"paste"`, and :py:obj:`"copper"`. For internal layers, only :py:obj:`"copper"` is valid.
         :rtype: :py:obj:`str`
         """
         if colors is None:
@@ -798,6 +799,9 @@ class LayerStack:
             layer.scale(factor)
 
     def merge_drill_layers(self):
+        """ Merge all drill layers of this board into a single drill layer containing all objetcs. You can access this
+        drill layer under the :py:attr:`.LayerStack.drill_unknown` attribute. The original layers are removed from the
+        board. """
         target = ExcellonFile(comments=['Drill files merged by gerbonara'])
 
         for layer in self.drill_layers:
@@ -810,6 +814,9 @@ class LayerStack:
         self.drill_unknown = target
 
     def normalize_drill_layers(self):
+        """ Take everything from all drill layers of this board, and sort it into three new drill layers: One with all
+        non-plated objects, one with all plated objects, and one for all leftover objects with unknown plating. This
+        method replaces the board's drill layers with these three sorted ones. """
         # TODO: maybe also separate into drill and route?
         drill_pth, drill_npth, drill_aux = [], [], []
 
@@ -848,6 +855,8 @@ class LayerStack:
 
     @property
     def drill_layers(self):
+        """ Return all of this board's drill layers as a list. Returns an empty list if the board does not have any
+        drill layers. """
         if self._drill_layers:
             return self._drill_layers
         if self.drill_pth or self.drill_npth or self.drill_unknown:
@@ -890,6 +899,8 @@ class LayerStack:
 
     @property
     def copper_layers(self):
+        """ Return all copper layers of this board as a list. Returns an empty list if the board does not have any
+        copper layers. """
         copper_layers = [ ((side, use), layer) for (side, use), layer in self.graphic_layers.items() if use == 'copper' ]
 
         def sort_layername(val):
@@ -905,17 +916,27 @@ class LayerStack:
 
     @property
     def top_side(self):
+        """ Return a dict containing the subset of layers from :py:meth:`~.layers.LayerStack.graphic_layers` that are on
+        the board's top side. Includes the board outline layer, if available. """
         return { key: self[key] for key in ('top copper', 'top mask', 'top silk', 'top paste', 'mechanical outline') }
 
     @property
     def bottom_side(self):
+        """ Return a dict containing the subset of layers from :py:meth:`~.layers.LayerStack.graphic_layers` that are on
+        the board's bottom side. Includes the board outline layer, if available. """
         return { key: self[key] for key in ('bottom copper', 'bottom mask', 'bottom silk', 'bottom paste', 'mechanical outline') }
 
     @property
     def outline(self):
+        """ Return this board's outline layer if available, or :py:obj:`None`. """
         return self.get('mechanical outline')
 
     def outline_svg_d(self, tol=0.01, unit=MM):
+        """ Return this board's outline as SVG path data.
+
+        :param tol: :py:obj:`float` setting the tolerance below which two points are considered equal
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). SVG document unit. Default: mm
+        """
         chains = self.outline_polygons(tol, unit)
         polys = []
         for chain in chains:
@@ -926,6 +947,19 @@ class LayerStack:
         return ' '.join(polys)
 
     def outline_polygons(self, tol=0.01, unit=MM):
+        """ Iterator yielding this boards outline as a list of ordered :py:class:`~.graphic_objects.Arc` and
+        :py:class:`~.graphic_objects.Line` objects. This method first sorts all lines and arcs on the outline layer into
+        connected components, then orders them such that one object's end point is the next object's start point,
+        flipping them where necessary. It yields one list of (likely mixed) :py:class:`~.graphic_objects.Arc` and
+        :py:class:`~.graphic_objects.Line` objects per connected component.
+
+        This method exists because the only convention in Gerber or Excellon outline files is that the outline segments
+        are *visually contiguous*, but that does not necessarily mean that they will be in any particular order inside
+        the G-code.
+
+        :param tol: :py:obj:`float` setting the tolerance below which two points are considered equal
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). SVG document unit. Default: mm
+        """
         polygons = []
         lines = [ obj.as_primitive(unit) for obj in self.outline.instance.objects if isinstance(obj, (go.Line, go.Arc)) ]
 
@@ -975,7 +1009,7 @@ class LayerStack:
             yield l
 
 
-    def _merge_layer(self, target, source):
+    def _merge_layer(self, target, source, mode='above'):
         if source is None:
             return
         
@@ -983,9 +1017,18 @@ class LayerStack:
             self[target] = source
 
         else:
-            self[target].merge(source)
+            self[target].merge(source, mode)
 
-    def merge(self, other):
+    def merge(self, other, mode='above'):
+        """ Merge ``other`` into ``self``, i.e. for all layers, add all objects that are in ``other`` to ``self``. This
+        resets :py:attr:`.import_settings` and :py:attr:`~.CamFile.generator` on all layers. Units and other
+        file-specific settings are handled automatically. For the meaning of the ``mode`` parameter, see
+        :py:meth:`.GerberFile.merge`.
+
+        Layers are matched by their logical side and function as they are found in
+        :py:meth:`.LayerStack.graphic_layers`. Drill layers are normalized before merging, which splits them into
+        exactly three drill layers: An non-plated one, a plated one, and a (hopefully empty) unknown plating one.
+        """
         all_keys = set(self.graphic_layers.keys()) | set(other.graphic_layers.keys())
         exclude = { tuple(key.split()) for key in STANDARD_LAYERS }
         all_keys = { key for key in all_keys if key not in exclude }
@@ -995,7 +1038,7 @@ class LayerStack:
         for side in 'top', 'bottom':
             for use in 'copper', 'mask', 'silk', 'paste':
                 if (side, use) in other:
-                    self._merge_layer((side, use), other[side, use])
+                    self._merge_layer((side, use), other[side, use], mode)
 
         our_inner, their_inner = self.copper_layers[1:-1], other.copper_layers[1:-1]
 

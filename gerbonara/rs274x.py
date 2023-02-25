@@ -46,6 +46,20 @@ def points_close(a, b):
 
 class GerberFile(CamFile):
     """ A single gerber file.
+
+    :ivar objects: List of objects in this Gerber file. All elements must be subclasses of :py:class:`.GraphicObject`.
+    :ivar comments: List of string with textual comments in the source Gerber file. These are not saved by default, but
+                    when you call :py:meth:`.GerberFile.save` with ``drop_comments=False``, the contents of this list
+                    will be included as comments at the top of the output file.
+    :ivar generator_hints: List of strings indicating which EDA tool generated this file. Hints are added to this list
+                           during file parsing whenever the parser encounters an idiosyncratic file format variation.
+    :ivar import_settings: File format settings used in the original file. This can be empty if this
+                           :py:class:`.GerberFile` was generated programatically. 
+    :ivar layer_hints: Similar to ``generator_hints``, this is a list containing hints which layer type this file could
+                       belong to. Usually, this will be empty, but some EDA tools automatically include layer
+                       information inside tool-specific comments in the Gerber files they generate.
+    :ivar apertures: List of apertures used in this file. Make sure you keep this in sync when adding new objects.
+    :ivar file_attrs: List of strings with Gerber X3 file attributes. Each list item corresponds to one file attribute.
     """
 
     def __init__(self, objects=None, comments=None, import_settings=None, original_path=None, generator_hints=None,
@@ -83,6 +97,16 @@ class GerberFile(CamFile):
         return
 
     def merge(self, other, mode='above', keep_settings=False):
+        """ Merge ``other`` into ``self``, i.e. add all objects that are in ``other`` to ``self``. This resets
+        :py:attr:`.import_settings` and :py:attr:`~.GerberFile.generator`. Units and other file-specific settings are
+        handled automatically.
+
+        :param mode: One of the strings :py:obj:`"above"` (default) or :py:obj:`"below"`, specifying whether the other
+            layer's objects will be placed above this layer's objects (placing them towards the end of the file), or
+            below this layer's objects (placing them towards the beginning of the file). This setting is only relevant
+            when there are overlapping objects of different polarity, otherwise the rendered result will be the same
+            either way.
+        """
         if other is None:
             return
 
@@ -109,6 +133,7 @@ class GerberFile(CamFile):
             self.objects += other.objects
         else:
             raise ValueError(f'Invalid mode "{mode}", must be one of "above" or "below".')
+
         for obj in self.objects:
             # If object has an aperture attribute, replace that aperture.
             if (ap := replace_apertures.get(id(getattr(obj, 'aperture', None)))):
@@ -316,7 +341,8 @@ class GerberFile(CamFile):
     
 
 class GraphicsState:
-    """ Internal class used to track Gerber processing state during import and export. """
+    """ Internal class used to track Gerber processing state during import and export.
+    """
 
     def __init__(self, warn, file_settings=None, aperture_map=None):
         self.image_polarity = 'positive' # IP image polarity; deprecated
@@ -527,7 +553,8 @@ class GraphicsState:
 
 
 class GerberParser:
-    """ Internal class that contains all of the actual Gerber parsing magic. """
+    """ Internal class that contains all of the actual Gerber parsing magic.
+    """
 
     NUMBER = r"[\+-]?\d+"
     DECIMAL = r"[\+-]?\d+([.]?\d+)?"

@@ -357,7 +357,7 @@ class CamFile:
     def merge(self, other):
         """ Merge ``other`` into ``self``, i.e. add all objects that are in ``other`` to ``self``. This resets
         :py:attr:`.import_settings` and :py:attr:`~.CamFile.generator`. Units and other file-specific settings are
-        automatically handled.
+        handled automatically.
         """
         raise NotImplementedError()
 
