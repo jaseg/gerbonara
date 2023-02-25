@@ -20,7 +20,9 @@
 Gerbonara
 =========
 
-gerbonara provides utilities for working with Gerber (RS-274X) and Excellon files in python.
+gerbonara provides utilities for working with PCB artwork files in Gerber/RS274-X, XNC/Excellon and IPC-356 formats. It
+includes convenience functions to match file names to layer types that match the default settings of a number of common
+EDA tools.
 """
 
 from .rs274x import GerberFile

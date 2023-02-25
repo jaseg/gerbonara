@@ -162,6 +162,8 @@ def parse_allegro_logfile(data):
     return found_tools
 
 def parse_zuken_logfile(data):
+    """ Internal function to parse Excellon format information out of Zuken's nonstandard textual log files that their
+    tools generate along with the Excellon file. """
     lines = [ line.strip() for line in data.splitlines() ]
     if '*****  DRILL LIST  *****' not in lines:
         return # likely not a Zuken CR-8000 logfile 
@@ -251,9 +253,11 @@ class ExcellonFile(CamFile):
             self.objects.append(obj_or_comment)
 
     def to_excellon(self):
+        """ Counterpart to :py:meth:`~.rs274x.GerberFile.to_excellon`. Does nothing and returns :py:obj:`self`. """
         return self
 
     def to_gerber(self):
+        """ Convert this excellon file into a :py:class:`~.rs274x.GerberFile`. """
         apertures = {}
         out = GerberFile()
         out.comments = self.comments

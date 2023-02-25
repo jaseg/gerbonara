@@ -98,7 +98,7 @@ class NamingScheme:
 
 
 
-def match_files(filenames):
+def _match_files(filenames):
     matches = {}
     for generator, rules in MATCH_RULES.items():
         gen = {}
@@ -114,14 +114,21 @@ def match_files(filenames):
     return matches
 
 
-def best_match(filenames):
-    matches = match_files(filenames)
+def _best_match(filenames):
+    matches = _match_files(filenames)
     matches = sorted(matches.items(), key=lambda pair: len(pair[1]))
     generator, files = matches[-1]
     return generator, files
 
 
 def identify_file(data):
+    """ Identify file type from file contents. Returns either of the string constants :py:obj:`excellon`,
+    :py:obj:`gerber`, or :py:obj:`ipc356`, or returns :py:obj:`None` if the file format is unclear.
+
+    :param data: Contents of file as :py:obj:`str`
+    :rtype: :py:obj:`str`
+    """
+
     if 'M48' in data:
         return 'excellon'
 
@@ -137,7 +144,7 @@ def identify_file(data):
     return None
 
 
-def common_prefix(l):
+def _common_prefix(l):
     out = []
     for cand in l:
         score = lambda n: sum(elem.startswith(cand[:n]) for elem in l)
@@ -154,12 +161,12 @@ def common_prefix(l):
  
     return sorted(out, key=len)[-1]
 
-def do_autoguess(filenames):
-    prefix = common_prefix([f.name for f in filenames])
+def _do_autoguess(filenames):
+    prefix = _common_prefix([f.name for f in filenames])
 
     matches = {}
     for f in filenames:
-        name = layername_autoguesser(f.name[len(prefix):] if f.name.startswith(prefix) else f.name)
+        name = _layername_autoguesser(f.name[len(prefix):] if f.name.startswith(prefix) else f.name)
         if name != 'unknown unknown':
             matches[name] = matches.get(name, []) + [f]
 
@@ -174,7 +181,7 @@ def do_autoguess(filenames):
     return matches
 
 
-def layername_autoguesser(fn):
+def _layername_autoguesser(fn):
     fn, _, ext = fn.lower().rpartition('.')
     
     if ext in ('log', 'err', 'fdl', 'py', 'sh', 'md', 'rst', 'zip', 'pdf', 'svg', 'ps', 'png', 'jpg', 'bmp'):
@@ -237,6 +244,22 @@ def layername_autoguesser(fn):
 
 
 class LayerStack:
+    """ :py:class:`LayerStack` represents a set of Gerber files that describe different layers of the same board.
+
+    :ivar graphic_layers: :py:obj:`dict` mapping :py:obj:`(side, use)` tuples to the Gerber layers of the board.
+                          :py:obj:`side` can be one of :py:obj:`"top"` or :py:obj:`"bottom"`, or a numbered internal
+                          layer such as :py:obj:`"inner2"`. :py:obj:`use` can be one of :py:obj:`"silk", :py:obj:`mask`,
+                          :py:obj:`paste` or :py:obj:`copper`. For internal layers, only :py:obj:`copper` is valid.
+    :ivar board_name: Name of this board as parse from the input filenames, as a :py:obj:`str`. You can overwrite this
+                      attribute with a different name, which will then be used during saving with the built-in file
+                      naming rules.
+    :ivar netlist: The :py:class:`~.ipc356.Netlist` of this board, or :py:obj:`None`
+    :ivar original_path: The path to the directory or zip file that this board was loaded from.
+    :ivar was_zipped: True if this board was loaded from a zip file.
+    :ivar generator: A string containing an educated guess on which EDA tool generated this file. Example:
+                     :py:obj:`"altium"`
+    """
+
     def __init__(self, graphic_layers, drill_layers, netlist=None, board_name=None, original_path=None, was_zipped=False, generator=None):
         self.graphic_layers = graphic_layers
         self.drill_layers = drill_layers
@@ -248,6 +271,30 @@ class LayerStack:
 
     @classmethod
     def open(kls, path, board_name=None, lazy=False, overrides=None, autoguess=True):
+        """ Load a board from the given path.
+
+        * The path can be a single file, in which case a :py:class:`LayerStack` containing only that file on a custom
+          layer is returned.
+        * The path can point to a directory, in which case the content's of that directory are analyzed for their file
+          type and function.
+        * The path can point to a zip file, in which case that zip file's contents are analyzed for their file type and
+          function.
+        * Finally, the path can be the string :py:obj:`"-"`, in which case this function will attempt to read a zip file
+          from standard input.
+
+        :param path: Path to a gerber file, directory or zip file, or the string :py:obj:`"-"`
+        :param board_name: Override board name for the returned :py:class:`LayerStack` instance instead of guessing the
+                           board name from the found file names.
+        :param lazy: Do not parse files right away, instead return a :py:class:`LayerStack` containing
+                     :py:class:~.cam.LazyCamFile` instances.
+        :param overrides: :py:obj:`dict` containing a filename regex to layer type mapping that will override
+                          gerbonara's built-in automatic rules. Each key must be a :py:obj:`str` containing a regex, and
+                          each value must be a :py:obj:`(side, use)` :py:obj:`tuple` of :py:obj:`str`.
+        :param autoguess: :py:obj:`bool` to enable or disable gerbonara's built-in automatic filename-based layer
+                          function guessing. When :py:obj:`False`, layer functions are deduced only from
+                          :py:obj:`overrides`.
+        :rtype: :py:class:`LayerStack`
+        """
         if str(path) == '-':
             data_io = io.BytesIO(sys.stdin.buffer.read())
             return kls.from_zip_data(data_io, original_path='<stdin>', board_name=board_name, lazy=lazy)
@@ -262,6 +309,14 @@ class LayerStack:
 
     @classmethod
     def open_zip(kls, file, original_path=None, board_name=None, lazy=False, overrides=None, autoguess=True):
+        """ Load a board from a ZIP file. Refer to :py:meth:`~.layers.LayerStack.open` for the meaning of the other
+        options. 
+
+        :param file: file-like object
+        :param original_path: Override the :py:obj:`original_path` of the resulting :py:class:`LayerStack` with the
+                              given value.
+        :rtype: :py:class:`LayerStack`
+        """
         tmpdir = tempfile.TemporaryDirectory()
         tmp_indir = Path(tmpdir.name) / 'input'
         tmp_indir.mkdir()
@@ -277,6 +332,11 @@ class LayerStack:
 
     @classmethod
     def open_dir(kls, directory, board_name=None, lazy=False, overrides=None, autoguess=True):
+        """ Load a board from a directory. Refer to :py:meth:`~.layers.LayerStack.open` for the meaning of the options. 
+
+        :param directory: Path of the directory to process.
+        :rtype: :py:class:`LayerStack`
+        """
 
         directory = Path(directory)
         if not directory.is_dir():
@@ -291,8 +351,18 @@ class LayerStack:
     @classmethod
     def from_files(kls, files, board_name=None, lazy=False, original_path=None, was_zipped=False, overrides=None,
                    autoguess=True):
+        """ Load a board from a directory. Refer to :py:meth:`~.layers.LayerStack.open` for the meaning of the options. 
+
+        :param files: List of paths of the files to load.
+        :param original_path: Override the :py:obj:`original_path` of the resulting :py:class:`LayerStack` with the
+                              given value.
+        :param was_zipped: Override the :py:obj:`was_zipped` attribute of the resulting :py:class:`LayerStack` with the
+                           given value.
+        :rtype: :py:class:`LayerStack`
+        """
+
         if autoguess:
-            generator, filemap = best_match(files)
+            generator, filemap = _best_match(files)
         else:
             generator = 'custom'
             if overrides:
@@ -317,7 +387,7 @@ class LayerStack:
         if sum(len(files) for files in filemap.values()) < 6 and autoguess:
             warnings.warn('Ambiguous gerber filenames. Trying last-resort autoguesser.')
             generator = None
-            filemap = do_autoguess(files)
+            filemap = _do_autoguess(files)
             if len(filemap) < 6:
                 raise ValueError('Cannot figure out gerber file mapping. Partial map is: ', filemap)
 
@@ -342,13 +412,13 @@ class LayerStack:
             # Ignore if we can't find the param file -- maybe the user has convinced Allegro to actually put this
             # information into a comment, or maybe they have made Allegro just use decimal points like XNC does.
 
-            filemap = do_autoguess([ f for files in filemap.values() for f in files ])
+            filemap = _do_autoguess([ f for files in filemap.values() for f in files ])
             if len(filemap) < 6:
                 raise SystemError('Cannot figure out gerber file mapping')
             # FIXME use layer metadata from comments and ipc file if available
 
         elif generator == 'zuken':
-            filemap = do_autoguess([ f for files in filemap.values() for f in files ])
+            filemap = _do_autoguess([ f for files in filemap.values() for f in files ])
             if len(filemap) < 6:
                 raise SystemError('Cannot figure out gerber file mapping')
             # FIXME use layer metadata from comments and ipc file if available
@@ -433,19 +503,32 @@ class LayerStack:
                                 'gerbonara tracker and if possible please provide these input files for reference.')
 
         if not board_name:
-            board_name = common_prefix([l.original_path.name for l in layers.values() if l is not None])
+            board_name = _common_prefix([l.original_path.name for l in layers.values() if l is not None])
             board_name = re.sub(r'^\W+', '', board_name)
             board_name = re.sub(r'\W+$', '', board_name)
 
         return kls(layers, drill_layers, netlist, board_name=board_name,
                 original_path=original_path, was_zipped=was_zipped, generator=[*all_generator_hints, None][0])
 
-    def save_to_zipfile(self, path, naming_scheme={}, overwrite_existing=True, prefix=''):
+    def save_to_zipfile(self, path, prefix='', overwrite_existing=True, naming_scheme={},
+                          gerber_settings=None, excellon_settings=None):
+        """ Save this board into a zip file at the given path. For other options, see
+        :py:meth:`~.layers.LayerStack.save_to_directory`.
+
+        :param path: Path of output zip file
+        :param overwrite_existing: Bool specifying whether override an existing zip file. If :py:obj:`False` and
+                                   :py:obj:`path` exists, a :py:obj:`ValueError` is raised.
+
+        :param prefix: Store output files under the given prefix inside the zip file
+        """
         if path.is_file():
             if overwrite_existing:
                 path.unlink()
             else:
                 raise ValueError('output zip file already exists and overwrite_existing is False')
+
+        if gerber_settings and not excellon_settings:
+            excellon_settings = gerber_settings
 
         with ZipFile(path, 'w') as le_zip:
             for path, layer in self._save_files_iter(naming_scheme=naming_scheme):
@@ -454,8 +537,29 @@ class LayerStack:
 
     def save_to_directory(self, path, naming_scheme={}, overwrite_existing=True,
                           gerber_settings=None, excellon_settings=None):
+        """ Save this board into a directory at the given path. If the given path does not exist, a new directory is
+        created in its place.
+
+        :param path: Output directory
+        :param naming_scheme: :py:obj:`dict` specifying the naming scheme to use for the individual layer files. When
+                              not specified, the original filenames are kept where available, and a default naming
+                              scheme is used. You can provide your own :py:obj:`dict` here, mapping :py:obj:`"side use"`
+                              strings to filenames, or use one of :py:attr:`~.layers.NamingScheme.kicad` or
+                              :py:attr:`~.layers.NamingScheme.kicad`.
+        :param overwrite_existing: Bool specifying whether override an existing directory. If :py:obj:`False` and
+                                   :py:obj:`path` exists, a :py:obj:`ValueError` is raised. Note that a
+                                   :py:obj:`ValueError` will still be raised if the target exists and is not a
+                                   directory.
+        :param gerber_settings: :py:class:`~.cam.FileSettings` to use for Gerber file export. When not given, the input
+                                file's original settings are re-used if available. If those can't be found anymore, sane
+                                defaults are used. We recommend you set this to the result of
+                                :py:meth:`~.cam.FileSettings.defaults`.
+        """
         outdir = Path(path)
         outdir.mkdir(parents=True, exist_ok=overwrite_existing)
+
+        if gerber_settings and not excellon_settings:
+            excellon_settings = gerber_settings
 
         for path, layer in self._save_files_iter(naming_scheme=naming_scheme):
             out = outdir / path
@@ -504,7 +608,23 @@ class LayerStack:
     def __repr__(self):
         return str(self)
 
-    def to_svg(self, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag, page_bg="white"):
+    def to_svg(self, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag):
+        """ Convert this layer stack to a plain SVG string. This is intended for use cases where the resulting SVG will
+        be processed by other tools, and thus styling with colors or extra markup like Inkscape layer information are
+        unwanted. If you want to instead generate a nice-looking preview image for display or graphical editing in tools
+        such as Inkscape, use :py:meth:`~.layers.LayerStack.to_pretty_svg` instead.
+
+        :param margin: Export SVG file with given margin around the board's bounding box.
+        :param arg_unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit ``margin`` and
+                         ``force_bounds`` are specified in. Default: mm
+        :param svg_unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit to use inside the SVG file.
+                         Default: mm
+        :param force_bounds: Use bounds given as :py:obj:`((min_x, min_y), (max_x, max_y))` tuple for the output SVG
+                             file instead of deriving them from this board's bounding box and ``margin``. Note that this
+                             will not scale or move the board, but instead will only crop the viewport.
+        :param tag: Extension point to support alternative XML serializers in addition to the built-in one.
+        :rtype: :py:obj:`str`
+        """
         if force_bounds:
             bounds = svg_unit.convert_bounds_from(arg_unit, force_bounds)
         else:
@@ -521,7 +641,35 @@ class LayerStack:
 
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor=page_bg, tag=tag)
 
-    def to_pretty_svg(self, side='top', margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag, inkscape=False, colors=None):
+    def to_pretty_svg(self, side='top', margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag, inkscape=False,
+                      colors=None):
+        """ Convert this layer stack to a pretty SVG string that is suitable for display or for editing in tools such as
+        Inkscape. If you want to process the resulting SVG in other tools, consider using
+        :py:meth:`~layers.LayerStack.to_svg` instead, which produces output without color styling or blending based on
+        SVG filter effects.
+
+        :param side: One of the strings :py:obj:`"top"` or :py:obj:`"bottom"` specifying which side of the board to
+                     render.
+        :param margin: Export SVG file with given margin around the board's bounding box.
+        :param arg_unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit ``margin`` and
+                         ``force_bounds`` are specified in. Default: mm
+        :param svg_unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit to use inside the SVG file.
+                         Default: mm
+        :param force_bounds: Use bounds given as :py:obj:`((min_x, min_y), (max_x, max_y))` tuple for the output SVG
+                             file instead of deriving them from this board's bounding box and ``margin``. Note that this
+                             will not scale or move the board, but instead will only crop the viewport.
+        :param tag: Extension point to support alternative XML serializers in addition to the built-in one.
+        :param inkscape: :py:obj:`bool` enabling Inkscape-specific markup such as Inkscape-native layers
+        :param colors: Colorscheme to use, or :py:obj:`None` for the built-in pseudo-realistic green solder mask default
+                       color scheme. When given, must be a dict mapping semantic :py:obj:`"side use"` layer names such
+                       as :py:obj:`"top copper"` to a HTML-like hex color code such as :py:obj:`#ff00ea`. Transparency
+                       is supported through 8-digit color codes. When 8 digits are given, the last two digits are used
+                       as the layer's alpha channel. Valid side values in the layer name strings are :py:obj:`"top"` and
+                       :py:obj:`"bottom"` as well as :py:obj:`"inner1"`, :py:obj:`"inner2"` etc. for internal layers.
+                       Valid use values are :py:obj:`"mask"`, :py:obj:`"silk"`, :py:obj:`"paste"`, and
+                       :py:obj:`"copper"`. For internal layers, only :py:obj:`"copper"` is valid.
+        :rtype: :py:obj:`str`
+        """
         if colors is None:
             colors = DEFAULT_COLORS
 
@@ -584,25 +732,68 @@ class LayerStack:
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor="white", tag=tag, inkscape=inkscape)
 
     def bounding_box(self, unit=MM, default=None):
+        """ Calculate and return the bounding box of this layer stack. This bounding box will include all graphical
+        objects on all layers and drill files. Consider using :py:meth:`~.layers.LayerStack.board_bounds` instead if you
+        are interested in the actual board's bounding box, which usually will be smaller since there could be graphical
+        objects sticking out of the board's outline, especially on drawing or silkscreen layers.
+
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit to return results in. Default: mm
+        :param default: Default value to return if there are no objects on any layer.
+        :returns: ``((x_min, y_min), (x_max, y_max))`` tuple of floats.
+        :rtype: tuple
+        """
         return sum_bounds(( layer.bounding_box(unit, default=default)
             for layer in itertools.chain(self.graphic_layers.values(), self.drill_layers) ), default=default)
 
-
     def board_bounds(self, unit=MM, default=None):
+        """ Calculate and return the bounding box of this board's outline. If this board has no outline, this function
+        falls back to :py:meth:`~.layers.LayerStack.bounding_box`, returning the bounding box of all objects on all
+        layers and drill files instead.
+
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit to return results in. Default: mm
+        :param default: Default value to return if there are no objects on any layer.
+        :returns: ``((x_min, y_min), (x_max, y_max))`` tuple of floats.
+        :rtype: tuple
+        """
         if self.outline:
             return self.outline.instance.bounding_box(unit=unit, default=default)
         else:
             return self.bounding_box(unit=unit, default=default)
 
     def offset(self, x=0, y=0, unit=MM):
+        """ Move all objects on all layers and drill files by the given amount in X and Y direction.
+
+        :param x: :py:obj:`float` with length to move objects along X axis.
+        :param y: :py:obj:`float` with length to move objects along Y axis.
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit ``x`` and ``y`` are specified
+                     in. Default: mm
+        """
         for layer in itertools.chain(self.graphic_layers.values(), self.drill_layers):
             layer.offset(x, y, unit=unit)
 
     def rotate(self, angle, cx=0, cy=0, unit=MM):
+        """ Rotate all objects on all layers and drill files by the given angle around the given center of rotation
+        (default: coordinate origin (0, 0)).
+
+        :param angle: Rotation angle in radians.
+        :param cx: :py:obj:`float` with X coordinate of center of rotation. Default: :py:obj:`0`.
+        :param cy: :py:obj:`float` with Y coordinate of center of rotation. Default: :py:obj:`0`.
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit ``cx`` and ``cy`` are specified
+                     in. Default: mm
+        """
         for layer in itertools.chain(self.graphic_layers.values(), self.drill_layers):
             layer.rotate(angle, cx, cy, unit=unit)
 
     def scale(self, factor, unit=MM):
+        """ Scale all objects on all layers and drill files by the given scaling factor. Only uniform scaling with one
+        common factor for both X and Y is supported since non-uniform scaling would not work with either arcs or
+        apertures in Gerber or Excellon files.
+
+        :param factor: Scale factor. :py:obj:`1.0` for no scaling, :py:obj:`2.0` for doubling in both directions.
+        :param unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``) for compatibility with other transform
+                     methods. Default: mm
+        """
+
         for layer in itertools.chain(self.graphic_layers.values(), self.drill_layers):
             layer.scale(factor)
 

@@ -269,6 +269,8 @@ class CircleAperture(Aperture):
 
 @dataclass
 class RectangleAperture(Aperture):
+    """ Gerber rectangle aperture. Can only be used for flashes, since the line width of an interpolation of a rectangle
+    aperture is not well-defined and there is no tool that implements it in a geometrically correct way. """
     _gerber_shape_code = 'R'
     _human_readable_shape = 'rect'
     #: float with the width of the rectangle in :py:attr:`unit` units.

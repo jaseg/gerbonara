@@ -48,7 +48,9 @@ class FileSettings:
     #: Angle unit. Should be ``'degree'`` unless you really know what you're doing.
     angle_unit : str = 'degree'
     #: Zero suppression settings. Must be one of ``None``, ``'leading'`` or ``'trailing'``. See note at
-    #: :py:class:`.FileSettings` for meaning.
+    #: :py:class:`.FileSettings` for meaning in Excellon files. ``None`` will produce explicit decimal points, which
+    #: should work for most tools. For Gerber files, the other settings are fine, but for Excellon files, which lack a
+    #: standardized way to indicate number format, explicit decimal points are the best way to avoid mis-parsing.
     zeros : bool = None
     #: Number format. ``(integer, decimal)`` tuple of number of integer and decimal digits. At most ``(6,7)`` by spec.
     number_format : tuple = (None, None)
@@ -78,7 +80,9 @@ class FileSettings:
 
     @classmethod
     def defaults(kls):
-        """ Return a set of good default FileSettings that will work for all gerber or excellon files. """
+        """ Return a set of good default settings that will work for all gerber or excellon files. These default
+        settings are metric units, 4 integer digits (for up to 10 m by 10 m size), 5 fractional digits (for 10 µm
+        resolution) and :py:obj:`None` zero suppression, meaning that explicit decimal points are going to be used."""
         return FileSettings(unit=MM, number_format=(4,5), zeros=None)
 
     def to_radian(self, value):
@@ -119,13 +123,16 @@ class FileSettings:
 
     @property
     def is_metric(self):
+        """ Return true if this :py:class:`.FileSettings` has a defined unit, and that unit is :py:attr:`~.utilities.MM` """
         return self.unit == MM
 
     @property
     def is_inch(self):
+        """ Return true if this :py:class:`.FileSettings` has a defined unit, and that unit is :py:attr:`~.utilities.Inch` """
         return self.unit == Inch
 
     def copy(self):
+        """ Create a deep copy of this FileSettings """
         return deepcopy(self)
 
     def __str__(self):
@@ -416,6 +423,9 @@ class CamFile:
         return not self.is_empty
 
 class LazyCamFile:
+    """ Helper class for :py:class:`~.layers.LayerStack` that holds a path to an input file without loading it right
+    away. This class'es :py:method:`save` method will just copy the input file instead of parsing and re-serializing
+    it."""
     def __init__(self, klass, path, *args, **kwargs):
         self._class = klass
         self.original_path = Path(path)
@@ -424,6 +434,8 @@ class LazyCamFile:
 
     @cached_property
     def instance(self):
+        """ Load the input file if necessary, and return the loaded object. Will only load the file once, and cache the
+        result. """
         return self._class.open(self.original_path, *self._args, **self._kwargs)
 
     @property
@@ -433,24 +445,4 @@ class LazyCamFile:
     def save(self, filename, *args, **kwargs):
         """ Copy this Gerber file to the new path. """
         shutil.copy(self.original_path, filename)
-
-class CachedLazyCamFile:
-    def __init__(self, klass, data, original_path, *args, **kwargs):
-        self._class = klass
-        self._data = data
-        self.original_path = original_path
-        self._args = args
-        self._kwargs = kwargs
-
-    @cached_property
-    def instance(self):
-        return self._class.from_string(self._data, filename=self.original_path, *self._args, **self._kwargs)
-
-    @property
-    def is_lazy(self):
-        return True
-
-    def save(self, filename, *args, **kwargs):
-        """ Copy this Gerber file to the new path. """
-        Path(filename).write_text(self._data)
 

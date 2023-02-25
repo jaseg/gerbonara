@@ -12,10 +12,6 @@ syntactic hints, and can automatically match all files in a folder to their appr
 
 :py:class:`.CamFile` is the common base class for all layer types.
 
-
-.. autoclass:: gerbonara.layers.LayerStack
-   :members:
-
 .. autoclass:: gerbonara.cam.CamFile
    :members:
 
@@ -26,5 +22,8 @@ syntactic hints, and can automatically match all files in a folder to their appr
    :members:
 
 .. autoclass:: gerbonara.ipc356.Netlist
+   :members:
+
+.. autoclass:: gerbonara.layers.LayerStack
    :members:
 

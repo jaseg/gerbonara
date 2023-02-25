@@ -33,13 +33,13 @@ from . import layers as lyr
 from . import __version__
 
 
-def print_version(ctx, param, value):
+def _print_version(ctx, param, value):
     if value and not ctx.resilient_parsing:
         click.echo(f'Version {__version__}')
         ctx.exit()
 
 
-def apply_transform(transform, unit, layer_or_stack):
+def _apply_transform(transform, unit, layer_or_stack):
     def translate(x, y):
         layer_or_stack.offset(x, y, unit)
 
@@ -122,15 +122,17 @@ class NamingScheme(click.Choice):
 
 
 @click.group()
-@click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
+@click.option('--version', is_flag=True, callback=_print_version, expose_value=False, is_eager=True)
 def cli():
+    """ The gerbonara CLI allows you to analyze, render, modify and merge both individual Gerber or Excellon files as
+    well as sets of those files """
     pass
 
 
 @cli.command()
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
               help='''Enable or disable file format warnings during parsing (default: on)''')
-@click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
+@click.option('--version', is_flag=True, callback=_print_version, expose_value=False, is_eager=True)
 @click.option('-m', '--input-map', type=click.Path(exists=True, path_type=Path), help='''Extend or override layer name
               mapping with name map from JSON file. The JSON file must contain a single JSON dict with an arbitrary
               number of string: string entries. The keys are interpreted as regexes applied to the filenames via
@@ -178,7 +180,7 @@ def render(inpath, outfile, format_warnings, input_map, use_builtin_name_rules, 
 
 
 @cli.command()
-@click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
+@click.option('--version', is_flag=True, callback=_print_version, expose_value=False, is_eager=True)
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
               help='''Enable or disable file format warnings during parsing (default: on)''')
 @click.option('-t', '--transform', help='''Execute python transformation script on input. You have access to the
@@ -230,7 +232,7 @@ def rewrite(transform, command_line_units, number_format, units, zero_suppressio
         f = GerberFile.open(infile, override_settings=input_settings)
 
     if transform:
-        apply_transform(transform, command_line_units or MM, f)
+        _apply_transform(transform, command_line_units or MM, f)
 
     output_format = f.import_settings if output_format == 'reuse' else FileSettings.defaults()
     if number_format:
@@ -247,7 +249,7 @@ def rewrite(transform, command_line_units, number_format, units, zero_suppressio
 
 
 @cli.command()
-@click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
+@click.option('--version', is_flag=True, callback=_print_version, expose_value=False, is_eager=True)
 @click.option('-m', '--input-map', type=click.Path(exists=True, path_type=Path), help='''Extend or override layer name
               mapping with name map from JSON file. The JSON file must contain a single JSON dict with an arbitrary
               number of string: string entries. The keys are interpreted as regexes applied to the filenames via
@@ -291,7 +293,7 @@ def transform(transform, units, output_format, inpath, outpath,
         else:
             stack = lyr.LayerStack.open(path, overrides=overrides, autoguess=use_builtin_name_rules)
 
-    apply_transform(transform, units, stack)
+    _apply_transform(transform, units, stack)
 
     output_format = None if output_format == 'reuse' else FileSettings.defaults()
     stack.save_to_directory(outpath, naming_scheme=output_naming_scheme or {},
@@ -300,7 +302,7 @@ def transform(transform, units, output_format, inpath, outpath,
 
 
 @cli.command()
-@click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
+@click.option('--version', is_flag=True, callback=_print_version, expose_value=False, is_eager=True)
 @click.option('--command-line-units', type=Unit(), help='''Units for values given in --transform. Default:
               millimeter''')
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
@@ -374,7 +376,7 @@ def merge(inpath, outpath, offset, rotation, input_map, command_line_units, outp
 
 
 @cli.command()
-@click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
+@click.option('--version', is_flag=True, callback=_print_version, expose_value=False, is_eager=True)
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
               help='''Enable or disable file format warnings during parsing (default: on)''')
 @click.option('--units', type=Unit(), help='Output bounding box in this unit (default: millimeter)')
@@ -407,7 +409,7 @@ def bounding_box(infile, format_warnings, input_number_format, input_units, inpu
 
 
 @cli.command()
-@click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
+@click.option('--version', is_flag=True, callback=_print_version, expose_value=False, is_eager=True)
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
               help='''Enable or disable file format warnings during parsing (default: on)''')
 @click.option('--force-zip', is_flag=True, help='Force treating input path as zip file (default: guess file type from extension and contents)')
@@ -444,7 +446,7 @@ def layers(path, force_zip, format_warnings):
 
 
 @cli.command()
-@click.option('--version', is_flag=True, callback=print_version, expose_value=False, is_eager=True)
+@click.option('--version', is_flag=True, callback=_print_version, expose_value=False, is_eager=True)
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), help='''Enable or
               disable file format warnings during parsing (default: on)''')
 @click.option('--force-zip', is_flag=True, help='Force treating input path as zip file (default: guess file type from extension and contents)')

@@ -60,10 +60,14 @@ class GerberFile(CamFile):
         self.file_attrs = file_attrs or {}
 
     def to_excellon(self, plated=None):
+        """ Convert this excellon file into a :py:class:`~.excellon.ExcellonFile`. This will convert interpolated lines
+        into slots, and circular aperture flashes into holes. Other features such as ``G36`` polygons or flashes with
+        non-circular apertures will result in a :py:obj:`ValueError`. You can, of course, programmatically remove such
+        features from a :py:class:`GerberFile` before conversion. """
         new_objs = []
         new_tools = {}
         for obj in self.objects:
-            if (not isinstance(obj, go.Line) and isinstance(obj, go.Arc) and isinstance(obj, go.Flash)) or \
+            if not (isinstance(obj, go.Line) or isinstance(obj, go.Arc) or isinstance(obj, go.Flash)) or \
                 not isinstance(obj.aperture, apertures.CircleAperture):
                 raise ValueError(f'Cannot convert {obj} to excellon!')
 
@@ -75,6 +79,7 @@ class GerberFile(CamFile):
         return ExcellonFile(objects=new_objs, comments=self.comments)
 
     def to_gerber(self):
+        """ Counterpart to :py:meth:`~.excellon.ExcellonFile.to_gerber`. Does nothing and returns :py:obj:`self`. """
         return
 
     def merge(self, other, mode='above', keep_settings=False):
