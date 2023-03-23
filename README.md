@@ -1,5 +1,5 @@
-[![pipeline status](https://gitlab.com/gerbonara/gerbonara/badges/master/pipeline.svg)](https://gitlab.com/gerbonara/gerbonara/commits/master)
-[![coverage report](https://gitlab.com/gerbonara/gerbonara/badges/master/coverage.svg)](https://gitlab.com/gerbonara/gerbonara/commits/master)
+[![pipeline status](https://gitlab.com/gerbolyze/gerbonara/badges/master/pipeline.svg)](https://gitlab.com/gerbolyze/gerbonara/commits/master)
+[![coverage report](https://gitlab.com/gerbolyze/gerbonara/badges/master/coverage.svg)](https://gitlab.com/gerbolyze/gerbonara/commits/master)
 [![pypi](https://img.shields.io/pypi/v/gerbonara)](https://pypi.org/project/gerbonara/)
 [![aur](https://img.shields.io/aur/version/python-gerbonara)](https://aur.archlinux.org/packages/python-gerbonara/)
 
@@ -23,7 +23,7 @@ yay -S python-gerbonara
 Python:
 
 ```
-pip install --user gerbonara
+pipx install gerbonara
 ```
 
 # Documentation and Examples
