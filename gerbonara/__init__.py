@@ -29,5 +29,3 @@ from .rs274x import GerberFile
 from .excellon import ExcellonFile
 from .ipc356 import Netlist
 from .layers import LayerStack
-
-__version__ = '0.13.0'
