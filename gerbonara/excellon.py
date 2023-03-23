@@ -359,25 +359,34 @@ class ExcellonFile(CamFile):
         # Build tool index
         tool_map = { id(obj.tool): obj.tool for obj in self.objects }
         tools = sorted(tool_map.items(), key=lambda id_tool: (id_tool[1].plated, id_tool[1].diameter))
-        tools = { tool_id: index for index, (tool_id, _tool) in enumerate(tools, start=1) }
-        # FIXME dedup tools
 
         mixed_plating = (len({ tool.plated for tool in tool_map.values() }) > 1)
         if mixed_plating:
             warnings.warn('Multiple plating values in same file. Will use non-standard Altium comment syntax to indicate hole plating.')
 
-        if tools and max(tools.values()) >= 100:
-            warnings.warn('More than 99 tools defined. Some programs may not like three-digit tool indices.', SyntaxWarning)
+        defined_tools = {}
+        tool_indices = {}
+        index = 1
+        for tool_id, tool in tools:
+            xnc = tool.to_xnc(settings)
+            if (tool.plated, xnc) in defined_tools:
+                tool_indices[tool_id] = defined_tools[(tool.plated, xnc)]
 
-        for tool_id, index in tools.items():
-            tool = tool_map[tool_id]
-            if mixed_plating:
-                yield ';TYPE=PLATED' if tool.plated else ';TYPE=NON_PLATED'
-            yield f'T{index:02d}' + tool.to_xnc(settings)
+            else:
+                if mixed_plating:
+                    yield ';TYPE=PLATED' if tool.plated else ';TYPE=NON_PLATED'
+
+                yield f'T{index:02d}' + xnc
+
+                tool_indices[tool_id] = defined_tools[(tool.plated, xnc)] = index
+                index += 1
+
+                if index >= 100:
+                    warnings.warn('More than 99 tools defined. Some programs may not like three-digit tool indices.', SyntaxWarning)
 
         yield '%'
 
-        ctx = ExcellonContext(settings, tools)
+        ctx = ExcellonContext(settings, tool_indices)
 
         # Export objects
         for obj in self.objects:

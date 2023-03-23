@@ -247,7 +247,9 @@ class GerberFile(CamFile):
 
         processed_macros = set()
         aperture_map = {}
-        for number, aperture in enumerate(self.apertures, start=10):
+        defined_apertures = {}
+        number = 10
+        for aperture in self.apertures:
 
             if isinstance(aperture, apertures.ApertureMacroInstance):
                 macro_def = am_stmt(aperture._rotated().macro)
@@ -255,9 +257,15 @@ class GerberFile(CamFile):
                     processed_macros.add(macro_def)
                     yield macro_def
 
-            yield f'%ADD{number}{aperture.to_gerber(settings)}*%'
+            ap_def = aperture.to_gerber(settings)
+            if ap_def in defined_apertures:
+                aperture_map[id(aperture)] = defined_apertures[ap_def]
 
-            aperture_map[id(aperture)] = number
+            else:
+                yield f'%ADD{number}{ap_def}*%'
+                defined_apertures[ap_def] = number
+                aperture_map[id(aperture)] = number
+                number += 1
 
         def warn(msg, kls=SyntaxWarning):
             warnings.warn(msg, kls)
