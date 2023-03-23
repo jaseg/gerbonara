@@ -85,7 +85,7 @@ class GerberFile(CamFile):
                 not isinstance(obj.aperture, apertures.CircleAperture):
                 raise ValueError(f'Cannot convert {obj} to excellon!')
 
-            if not (new_tool := new_tools.get(obj.aperture)):
+            if not (new_tool := new_tools.get(id(obj.aperture))):
                 # TODO plating?
                 new_tool = new_tools[id(obj.aperture)] = apertures.ExcellonTool(obj.aperture.diameter, plated=plated, unit=obj.aperture.unit)
             new_objs.append(dataclasses.replace(obj, aperture=new_tool))
