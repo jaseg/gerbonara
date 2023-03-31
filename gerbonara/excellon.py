@@ -245,6 +245,16 @@ class ExcellonFile(CamFile):
         """ Test if there are multiple plating values used in this file. """
         return len({obj.plated for obj in self.objects}) > 1
 
+    @property
+    def is_plated_tristate(self):
+        if self.is_plated:
+            return True
+
+        if self.is_nonplated:
+            return False
+
+        return None
+
     def append(self, obj_or_comment):
         """ Add a :py:class:`.GraphicObject` or a comment (str) to this file. """
         if isinstance(obj_or_comment, str):
@@ -252,11 +262,11 @@ class ExcellonFile(CamFile):
         else:
             self.objects.append(obj_or_comment)
 
-    def to_excellon(self):
+    def to_excellon(self, plated=None, errors='raise'):
         """ Counterpart to :py:meth:`~.rs274x.GerberFile.to_excellon`. Does nothing and returns :py:obj:`self`. """
         return self
 
-    def to_gerber(self):
+    def to_gerber(self, errros='raise'):
         """ Convert this excellon file into a :py:class:`~.rs274x.GerberFile`. """
         apertures = {}
         out = GerberFile()
@@ -274,14 +284,18 @@ class ExcellonFile(CamFile):
     def generator(self):
         return self.generator_hints[0] if self.generator_hints else None
 
-    def merge(self, other):
+    def merge(self, other, mode='ignored', keep_settings=False):
         if other is None:
             return
+        
+        if not isinstance(other, ExcellonFile):
+            other = other.to_excellon(plated=self.is_plated_tristate)
 
         self.objects += other.objects
         self.comments += other.comments
         self.generator_hints = None
-        self.import_settings = None
+        if not keep_settings:
+            self.import_settings = None
 
     @classmethod
     def open(kls, filename, plated=None, settings=None, external_tools=None):
