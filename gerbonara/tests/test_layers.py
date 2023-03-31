@@ -335,7 +335,7 @@ def test_layer_classifier(ref_dir):
             else: # not in file_map
                 assert (side, layer) not in stack
 
-    assert len(stack.drill_layers) == len(drill_files)
+    assert len(list(stack.drill_layers)) == len(drill_files)
 
     for filename, role in drill_files.items():
         print('drill:', filename, role)

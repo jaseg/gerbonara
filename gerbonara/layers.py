@@ -74,9 +74,9 @@ class NamingScheme:
     'bottom paste':         '{board_name}-B.Paste.gbr',
     'inner copper':         '{board_name}-In{layer_number}.Cu.gbr',
     'mechanical outline':   '{board_name}-Edge.Cuts.gbr',
-    'unknown drill':        '{board_name}.drl',
-    'plated drill':         '{board_name}-PTH.drl',
-    'nonplated drill':      '{board_name}-NPTH.drl',
+    'drill unknown':        '{board_name}.drl',
+    'drill plated':         '{board_name}-PTH.drl',
+    'drill nonplated':      '{board_name}-NPTH.drl',
     'other comments':       '{board_name}-Cmts.User.gbr',
     'other drawings':       '{board_name}-Dwgs.User.gbr',
     'top fabrication':      '{board_name}-F.Fab.gbr',
@@ -97,9 +97,9 @@ class NamingScheme:
     'bottom paste':         '{board_name}.gbp',
     'inner copper':         '{board_name}.gp{layer_number}',
     'mechanical outline':   '{board_name}.gko',
-    'unknown drill':        '{board_name}.drl',
-    'plated drill':         '{board_name}.plated.drl',
-    'nonplated drill':      '{board_name}.nonplated.drl',
+    'drill unknown':        '{board_name}.drl',
+    'drill plated':         '{board_name}.plated.drl',
+    'drill nonplated':      '{board_name}.nonplated.drl',
     'other comments':       '{board_name}.gm2',
     'other drawings':       '{board_name}.gm3',
     'top courtyard':        '{board_name}.gm13',
@@ -224,14 +224,14 @@ def _layername_autoguesser(fn):
         use = 'mask'
 
     elif re.search('drill|rout?e?', fn):
-        use = 'drill'
-        side = 'unknown'
+        side = 'drill'
+        use = 'unknown'
 
         if re.search(r'np(th|lt)?|(non|un)\W*plated|(non|un)\Wgalv', fn):
-            side = 'nonplated'
+            use = 'nonplated'
 
         elif re.search('pth|plated|galv|plt', fn):
-            side = 'plated'
+            use = 'plated'
 
     elif (m := re.search(r'(la?y?e?r?|in(ner)?|conduct(or|ive)?)\W*(?P<num>[0-9]+)', fn)):
         use = 'copper'
@@ -281,9 +281,9 @@ class LayerStack:
 
     def __init__(self, graphic_layers, drill_pth=None, drill_npth=None, drill_layers=(), netlist=None, board_name=None, original_path=None, was_zipped=False, generator=None):
         self.graphic_layers = graphic_layers
-        self._drill_layers = list(drill_layers)
         self.drill_pth = drill_pth
         self.drill_npth = drill_npth
+        self._drill_layers = list(drill_layers)
         self.drill_mixed = None
         self.board_name = board_name
         self.netlist = netlist
@@ -620,20 +620,20 @@ class LayerStack:
         #self.normalize_drill_layers()
 
         if self.drill_pth is not None:
-            yield get_name('plated drill', self.drill_pth), self.drill_pth
+            yield get_name('drill plated', self.drill_pth), self.drill_pth
 
         if self.drill_npth is not None:
-            yield get_name('nonplated drill', self.drill_npth), self.drill_npth
+            yield get_name('drill nonplated', self.drill_npth), self.drill_npth
 
         for layer in self._drill_layers:
-            yield get_name('unknown drill', layer), layer
+            yield get_name('drill unknown', layer), layer
 
         if self.netlist:
             yield get_name('other netlist', self.netlist), self.netlist
 
     def __str__(self):
         names = [ f'{side} {use}' for side, use in self.graphic_layers ]
-        num_drill_layers = len(self.drill_layers)
+        num_drill_layers = len(list(self.drill_layers))
         return f'<LayerStack {self.board_name} [{", ".join(names)}] and {num_drill_layers} drill layers>'
 
     def __repr__(self):
@@ -752,11 +752,11 @@ class LayerStack:
 
         for i, layer in enumerate(self.drill_layers):
             layers.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
-                id=f'l-drill-{i}', filter=f'url(#f-drill)', **inkscape_attrs(f'drill-{i}')))
+                id=f'g-drill-{i}', filter=f'url(#f-drill)', **inkscape_attrs(f'drill-{i}')))
 
         if self.outline:
             layers.append(tag('g', list(self.outline.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
-                id=f'l-outline-{i}', **inkscape_attrs(f'outline-{i}')))
+                id=f'g-outline-{i}', **inkscape_attrs(f'outline-{i}')))
 
         layer_group = tag('g', layers, transform=f'translate(0 {bounds[0][1] + bounds[1][1]}) scale(1 -1)')
         tags = [tag('defs', filter_defs), layer_group]
