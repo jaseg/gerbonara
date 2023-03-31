@@ -544,9 +544,11 @@ class GraphicsState:
             yield '%LPD*%' if polarity_dark else '%LPC*%'
 
     def set_aperture(self, aperture):
-        if self.aperture != aperture:
+        ap_id = self.aperture_map[id(aperture)]
+        old_ap_id = self.aperture_map.get(id(self.aperture), None)
+        if ap_id != old_ap_id:
             self.aperture = aperture
-            yield f'D{self.aperture_map[id(aperture)]}*'
+            yield f'D{ap_id}*'
 
     def set_current_point(self, point, unit=None):
         point_mm = MM(point[0], unit), MM(point[1], unit)
