@@ -47,7 +47,9 @@ MATCH_RULES = {
     'bottom paste':     r'.*\.gbp|.*b.paste.(gbr|gbp)',
     'inner copper':     r'.*\.gp?([0-9]+)|.*inn?e?r?([0-9]+).cu.(?:gbr|g[0-9]+)',
     'mechanical outline':    r'.*\.(gm[0-9]+)|.*edge.cuts.(gbr|gm1)',
-    'drill plated':     r'.*\.(drl)',
+    'drill nonplated':  r'.*\-NPTH.(drl)',
+    'drill plated':     r'.*\-PTH.(drl)',
+    'drill unknown':    r'.*\.(drl)',
     'other netlist':    r'.*\.d356',
     },
 

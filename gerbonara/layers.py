@@ -36,7 +36,7 @@ from .rs274x import GerberFile
 from .ipc356 import Netlist
 from .cam import FileSettings, LazyCamFile
 from .layer_rules import MATCH_RULES
-from .utils import sum_bounds, setup_svg, MM, Tag
+from .utils import sum_bounds, setup_svg, MM, Tag, convex_hull
 from . import graphic_objects as go
 from . import graphic_primitives as gp
 
@@ -75,8 +75,14 @@ class NamingScheme:
     'inner copper':         '{board_name}-In{layer_number}.Cu.gbr',
     'mechanical outline':   '{board_name}-Edge.Cuts.gbr',
     'unknown drill':        '{board_name}.drl',
-    'plated drill':         '{board_name}.plated.drl',
-    'nonplated drill':      '{board_name}.nonplated.drl',
+    'plated drill':         '{board_name}-PTH.drl',
+    'nonplated drill':      '{board_name}-NPTH.drl',
+    'other comments':       '{board_name}-Cmts.User.gbr',
+    'other drawings':       '{board_name}-Dwgs.User.gbr',
+    'top fabrication':      '{board_name}-F.Fab.gbr',
+    'bottom fabrication':   '{board_name}-B.Fab.gbr',
+    'top courtyard':        '{board_name}-F.CrtYd.gbr',
+    'bottom courtyard':     '{board_name}-B.CrtYd.gbr',
     'other netlist':        '{board_name}.d356',
     }
 
@@ -94,6 +100,12 @@ class NamingScheme:
     'unknown drill':        '{board_name}.drl',
     'plated drill':         '{board_name}.plated.drl',
     'nonplated drill':      '{board_name}.nonplated.drl',
+    'other comments':       '{board_name}.gm2',
+    'other drawings':       '{board_name}.gm3',
+    'top courtyard':        '{board_name}.gm13',
+    'bottom courtyard':     '{board_name}.gm14',
+    'top fabrication':      '{board_name}.gm15',
+    'bottom fabrication':   '{board_name}.gm16',
     }
 
 
@@ -261,9 +273,12 @@ class LayerStack:
                      :py:obj:`"altium"`
     """
 
-    def __init__(self, graphic_layers, drill_layers, netlist=None, board_name=None, original_path=None, was_zipped=False, generator=None):
+    def __init__(self, graphic_layers, drill_pth=None, drill_npth=None, drill_layers=(), netlist=None, board_name=None, original_path=None, was_zipped=False, generator=None):
         self.graphic_layers = graphic_layers
-        self.drill_layers = drill_layers
+        self._drill_layers = list(drill_layers)
+        self.drill_pth = drill_pth
+        self.drill_npth = drill_npth
+        self.drill_mixed = None
         self.board_name = board_name
         self.netlist = netlist
         self.original_path = original_path
@@ -447,6 +462,7 @@ class LayerStack:
         if ambiguous:
             raise SystemError(f'Ambiguous layer names: {", ".join(ambiguous)}')
 
+        drill_pth, drill_npth = None, None
         drill_layers = []
         netlist = None
         layers = {} # { tuple(key.split()): None for key in STANDARD_LAYERS }
@@ -484,7 +500,12 @@ class LayerStack:
                     layers['mechanical', 'outline'] = layer
 
                 elif 'drill' in key:
-                    drill_layers.append(layer)
+                    if 'nonplated' in key and drill_npth is None:
+                        drill_npth = layer
+                    elif 'plated' in key and drill_pth is None:
+                        drill_pth = layer
+                    else:
+                        drill_layers.append(layer)
 
                 elif 'netlist' in key:
                     if netlist:
@@ -508,7 +529,7 @@ class LayerStack:
             board_name = re.sub(r'^\W+', '', board_name)
             board_name = re.sub(r'\W+$', '', board_name)
 
-        return kls(layers, drill_layers, netlist, board_name=board_name,
+        return kls(layers, drill_pth, drill_npth, drill_layers, board_name=board_name,
                 original_path=original_path, was_zipped=was_zipped, generator=[*all_generator_hints, None][0])
 
     def save_to_zipfile(self, path, prefix='', overwrite_existing=True, naming_scheme={},
@@ -596,15 +617,16 @@ class LayerStack:
             yield get_name('plated drill', self.drill_pth), self.drill_pth
         if self.drill_npth is not None:
             yield get_name('nonplated drill', self.drill_npth), self.drill_npth
-        if self.drill_unknown is not None:
-            yield get_name('unknown drill', self.drill_unknown), self.drill_unknown
+        for layer in self._drill_layers:
+            yield get_name('unknown drill', layer), layer
 
         if self.netlist:
             yield get_name('other netlist', self.netlist), self.netlist
 
     def __str__(self):
         names = [ f'{side} {use}' for side, use in self.graphic_layers ]
-        return f'<LayerStack {self.board_name} [{", ".join(names)}] and {len(self.drill_layers)} drill layers>'
+        num_drill_layers = len(self.drill_layers)
+        return f'<LayerStack {self.board_name} [{", ".join(names)}] and {num_drill_layers} drill layers>'
 
     def __repr__(self):
         return str(self)
@@ -799,8 +821,8 @@ class LayerStack:
             layer.scale(factor)
 
     def merge_drill_layers(self):
-        """ Merge all drill layers of this board into a single drill layer containing all objetcs. You can access this
-        drill layer under the :py:attr:`.LayerStack.drill_unknown` attribute. The original layers are removed from the
+        """ Merge all drill layers of this board into a single drill layer containing all objects. You can access this
+        drill layer under the :py:attr:`.LayerStack.drill_mixed` attribute. The original layers are removed from the
         board. """
         target = ExcellonFile(comments=['Drill files merged by gerbonara'])
 
@@ -811,7 +833,7 @@ class LayerStack:
             target.merge(layer)
 
         self.drill_pth = self.drill_npth = None
-        self.drill_unknown = target
+        self.drill_mixed = target
 
     def normalize_drill_layers(self):
         """ Take everything from all drill layers of this board, and sort it into three new drill layers: One with all
@@ -850,23 +872,25 @@ class LayerStack:
                     npth_out.append(obj)
 
         self.drill_pth, self.drill_npth = pth_out, npth_out
-        self.drill_unknown = unknown_out if unknown_out else None
+        self._drill_layers = unknown_out if unknown_out else None
         self._drill_layers = []
 
     @property
     def drill_layers(self):
-        """ Return all of this board's drill layers as a list. Returns an empty list if the board does not have any
-        drill layers. """
+        """ Generator iterating all of this board's drill layers. """
+        if self.drill_pth:
+            yield self.drill_pth
+
+        if self.drill_npth:
+            yield self.drill_npth
+
         if self._drill_layers:
-            return self._drill_layers
-        if self.drill_pth or self.drill_npth or self.drill_unknown:
-            return [self.drill_pth, self.drill_npth, self.drill_unknown]
-        return []
+            yield from self._drill_layers
 
     @drill_layers.setter
     def drill_layers(self, value):
         self._drill_layers = value
-        self.drill_pth = self.drill_npth = self.drill_unknown = None
+        self.drill_pth = self.drill_npth = None
 
     def __len__(self):
         return len(self.graphic_layers)
@@ -946,6 +970,22 @@ class LayerStack:
             polys.append(' '.join(poly.path_d()) + ' Z')
         return ' '.join(polys)
 
+    def outline_convex_hull(self, tol=0.01, unit=MM):
+        points = []
+        for obj in self.outline.instance.objects:
+            if isinstance(obj, go.Line):
+                line = obj.as_primitive(unit)
+                points.append((line.x1, line.y1))
+                points.append((line.x2, line.y2))
+
+            elif isinstance(obj, go.Arc):
+                for obj in obj.approximate(tol, unit):
+                    line = obj.as_primitive(unit)
+                    points.append((line.x1, line.y1))
+                    points.append((line.x2, line.y2))
+
+        return convex_hull(points)
+        
     def outline_polygons(self, tol=0.01, unit=MM):
         """ Iterator yielding this boards outline as a list of ordered :py:class:`~.graphic_objects.Arc` and
         :py:class:`~.graphic_objects.Line` objects. This method first sorts all lines and arcs on the outline layer into
@@ -982,10 +1022,13 @@ class LayerStack:
                 j = 0 if d1 < d2 else 1
 
                 if (nearest, j) in joins and joins[(nearest, j)] != (cur, i):
-                    raise ValueError(f'Error: three-way intersection of {(nearest, j)}; {(cur, i)}; and {joins[(nearest, j)]}')
+                    warnings.warn(f'Three-way intersection on outline layer at: {(nearest, j)}; {(cur, i)}; and {joins[(nearest, j)]}. Falling back to returning the convex hull of the outline layer.')
+                    return self.outline_convex_hull(tol, unit)
 
                 if (cur, i) in joins and joins[(cur, i)] != (nearest, j):
-                    raise ValueError(f'Error: three-way intersection of {(nearest, j)}; {(cur, i)}; and {joins[(nearest, j)]}')
+                    warnings.warn(f'three-way intersection on outline layer at: {(nearest, j)}; {(cur, i)}; and {joins[(nearest, j)]}. Falling back to returning the convex hull of the outline layer.')
+                    return self.outline_convex_hull(tol, unit)
+
 
                 joins[(cur, i)] = (nearest, j)
                 joins[(nearest, j)] = (cur, i)
@@ -1072,7 +1115,7 @@ class LayerStack:
 
         self.drill_pth.merge(other.drill_pth)
         self.drill_npth.merge(other.drill_npth)
-        self.drill_unknown.merge(other.drill_unknown)
+        self._drill_layers.extend(other._drill_layers)
 
         if self.netlist:
             self.netlist.merge(other.netlist)
