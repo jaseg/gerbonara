@@ -46,13 +46,15 @@ class ExcellonContext:
 
     def select_tool(self, tool):
         """ Select the current tool. Retract drill first if necessary. """
-        if self.current_tool != tool:
+        current_id = self.tools.get(id(self.current_tool))
+        new_id = self.tools[id(tool)]
+        if new_id != current_id:
             if self.drill_down:
                 yield 'M16' # drill up
                 self.drill_down = False
 
             self.current_tool = tool
-            yield f'T{self.tools[id(tool)]:02d}'
+            yield f'T{new_id:02d}'
 
     def drill_mode(self):
         """ Enter drill mode. """
