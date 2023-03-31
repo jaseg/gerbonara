@@ -17,8 +17,14 @@
 # limitations under the License.
 #
 
+import math
+import random
+
 import pytest
+
 from ..cam import FileSettings
+from ..utils import convex_hull, point_in_polygon, setup_svg, Tag
+from .utils import *
 
 
 def test_zero_suppression():
@@ -102,4 +108,26 @@ def test_write_format_validation():
         with pytest.raises(ValueError):
             settings = FileSettings(number_format=fmt)
             settings.write_gerber_value(69.0)
+
+def test_convex_hull_and_point_in_polygon(tmpfile):
+    svg = tmpfile('Visualization', '.svg')
+    st = random.Random(0)
+    for _ in range(50):
+        for n in [*range(1, 10), 12, 15, 20, 30, 50, 300, 1000, 5000]:
+            w = math.sqrt(n) * 10
+            rd = lambda: round(st.random() * w)
+            rp = lambda: (rd(), rd())
+            points = {rp() for _ in range(n)}
+            hull_l = convex_hull(points)
+            hull = set(hull_l)
+
+            tags = [Tag('circle', cx=x, cy=y, r=0.2, fill=('red' if (x, y) in hull else 'black')) for x, y in points]
+            for (x0, y0), (x1, y1) in zip([hull_l[-1], *hull_l[:-1]], hull_l):
+                tags.append(Tag('path', d=f'M {x0},{y0} L {x1},{y1}', stroke_width='0.1', stroke='red', fill='none'))
+            svg.write_text(str(setup_svg(tags, bounds=((0, 0), (w, w)), margin=1)))
+
+            # all hull corners must be in the set of original points
+            assert not (hull-points)
+            for p in points-hull:
+                assert point_in_polygon(p, hull_l)
 

@@ -28,6 +28,7 @@ This module provides utility functions for working with Gerber and Excellon file
 import os
 import re
 import textwrap
+from functools import reduce
 from enum import Enum
 import math
 
@@ -396,6 +397,33 @@ def arc_bounds(x1, y1, x2, y2, cx, cy, clockwise):
     return (min_x+cx, min_y+cy), (max_x+cx, max_y+cy)
 
 
+def convex_hull(points):
+    '''
+    Returns points on convex hull in CCW order according to Graham's scan algorithm. 
+    By Tom Switzer <thomas.switzer@gmail.com>.
+    '''
+    # https://gist.github.com/arthur-e/5cf52962341310f438e96c1f3c3398b8
+    TURN_LEFT, TURN_RIGHT, TURN_NONE = (1, -1, 0)
+
+    def cmp(a, b):
+        return (a > b) - (a < b)
+
+    def turn(p, q, r):
+        return cmp((q[0] - p[0])*(r[1] - p[1]) - (r[0] - p[0])*(q[1] - p[1]), 0)
+
+    def keep_left(hull, r):
+        while len(hull) > 1 and turn(hull[-2], hull[-1], r) != TURN_LEFT:
+            hull.pop()
+        if not len(hull) or hull[-1] != r:
+            hull.append(r)
+        return hull
+
+    points = sorted(points)
+    l = reduce(keep_left, points, [])
+    u = reduce(keep_left, reversed(points), [])
+    return l.extend(u[i] for i in range(1, len(u) - 1)) or l
+
+
 def point_line_distance(l1, l2, p):
     """ Calculate distance between infinite line through l1 and l2, and point p. """
     # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line
@@ -470,4 +498,30 @@ def setup_svg(tags, bounds, margin=0, arg_unit=MM, svg_unit=MM, pagecolor='white
             viewBox=f'{min_x} {min_y} {w} {h}',
             **namespaces,
             root=True)
+
+
+def point_in_polygon(point, poly):
+    # https://stackoverflow.com/questions/217578/how-can-i-determine-whether-a-2d-point-is-within-a-polygon
+    # https://wrfranklin.org/Research/Short_Notes/pnpoly.html
+
+    if not poly:
+        return False
+
+    res = False
+    tx, ty = point
+    xp, yp = poly[-1]
+    for x, y in poly:
+        if yp == ty == y and ((x > tx) != (xp > tx)): # test point on horizontal segment
+            return True
+        if xp == tx == x and ((y > ty) != (yp > ty)): # test point on vertical segment
+            return True
+        if ((y > ty) != (yp > ty)):
+            tmp = ((xp-x) * (ty-y) / (yp-y) + x)
+            if tx == tmp: # test point on diagonal segment
+                return True
+            elif tx < tmp:
+                res = not res
+        xp, yp = x, y
+
+    return res
 
