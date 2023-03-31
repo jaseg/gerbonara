@@ -444,5 +444,8 @@ class LazyCamFile:
 
     def save(self, filename, *args, **kwargs):
         """ Copy this Gerber file to the new path. """
-        shutil.copy(self.original_path, filename)
+        if 'instance' in self.__dict__: # instance has been loaded, and might have been modified
+            self.instance.save(filename, *args, **kwargs)
+        else:
+            shutil.copy(self.original_path, filename)
 

@@ -73,7 +73,7 @@ class GerberFile(CamFile):
         self.apertures = [] # FIXME get rid of this? apertures are already in the objects.
         self.file_attrs = file_attrs or {}
 
-    def to_excellon(self, plated=None):
+    def to_excellon(self, plated=None, errors='raise'):
         """ Convert this excellon file into a :py:class:`~.excellon.ExcellonFile`. This will convert interpolated lines
         into slots, and circular aperture flashes into holes. Other features such as ``G36`` polygons or flashes with
         non-circular apertures will result in a :py:obj:`ValueError`. You can, of course, programmatically remove such
@@ -83,7 +83,15 @@ class GerberFile(CamFile):
         for obj in self.objects:
             if not (isinstance(obj, go.Line) or isinstance(obj, go.Arc) or isinstance(obj, go.Flash)) or \
                 not isinstance(obj.aperture, apertures.CircleAperture):
-                raise ValueError(f'Cannot convert {obj} to excellon!')
+                    if errors == 'raise':
+                        raise ValueError(f'Cannot convert {obj} to excellon.')
+                    elif errors == 'warn':
+                        warnings.warn(f'Gerber to Excellon conversion: Cannot convert {obj} to excellon.')
+                        continue
+                    elif errors == 'ignore':
+                        continue
+                    else:
+                        raise ValueError('Invalid "errors" parameter. Allowed values: "raise", "warn" or "ignore".')
 
             if not (new_tool := new_tools.get(id(obj.aperture))):
                 # TODO plating?
@@ -92,9 +100,9 @@ class GerberFile(CamFile):
             
         return ExcellonFile(objects=new_objs, comments=self.comments)
 
-    def to_gerber(self):
+    def to_gerber(self, errors='raise'):
         """ Counterpart to :py:meth:`~.excellon.ExcellonFile.to_gerber`. Does nothing and returns :py:obj:`self`. """
-        return
+        return self
 
     def merge(self, other, mode='above', keep_settings=False):
         """ Merge ``other`` into ``self``, i.e. add all objects that are in ``other`` to ``self``. This resets
@@ -109,6 +117,8 @@ class GerberFile(CamFile):
         """
         if other is None:
             return
+
+        other = other.to_gerber()
 
         if not keep_settings:
             self.import_settings = None

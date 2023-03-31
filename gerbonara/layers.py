@@ -113,16 +113,22 @@ class NamingScheme:
 def _match_files(filenames):
     matches = {}
     for generator, rules in MATCH_RULES.items():
+        already_matched = set()
         gen = {}
         matches[generator] = gen
         for layer, regex in rules.items():
             for fn in filenames:
+                if fn in already_matched:
+                    continue
+
                 if (m := re.fullmatch(regex, fn.name, re.IGNORECASE)):
                     if layer == 'inner copper':
                         target = 'inner_' + ''.join(e or '' for e in m.groups()) + ' copper'
                     else:
                         target = layer
+
                     gen[target] = gen.get(target, []) + [fn]
+                    already_matched.add(fn)
     return matches
 
 
@@ -615,8 +621,10 @@ class LayerStack:
 
         if self.drill_pth is not None:
             yield get_name('plated drill', self.drill_pth), self.drill_pth
+
         if self.drill_npth is not None:
             yield get_name('nonplated drill', self.drill_npth), self.drill_npth
+
         for layer in self._drill_layers:
             yield get_name('unknown drill', layer), layer
 
@@ -872,8 +880,7 @@ class LayerStack:
                     npth_out.append(obj)
 
         self.drill_pth, self.drill_npth = pth_out, npth_out
-        self._drill_layers = unknown_out if unknown_out else None
-        self._drill_layers = []
+        self._drill_layers = [unknown_out] if unknown_out else []
 
     @property
     def drill_layers(self):
