@@ -166,7 +166,17 @@ class GenericMacros:
 
     rect = ApertureMacro('GNR', [
         ap.CenterLine('mm', [1, var(1), var(2), 0, 0, var(5) * -deg_per_rad]),
-        *_generic_hole(3) ])
+        *_generic_hole(3)])
+
+    # params: width, height, corner radius, *hole, rotation
+    rounded_rect = ApertureMacro('GRR', [
+        ap.CenterLine('mm', [1, var(1)-2*var(3), var(2), 0, 0, var(6) * -deg_per_rad]),
+        ap.CenterLine('mm', [1, var(1), var(2)-2*var(3), 0, 0, var(6) * -deg_per_rad]),
+        ap.Circle('mm', [1, var(3)*2, +(var(1)/2-var(3)), +(var(2)/2-var(3)), 0]),
+        ap.Circle('mm', [1, var(3)*2, +(var(1)/2-var(3)), -(var(2)/2-var(3)), 0]),
+        ap.Circle('mm', [1, var(3)*2, -(var(1)/2-var(3)), +(var(2)/2-var(3)), 0]),
+        ap.Circle('mm', [1, var(3)*2, -(var(1)/2-var(3)), -(var(2)/2-var(3)), 0]),
+        *_generic_hole(4)])
 
     # w must be larger than h
     obround = ApertureMacro('GNO', [

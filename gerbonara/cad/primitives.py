@@ -167,10 +167,16 @@ class Trace:
                 else:
                     yield (sgn(dx)*abs(dy), dy)
         else: # self.style == 'ortho'
-            pass
-            #if p == (orientation == 'cw'):
-
-            #else:
+            if p == (orientation == 'cw'):
+                if abs(dy) > abs(dx):
+                    yield (0, dy)
+                else:
+                    yield (dx, 0)
+            else:
+                if abs(dy) > abs(dx):
+                    yield (dx, 0)
+                else:
+                    yield (0, dy)
 
         yield p2
         

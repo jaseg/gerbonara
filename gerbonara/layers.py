@@ -261,6 +261,16 @@ def _layername_autoguesser(fn):
     return f'{side} {use}'
 
 
+def _sort_layername(val):
+    (side, use), _layer = val
+    if side == 'top':
+        return -1
+    if side == 'bottom':
+        return 1e99
+    assert side.startswith('inner_')
+    return int(side[len('inner_'):])
+
+
 class LayerStack:
     """ :py:class:`LayerStack` represents a set of Gerber files that describe different layers of the same board.
 
@@ -279,7 +289,16 @@ class LayerStack:
                      :py:obj:`"altium"`
     """
 
-    def __init__(self, graphic_layers, drill_pth=None, drill_npth=None, drill_layers=(), netlist=None, board_name=None, original_path=None, was_zipped=False, generator=None):
+    def __init__(self, graphic_layers=None, drill_pth=None, drill_npth=None, drill_layers=(), netlist=None, board_name=None, original_path=None, was_zipped=False, generator=None):
+        if not drill_layers and (graphic_layers, drill_pth, drill_npth) == (None, None, None):
+            graphic_layers = {tuple(layer.split()): GerberFile()
+                    for layer in ('top paste', 'top silk', 'top mask', 'top copper',
+                                  'bottom copper', 'bottom mask', 'bottom silk', 'bottom paste',
+                                  'mechanical outline')}
+
+            drill_pth = ExcellonFile(plated=True)
+            drill_npth = ExcellonFile(plated=False)
+
         self.graphic_layers = graphic_layers
         self.drill_pth = drill_pth
         self.drill_npth = drill_npth
@@ -926,24 +945,21 @@ class LayerStack:
         elif isinstance(index, tuple):
             return self.graphic_layers[index]
 
-        return self.copper_layers[index]
+        return self.copper_layers[index][1]
 
     @property
     def copper_layers(self):
-        """ Return all copper layers of this board as a list. Returns an empty list if the board does not have any
-        copper layers. """
-        copper_layers = [ ((side, use), layer) for (side, use), layer in self.graphic_layers.items() if use == 'copper' ]
+        """ Return all copper layers of this board as a list of ((side, use), layer) tuples. Returns an empty list if
+        the board does not have any copper layers. """
+        layers = [((side, use), layer) for (side, use), layer in self.graphic_layers.items() if use == 'copper']
+        return sorted(layers, key=_sort_layername)
 
-        def sort_layername(val):
-            (side, use), _layer = val
-            if side == 'top':
-                return -1
-            if side == 'bottom':
-                return 1e99
-            assert side.startswith('inner_')
-            return int(side[len('inner_'):])
-
-        return [ layer for _key, layer in sorted(copper_layers, key=sort_layername) ]
+    @property
+    def inner_layers(self):
+        """ Return all inner copper layers of this board as a list of ((side, use), layer) tuples. Returns an empty list
+        if the board does not have any inner layers. """
+        layers = [((side, use), layer) for (side, use), layer in self.graphic_layers.items() if side.startswith('inner')]
+        return sorted(layers, key=_sort_layername)
 
     @property
     def top_side(self):
