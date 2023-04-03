@@ -134,7 +134,7 @@ class Aperture:
         # we emulate this parameter. Our circle, rectangle and oblong classes below have a rotation parameter. Only at
         # export time during to_gerber, this parameter is evaluated. 
         unit = settings.unit if settings else None
-        actual_inst = self._rotated()
+        actual_inst = self.rotated()
         params = 'X'.join(f'{float(par):.4}' for par in actual_inst._params(unit) if par is not None)
         if params:
             return f'{actual_inst._gerber_shape_code},{params}'
@@ -204,7 +204,7 @@ class ExcellonTool(Aperture):
         offset = unit(offset, self.unit)
         return replace(self, diameter=self.diameter+2*offset)
 
-    def _rotated(self):
+    def rotated(self, angle=0):
         return self
 
     def to_macro(self):
@@ -245,11 +245,11 @@ class CircleAperture(Aperture):
         offset = self.unit(offset, unit)
         return replace(self, diameter=self.diameter+2*offset, hole_dia=None, hole_rect_h=None)
 
-    def _rotated(self):
-        if math.isclose(self.rotation % (2*math.pi), 0) or self.hole_rect_h is None:
+    def rotated(self, angle=0):
+        if math.isclose((self.rotation+angle) % (2*math.pi), 0, abs_tol=1e-6) or self.hole_rect_h is None:
             return self
         else:
-            return self.to_macro(self.rotation)
+            return self.to_macro(self.rotation+angle)
 
     def scaled(self, scale):
         return replace(self, 
@@ -300,13 +300,14 @@ class RectangleAperture(Aperture):
         offset = self.unit(offset, unit)
         return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None, hole_rect_h=None)
 
-    def _rotated(self):
-        if math.isclose(self.rotation % math.pi, 0):
+    def rotated(self, angle=0):
+        angle += self.rotation
+        if math.isclose(angle % math.pi, 0):
             return self
-        elif math.isclose(self.rotation % math.pi, math.pi/2):
+        elif math.isclose(angle % math.pi, math.pi/2):
             return replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=0)
         else: # odd angle
-            return self.to_macro()
+            return self.to_macro(angle)
 
     def scaled(self, scale):
         return replace(self, 
@@ -315,13 +316,13 @@ class RectangleAperture(Aperture):
                        hole_dia=None if self.hole_dia is None else self.hole_dia*scale,
                        hole_rect_h=None if self.hole_rect_h is None else self.hole_rect_h*scale)
 
-    def to_macro(self):
+    def to_macro(self, rotation=0):
         return ApertureMacroInstance(GenericMacros.rect,
                 [MM(self.w, self.unit),
                     MM(self.h, self.unit),
                     MM(self.hole_dia, self.unit) or 0,
                     MM(self.hole_rect_h, self.unit) or 0,
-                    self.rotation])
+                    self.rotation + rotation])
 
     def _params(self, unit=None):
         return _strip_right(
@@ -365,13 +366,13 @@ class ObroundAperture(Aperture):
         offset = self.unit(offset, unit)
         return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None, hole_rect_h=None)
 
-    def _rotated(self):
-        if math.isclose(self.rotation % math.pi, 0):
+    def rotated(self, angle=0):
+        if math.isclose((angle + self.rotation) % math.pi, 0, abs_tol=1e-6):
             return self
-        elif math.isclose(self.rotation % math.pi, math.pi/2):
+        elif math.isclose((angle + self.rotation) % math.pi, math.pi/2, abs_tol=1e-6):
             return replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=0)
         else:
-            return self.to_macro()
+            return self.to_macro(angle)
 
     def scaled(self, scale):
         return replace(self, 
@@ -380,12 +381,13 @@ class ObroundAperture(Aperture):
                        hole_dia=None if self.hole_dia is None else self.hole_dia*scale,
                        hole_rect_h=None if self.hole_rect_h is None else self.hole_rect_h*scale)
 
-    def to_macro(self):
+    def to_macro(self, rotation=0):
         # generic macro only supports w > h so flip x/y if h > w
         if self.w > self.h:
             inst = self
         else:
-            inst = replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=self.rotation-90)
+            inst = replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=rotation+self.rotation-90)
+
         return ApertureMacroInstance(GenericMacros.obround,
                 [MM(inst.w, self.unit),
                  MM(inst.h, self.unit),
@@ -433,8 +435,11 @@ class PolygonAperture(Aperture):
 
     flash = _flash_hole
 
-    def _rotated(self):
-        return self
+    def rotated(self, angle=0):
+        if angle != 0:
+            return replace(self, rotatio=self.rotation + angle)
+        else:
+            return self
 
     def scaled(self, scale):
         return replace(self, 
@@ -445,7 +450,10 @@ class PolygonAperture(Aperture):
         return ApertureMacroInstance(GenericMacros.polygon, self._params(MM))
 
     def _params(self, unit=None):
-        rotation = self.rotation % (2*math.pi / self.n_vertices) if self.rotation is not None else None
+        rotation = self.rotation % (2*math.pi / self.n_vertices)
+        if math.isclose(rotation, 0, abs_tol=1-e6):
+            rotation = None
+
         if self.hole_dia is not None:
             return self.unit.convert_to(unit, self.diameter), self.n_vertices, rotation, self.unit.convert_to(unit, self.hole_dia)
         elif rotation is not None and not math.isclose(rotation, 0):
@@ -483,14 +491,14 @@ class ApertureMacroInstance(Aperture):
     def dilated(self, offset, unit=MM):
         return replace(self, macro=self.macro.dilated(offset, unit))
 
-    def _rotated(self):
-        if math.isclose(self.rotation % (2*math.pi), 0):
+    def rotated(self, angle=0):
+        if math.isclose((self.rotation+angle) % (2*math.pi), 0):
             return self
         else:
-            return self.to_macro()
+            return self.to_macro(angle)
 
-    def to_macro(self):
-        return replace(self, macro=self.macro.rotated(self.rotation), rotation=0)
+    def to_macro(self, rotation=0):
+        return replace(self, macro=self.macro.rotated(self.rotation+rotation), rotation=0)
 
     def scaled(self, scale):
         return replace(self, macro=self.macro.scaled(scale))
