@@ -1,10 +1,12 @@
 
 import math
+import warnings
 from copy import copy
-from itertools import zip_longest
+from itertools import zip_longest, chain
 from dataclasses import dataclass, field, KW_ONLY
+from collections import defaultdict
 
-from ..utils import LengthUnit, MM, rotate_point, svg_arc
+from ..utils import LengthUnit, MM, rotate_point, svg_arc, sum_bounds, bbox_intersect, Tag
 from ..layers import LayerStack
 from ..graphic_objects import Line, Arc, Flash
 from ..apertures import Aperture, CircleAperture, RectangleAperture, ExcellonTool
@@ -14,16 +16,111 @@ def sgn(x):
     return -1 if x < 0 else 1
 
 
-class Board:
-    def __init__(self):
-        self.objects = set()
+class KeepoutError(ValueError):
+    def __init__(self, obj, keepout, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.obj = obj
+        self.keepout = keepout
 
-    def to_layer_stack(self, layer_stack):
+
+class Board:
+    def __init__(self, w=None, h=None, corner_radius=1.5, center=False, default_via_hole=0.4, default_via_diameter=0.8, x=0, y=0, rotation=0, unit=MM):
+        self.x, self.y = x, y
+        self.rotation = 0
+        self.objects = []
+        self.outline = []
+        self.extra_silk_top = []
+        self.extra_silk_bottom = []
+        self.keepouts = []
+        self.default_via_hole = MM(default_via_hole, unit)
+        self.default_via_diameter = MM(default_via_diameter, unit)
+        if w or h:
+            if w and h:
+                self.rounded_rect_outline(w, h, r=corner_radius, center=center)
+            else:
+                raise ValueError('Either both, w and h, or neither of them must be given.')
+
+    @property
+    def abs_pos(self):
+        return self.x, self.y, self.rotation
+
+    def add_silk(self, side, obj):
+        if side not in ('top', 'bottom'):
+            raise ValueError('side must be one of "top" or "bottom".')
+
+        if side == 'top':
+            self.extra_silk_top.append(obj)
+        else:
+            self.extra_silk_bottom.append(obj)
+
+    def add_keepout(self, bbox, unit=MM):
+        ((_x_min, _y_min), (_x_max, _y_max)) = bbox
+        self.keepouts.append(MM.convert_bounds_from(unit, bbox))
+
+    def add(self, obj, keepout_errors='raise'):
+        if keepout_errors not in ('ignore', 'raise', 'warn', 'skip'):
+            raise ValueError('keepout_errors must be one of "ignore", "raise", "warn" or "skip".')
+
+        if keepout_errors != 'ignore':
+            for ko in self.keepouts:
+                if obj.overlaps(ko, unit=MM):
+                    if keepout_errors == 'warn':
+                        warnings.warn(msg)
+                    elif keepout_errors == 'raise':
+                        raise KeepoutError(obj, ko, msg)
+                    return
+
+        obj.parent = self
+        self.objects.append(obj)
+
+    def via(self, x, y, diameter=None, hole=None, keepout_errors='raise', unit=MM):
+        diameter = diameter or unit(self.default_via_dia, MM)
+        hole = hole or unit(self.default_via_hole, MM)
+        obj = Via(x, y, diameter, hole, unit=unit, keepout_errors=keepout_errors)
+        self.add(obj)
+        return obj
+
+    def rounded_rect_outline(self, w, h, r=0, x0=None, y0=None, center=False, unit=MM):
+        if x0 is None:
+            x0 = -w/2 if center else 0
+        if y0 is None:
+            y0 = -h/2 if center else 0
+
+        ap = CircleAperture(0.05, unit=MM)
+
+        self.outline.append(Line(x0+r, y0, x0+w-r, y0, ap, unit=unit))
+        if r:
+            self.outline.append(Arc(x0+w-r, y0, x0+w, y0+r, 0, r, False, ap, unit=unit))
+        self.outline.append(Line(x0+w, y0+r, x0+w, y0+h-r, ap, unit=unit))
+        if r:
+            self.outline.append(Arc(x0+w, y0+h-r, x0+w-r, y0+h, -r, 0, False, ap, unit=unit))
+        self.outline.append(Line(x0+w-r, y0+h, x0+r, y0+h, ap, unit=unit))
+        if r:
+            self.outline.append(Arc(x0+r, y0+h, x0, y0+h-r, 0, -r, False, ap, unit=unit))
+        self.outline.append(Line(x0, y0+h-r, x0, y0+r, ap, unit=unit))
+        if r:
+            self.outline.append(Arc(x0, y0+r, x0+r, y0, r, 0, False, ap, unit=unit))
+
+    def layer_stack(self, layer_stack=None):
         if layer_stack is None:
             layer_stack = LayerStack()
 
-        for obj in self.objects:
-            obj.render(stack)
+        for obj in chain(self.objects):
+            obj.render(layer_stack)
+
+        layer_stack['mechanical', 'outline'].objects.extend(self.outline)
+        layer_stack['top', 'silk'].objects.extend(self.extra_silk_top)
+        layer_stack['bottom', 'silk'].objects.extend(self.extra_silk_bottom)
+
+        return layer_stack
+
+    def svg(self, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None):
+        return self.layer_stack().to_svg(margin=margin, arg_unit=arg_unit, svg_unit=svg_unit,
+                                                 force_bounds=force_bounds)
+
+    def pretty_svg(self, side='top', margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, inkscape=False, colors=None):
+        return self.layer_stack().to_pretty_svg(side=side, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit,
+                                                   force_bounds=force_bounds, inkscape=inkscape, colors=colors)
 
 
 @dataclass
@@ -36,41 +133,67 @@ class Positioned:
     parent: object = None
 
     @property
-    def abs_pos(self, dx, dy, da):
-        x, y = rotate_point(self.x, self.y, da)
-
+    def abs_pos(self):
         if self.parent is None:
-            px, py, pa = dx, dy, 0
+            px, py, pa = 0, 0, 0
         else:
-            px, py, pa = self.parent.abs_pos(dx, dy, da)
+            px, py, pa = self.parent.abs_pos
 
-        return x+px, y+py, self.rotation+da+pa
+        return self.x+px, self.y+py, self.rotation+pa
+
+    def bounding_box(self, unit=MM):
+        stack = LayerStack()
+        self.render(stack)
+        objects = chain(*(l.objects for l in stack.graphic_layers.values()),
+                        stack.drill_pth.objects, stack.drill_npth.objects)
+        return sum_bounds(prim.bounding_box() for obj in objects for prim in obj.to_primitives(unit))
+
+    def overlaps(self, bbox, unit=MM):
+        return bbox_intersect(self.bounding_box(unit), bbox)
 
 
 @dataclass
 class Pad(Positioned):
     pass
 
+
 @dataclass
 class SMDPad(Pad):
     copper_aperture: Aperture
     mask_aperture: Aperture
     paste_aperture: Aperture
-    silk_features: list
+    silk_features: list = field(default_factory=list)
     side: str = 'top'
 
-    def to_layer_stack(self, layer_stack):
+    def render(self, layer_stack):
         x, y, rotation = self.abs_pos
-        stack[self.side, 'copper'].objects.append(Flash(x, y, self.copper_aperture.rotated(rotation), unit=self.unit))
-        stack[self.side, 'mask'  ].objects.append(Flash(x, y, self.mask_aperture.rotated(rotation), unit=self.unit))
-        stack[self.side, 'paste' ].objects.append(Flash(x, y, self.paste_aperture.rotated(rotation), unit=self.unit))
-        stack[self.side, 'silk'  ].objects.extend([copy(feature).rotate(rotation).offset(x, y, self.unit)
+        layer_stack[self.side, 'copper'].objects.append(Flash(x, y, self.copper_aperture.rotated(rotation), unit=self.unit))
+        layer_stack[self.side, 'mask'  ].objects.append(Flash(x, y, self.mask_aperture.rotated(rotation), unit=self.unit))
+        layer_stack[self.side, 'paste' ].objects.append(Flash(x, y, self.paste_aperture.rotated(rotation), unit=self.unit))
+        layer_stack[self.side, 'silk'  ].objects.extend([copy(feature).rotate(rotation).offset(x, y, self.unit)
                                                  for feature in self.silk_features])
 
     def flip(self):
-        self.side = 'top' if self.side == 'bottom' else 'top'
+        self.side = 'top' if self.side == 'bottom' else 'bottom'
 
+    @classmethod
+    def rect(kls, x, y, w, h, rotation=0, side='top', mask_expansion=0.0, paste_expansion=0.0, unit=MM):
+        ap_c = RectangleAperture(w, h, unit=unit)
+        ap_m = RectangleAperture(w+2*mask_expansion, h+2*mask_expansion, unit=unit)
+        ap_p = RectangleAperture(w+2*paste_expansion, h+2*paste_expansion, unit=unit)
+        return kls(x, y, side=side, copper_aperture=ap_c, mask_aperture=ap_m, paste_aperture=ap_p, rotation=rotation,
+                      unit=unit)
 
+    @classmethod
+    def circle(kls, x, y, dia, side='top', mask_expansion=0.0, paste_expansion=0.0, unit=MM):
+        ap_c = CircleAperture(dia, unit=unit)
+        ap_m = CircleAperture(dia+2*mask_expansion, unit=unit)
+        ap_p = CircleAperture(dia+2*paste_expansion, unit=unit)
+        return kls(x, y, side=side, copper_aperture=ap_c, mask_aperture=ap_m, paste_aperture=ap_p, rotation=rotation,
+                      unit=unit)
+    
+
+@dataclass
 class THTPad(Pad):
     drill_dia: float
     pad_top: SMDPad
@@ -80,18 +203,28 @@ class THTPad(Pad):
 
     def __post_init__(self):
         if self.pad_bottom is None:
+            import sys
             self.pad_bottom = copy(self.pad_top)
             self.pad_bottom.flip()
 
         self.pad_top.parent = self.pad_bottom.parent = self
 
         if (self.pad_top.side, self.pad_bottom.side) != ('top', 'bottom'):
-            raise ValueError(f'The top and bottom pads must have side set to top and bottom, respectively. Currently, the top pad side is set to {self.pad_top.side} and the bottom pad side to {self.pad_bottom.side}.')
+            raise ValueError(f'The top and bottom pads must have side set to top and bottom, respectively. Currently, the top pad side is set to "{self.pad_top.side}" and the bottom pad side to "{self.pad_bottom.side}".')
 
-    def to_layer_stack(self, layer_stack, x, y, rotation):
+    def render(self, layer_stack):
         x, y, rotation = self.abs_pos
-        self.top_pad.to_layer_stack(layer_stack)
-        self.bottom_pad.to_layer_stack(layer_stack)
+        self.pad_top.render(layer_stack)
+        self.pad_bottom.render(layer_stack)
+
+        if self.aperture_inner is None:
+            (x_min, y_min), (x_max, y_max) = self.pad_top.bounding_box(MM)
+            w_top = x_max - x_min
+            h_top = y_max - y_min
+            (x_min, y_min), (x_max, y_max) = self.pad_bottom.bounding_box(MM)
+            w_bottom = x_max - x_min
+            h_bottom = y_max - y_min
+            self.aperture_inner = CircleAperture(min(w_top, h_top, w_bottom, h_bottom), unit=MM)
 
         for (side, use), layer in layer_stack.inner_layers:
             layer.objects.append(Flash(x, y, self.aperture_inner.rotated(rotation), unit=self.unit))
@@ -102,13 +235,33 @@ class THTPad(Pad):
         else:
             layer_stack.drill_npth.objects.append(hole)
 
+    @classmethod
+    def rect(kls, x, y, hole_dia, w, h=None, rotation=0, mask_expansion=0.0, paste_expansion=0.0, unit=MM):
+        if h is None:
+            h = w
+        pad = SMDPad.rect(0, 0, w, h, mask_expansion=mask_expansion, paste_expansion=paste_expansion, unit=unit)
+        return kls(x, y, hole_dia, pad, rotation=rotation, unit=unit)
+
+    @classmethod
+    def circle(kls, x, y, hole_dia, dia, mask_expansion=0.0, paste_expansion=0.0, unit=MM):
+        pad = SMDPad.circle(0, 0, dia, mask_expansion=mask_expansion, paste_expansion=paste_expansion, unit=unit)
+        return kls(x, y, hole_dia, pad, rotation=rotation, unit=unit)
+
+    @classmethod
+    def obround(kls, x, y, hole_dia, w, h, rotation=0, mask_expansion=0.0, paste_expanson=0.0, unit=MM):
+        ap_c = CircleAperture(dia, unit=unit)
+        ap_m = CircleAperture(dia+2*mask_expansion, unit=unit)
+        ap_p = CircleAperture(dia+2*paste_expansion, unit=unit)
+        pad = SMDPad(0, 0, side='top', copper_aperture=ap_c, mask_aperture=ap_m, paste_aperture=ap_p, unit=unit)
+        return kls(x, y, hole_dia, pad, rotation=rotation, unit=unit)
+
 
 @dataclass
 class Via(Positioned):
     diameter: float
     hole: float
 
-    def to_layer_stack(self, layer_stack):
+    def render(self, layer_stack):
         x, y, rotation = self.abs_pos
 
         aperture = CircleAperture(diameter=self.diameter, unit=self.unit)
@@ -127,7 +280,7 @@ class Trace:
     end: object = None
     side: str = 'top'
     waypoints: [(float, float)] = field(default_factory=list)
-    style: str = 'direct'
+    style: str = 'oblique'
     orientation: [str] = tuple() # 'top' or 'bottom'
     roundover: float = 0
     unit: LengthUnit = MM
@@ -157,26 +310,26 @@ class Trace:
         if self.style == 'oblique':
             if p == (orientation == 'cw'):
                 if abs(dy) > abs(dx):
-                    yield (0, sgn(dy)*(abs(dy)-abs(dx)))
+                    yield (x1, y1+sgn(dy)*(abs(dy)-abs(dx)))
                 else:
-                    yield (sgn(dx)*(abs(dx)-abs(dy)), 0)
+                    yield (x1+sgn(dx)*(abs(dx)-abs(dy)), y1)
             else:
                 if abs(dy) > abs(dx):
-                    yield (dx, sgn(dy)*abs(dx))
+                    yield (x2, y1+sgn(dy)*abs(dx))
                 else:
-                    yield (sgn(dx)*abs(dy), dy)
+                    yield (x1+sgn(dx)*abs(dy), y2)
 
         else: # self.style == 'ortho'
             if p == (orientation == 'cw'):
                 if abs(dy) > abs(dx):
-                    yield (0, dy)
+                    yield (x1, y2)
                 else:
-                    yield (dx, 0)
+                    yield (x2, y1)
             else:
                 if abs(dy) > abs(dx):
-                    yield (dx, 0)
+                    yield (x2, y1)
                 else:
-                    yield (0, dy)
+                    yield (x1, y2)
 
     @classmethod
     def _midpoint(kls, p1, p2):
@@ -216,6 +369,7 @@ class Trace:
 
     def _round_over(self, points, aperture):
         if math.isclose(self.roundover, 0, abs_tol=1e-6) or len(points) <= 2:
+            import sys
             for p1, p2 in zip(points[:-1], points[1:]):
                 yield Line(*p1, *p2, aperture=aperture, unit=self.unit)
             return
@@ -233,6 +387,11 @@ class Trace:
             lb = math.dist(p2, pb)
 
             alpha = self._angle_between(p1, p2, p3)
+            if alpha == 0:
+                l = Line(line_b.x1, line_b.y1, *p2, aperture=aperture, unit=self.unit)
+                line_b = Line(*p2, *pb, aperture=aperture, unit=self.unit)
+                yield l
+                continue
             tr = self.roundover/math.tan(alpha/2)
             t = min(la, lb, tr)
             r = t*math.tan(alpha/2)
@@ -275,9 +434,9 @@ class Trace:
         start, end = self.start, self.end
 
         if not isinstance(start, tuple):
-            start = start.abs_pos
+            *start, _rotation = start.abs_pos
         if not isinstance(end, tuple):
-            end = end.abs_pos
+            *end, _rotation = end.abs_pos
 
         aperture = CircleAperture(diameter=self.width, unit=self.unit)
 
@@ -290,10 +449,10 @@ class Trace:
 
         return self._round_over(points, aperture)
 
-    def to_layer_stack(self, layer_stack, x, y, rotation):
+    def render(self, layer_stack):
         layer_stack[self.side, 'copper'].objects.extend(self._to_graphic_objects())
 
-if __name__ == '__main__':
+def _route_demo():
     from ..utils import setup_svg, Tag
     from ..newstroke import Newstroke
 
@@ -332,8 +491,10 @@ if __name__ == '__main__':
                         stroke='black', opacity='0.5', stroke_width='0.02', stroke_linejoin='round', stroke_linecap='round',
                         transform=txf, d=' '.join(pd(points) for points in strokes)))
 
-        for r in [0.0, 0.1, 0.2, 0.3]:
-            tr = Trace(0.1, style='ortho', roundover=r, start=(0, 0), end=(dx, dy))
+        #for r in [0.0, 0.1, 0.2, 0.3]:
+        for r in [0, 0.2]:
+            #tr = Trace(0.1, style='ortho', roundover=r, start=(0, 0), end=(dx, dy))
+            tr = Trace(0.1, style='oblique', roundover=r, start=(dx, dy), end=(0, 0))
             #points_cw = list(tr._route((0, 0), (dx, dy), 'cw')) + [(dx, dy)]
             #points_ccw = list(tr._route((0, 0), (dx, dy), 'ccw')) + [(dx, dy)]
             tr.orientation = ['cw']
@@ -349,7 +510,31 @@ if __name__ == '__main__':
                             fill='none',
                             stroke='blue', stroke_width='0.01', stroke_linecap='round',
                             transform=xf, d=' '.join(pd_obj(objs_ccw))))
+            #tags.append(Tag('path',
+            #                fill='none',
+            #                stroke='red', stroke_width='0.01', stroke_linecap='round',
+            #                transform=xf, d=pd(points_cw)))
+            #tags.append(Tag('path',
+            #                fill='none',
+            #                stroke='blue', stroke_width='0.01', stroke_linecap='round',
+            #                transform=xf, d=pd(points_ccw)))
+
 
     print(setup_svg([Tag('g', tags, transform='scale(20 20)')], [(0, 0), (20*10*1.1 + 0.1, 20*10*1.3 + 0.1)]))
 
+
+def _board_demo():
+    b = Board(100, 80)
+    p1 = THTPad.rect(10, 10, 0.9, 1.8)
+    b.add(p1)
+    p2 = THTPad.rect(20, 15, 0.9, 1.8)
+    b.add(p2)
+    b.add(Trace(0.5, p1, p2, style='ortho', roundover=1.5))
+    print(b.svg())
+    b.layer_stack().save_to_directory('/tmp/testdir')
+
+
+if __name__ == '__main__':
+    _board_demo()
+    #_route_demo()
 
