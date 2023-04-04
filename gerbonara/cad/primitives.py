@@ -4,7 +4,7 @@ from copy import copy
 from itertools import zip_longest
 from dataclasses import dataclass, field, KW_ONLY
 
-from ..utils import LengthUnit, MM, rotate_point
+from ..utils import LengthUnit, MM, rotate_point, svg_arc
 from ..layers import LayerStack
 from ..graphic_objects import Line, Arc, Flash
 from ..apertures import Aperture, CircleAperture, RectangleAperture, ExcellonTool
@@ -151,7 +151,6 @@ class Trace:
         if self.style == 'direct' or \
                 math.isclose(x1, x2, abs_tol=1e-6) or math.isclose(y1, y2, abs_tol=1e-6) or \
                 (self.style == 'oblique' and math.isclose(dx, dy, abs_tol=1e-6)):
-            yield p2
             return
 
         p = (abs(dy) > abs(dx)) == ((dx >= 0) == (dy >= 0))
@@ -166,6 +165,7 @@ class Trace:
                     yield (dx, sgn(dy)*abs(dx))
                 else:
                     yield (sgn(dx)*abs(dy), dy)
+
         else: # self.style == 'ortho'
             if p == (orientation == 'cw'):
                 if abs(dy) > abs(dx):
@@ -178,9 +178,100 @@ class Trace:
                 else:
                     yield (0, dy)
 
-        yield p2
+    @classmethod
+    def _midpoint(kls, p1, p2):
+        x1, y1 = p1
+        x2, y2 = p2
+        dx = x2 - x1
+        dy = y2 - y1
+        xm = x1 + dx / 2
+        ym = y1 + dy / 2
+        return (xm, ym)
+
+    @classmethod
+    def _point_on_line(kls, p1, p2, dist_from_p1):
+        x1, y1 = p1
+        x2, y2 = p2
+        dx = x2 - x1
+        dy = y2 - y1
+        dist = math.dist(p1, p2)
+        if math.isclose(dist, 0, abs_tol=1e-6):
+            return p2
+        xm = x1 + dx / dist * dist_from_p1
+        ym = y1 + dy / dist * dist_from_p1
+        return (xm, ym)
+
+    @classmethod
+    def _angle_between(kls, p1, p2, p3):
+        x1, y1 = p1
+        x2, y2 = p2
+        x3, y3 = p3
+        x1, y1 = x1 - x2, y1 - y2
+        x3, y3 = x3 - x2, y3 - y2
+        dot_product = x1*x3 + y1*y3
+        l1 = math.hypot(x1, y1)
+        l2 = math.hypot(x3, y3)
+        norm = dot_product / l1 / l2
+        return math.acos(min(1, max(-1, norm)))
+
+    def _round_over(self, points, aperture):
+        if math.isclose(self.roundover, 0, abs_tol=1e-6) or len(points) <= 2:
+            for p1, p2 in zip(points[:-1], points[1:]):
+                yield Line(*p1, *p2, aperture=aperture, unit=self.unit)
+            return
+        # here: len(points) >= 3
+
+        line_b = Line(*points[0], *self._midpoint(points[0], points[1]), aperture=aperture, unit=self.unit)
+
+        for p1, p2, p3 in zip(points[:-2], points[1:-1], points[2:]):
+            x1, y1 = p1
+            x2, y2 = p2
+            x3, y3 = p3
+            xa, ya = pa = self._midpoint(p1, p2)
+            xb, yb = pb = self._midpoint(p2, p3)
+            la = math.dist(pa, p2)
+            lb = math.dist(p2, pb)
+
+            alpha = self._angle_between(p1, p2, p3)
+            tr = self.roundover/math.tan(alpha/2)
+            t = min(la, lb, tr)
+            r = t*math.tan(alpha/2)
+
+            xs, ys = ps = self._point_on_line(p2, pa, t)
+            xe, ye = pe = self._point_on_line(p2, pb, t)
+
+            if math.isclose(t, la, abs_tol=1e-6):
+                if not math.isclose(line_b.curve_length(), 0, abs_tol=1e-6):
+                    yield line_b
+                xs, ys = ps = pa
+            else:
+                yield Line(line_b.x1, line_b.y1, xs, ys, aperture=aperture, unit=self.unit)
+
+            if math.isclose(t, lb, abs_tol=1e-6):
+                xe, ye = pe = pb
+            line_b = Line(*pe, *pb, aperture=aperture, unit=self.unit)
+
+            if math.isclose(r, 0, abs_tol=1e-6):
+                continue
+
+            xc = -(y2 - ys) / t * r
+            yc = +(x2 - xs) / t * r
+
+            xsr = xs - x2
+            ysr = ys - y2
+            xer = xe - x2
+            yer = ye - y2
+            cross_product_z = xsr * yer - ysr * xer
+
+            clockwise = cross_product_z > 0
+            if clockwise:
+                xc, yc = -xc, -yc
+            
+            yield Arc(*ps, *pe, xc, yc, clockwise, aperture=aperture, unit=self.unit)
+
+        yield Line(line_b.x1, line_b.y1, x3, y3, aperture=aperture, unit=self.unit)
         
-    def to_layer_stack(self, layer_stack, x, y, rotation):
+    def _to_graphic_objects(self):
         start, end = self.start, self.end
 
         if not isinstance(start, tuple):
@@ -188,15 +279,35 @@ class Trace:
         if not isinstance(end, tuple):
             end = end.abs_pos
 
-        points = [start, *self.waypoints, end]
         aperture = CircleAperture(diameter=self.width, unit=self.unit)
 
-        for p1, p2, orientation in zip_longest(points[:-1], points[1:], self.orientation):
-            layer_stack[self.side, 'copper'].extend(self._route(p1, p2, orientation, aperture))
+        points_in = [start, *self.waypoints, end]
+
+        points = []
+        for p1, p2, orientation in zip_longest(points_in[:-1], points_in[1:], self.orientation):
+            points.extend(self._route(p1, p2, orientation))
+        points.append(p2)
+
+        return self._round_over(points, aperture)
+
+    def to_layer_stack(self, layer_stack, x, y, rotation):
+        layer_stack[self.side, 'copper'].objects.extend(self._to_graphic_objects())
 
 if __name__ == '__main__':
     from ..utils import setup_svg, Tag
     from ..newstroke import Newstroke
+
+    def pd_obj(objs):
+        objs = list(objs)
+        yield f'M {objs[0].x1}, {objs[0].y1}'
+        for obj in objs:
+            if isinstance(obj, Line):
+                yield f'L {obj.x2}, {obj.y2}'
+            else:
+                assert isinstance(obj, Arc)
+                yield svg_arc(obj.p1, obj.p2, obj.center_relative, obj.clockwise)
+
+    pd = lambda points: f'M {points[0][0]}, {points[0][1]} ' + ' '.join(f'L {x}, {y}' for x, y in points[1:])
 
     font = Newstroke()
 
@@ -204,11 +315,6 @@ if __name__ == '__main__':
     for n in range(0, 8*6):
         theta = 2*math.pi / (8*6) * n
         dx, dy = math.cos(theta), math.sin(theta)
-        tr = Trace(0.1, style='oblique')
-        points_cw = list(tr._route((0, 0), (dx, dy), 'cw'))
-        points_ccw = list(tr._route((0, 0), (dx, dy), 'ccw'))
-
-        pd = lambda points: f'M {points[0][0]}, {points[0][1]} ' + ' '.join(f'L {x}, {y}' for x, y in points[1:])
 
         strokes = list(font.render(f'α={n/(8*6)*360}', size=0.2))
         xs = [x for st in strokes for x, _y in st]
@@ -219,20 +325,30 @@ if __name__ == '__main__':
         txf = f'{xf} translate(0 -1.2) translate({-(max_x-min_x)/2} {-max_y})'
 
         tags.append(Tag('circle', cx='0', cy='0', r='1',
-                        fill='none', stroke='black', opacity='0.5', stroke_width='0.05',
+                        fill='none', stroke='black', opacity='0.5', stroke_width='0.01',
                         transform=xf))
-        tags.append(Tag('path',
-                        fill='none',
-                        stroke='red', opacity='0.5', stroke_width='0.05', stroke_linecap='round',
-                        transform=xf, d=pd(points_cw)))
-        tags.append(Tag('path',
-                        fill='none',
-                        stroke='blue', opacity='0.5', stroke_width='0.05', stroke_linecap='round',
-                        transform=xf, d=pd(points_ccw)))
         tags.append(Tag('path',
                         fill='none',
                         stroke='black', opacity='0.5', stroke_width='0.02', stroke_linejoin='round', stroke_linecap='round',
                         transform=txf, d=' '.join(pd(points) for points in strokes)))
+
+        for r in [0.0, 0.1, 0.2, 0.3]:
+            tr = Trace(0.1, style='ortho', roundover=r, start=(0, 0), end=(dx, dy))
+            #points_cw = list(tr._route((0, 0), (dx, dy), 'cw')) + [(dx, dy)]
+            #points_ccw = list(tr._route((0, 0), (dx, dy), 'ccw')) + [(dx, dy)]
+            tr.orientation = ['cw']
+            objs_cw = tr._to_graphic_objects()
+            tr.orientation = ['ccw']
+            objs_ccw = tr._to_graphic_objects()
+
+            tags.append(Tag('path',
+                            fill='none',
+                            stroke='red', stroke_width='0.01', stroke_linecap='round',
+                            transform=xf, d=' '.join(pd_obj(objs_cw))))
+            tags.append(Tag('path',
+                            fill='none',
+                            stroke='blue', stroke_width='0.01', stroke_linecap='round',
+                            transform=xf, d=' '.join(pd_obj(objs_ccw))))
 
     print(setup_svg([Tag('g', tags, transform='scale(20 20)')], [(0, 0), (20*10*1.1 + 0.1, 20*10*1.3 + 0.1)]))
 
