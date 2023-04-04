@@ -528,7 +528,7 @@ def point_in_polygon(point, poly):
 
 def bbox_intersect(a, b):
     (xa_min, ya_min), (xa_max, ya_max) = a
-    (xb_min, yb_min), (xb_mbx, yb_mbx) = b
+    (xb_min, yb_min), (xb_max, yb_max) = b
 
     x_overlap = not (xa_max < xb_min or xb_max < xa_min)
     y_overlap = not (ya_max < yb_min or yb_max < ya_min)

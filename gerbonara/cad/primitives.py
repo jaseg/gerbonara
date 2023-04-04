@@ -1,4 +1,5 @@
 
+import sys
 import math
 import warnings
 from copy import copy
@@ -38,11 +39,15 @@ class Board:
         self.keepouts = []
         self.default_via_hole = MM(default_via_hole, unit)
         self.default_via_diameter = MM(default_via_diameter, unit)
+        self.unit = unit
         if w or h:
             if w and h:
                 self.rounded_rect_outline(w, h, r=corner_radius, center=center)
+                self.w, self.h = w, h
             else:
                 raise ValueError('Either both, w and h, or neither of them must be given.')
+        else:
+            self.w = self.h = None
 
     @property
     def abs_pos(self):
@@ -75,6 +80,9 @@ class Board:
                         warnings.warn(msg)
                     elif keepout_errors == 'raise':
                         raise KeepoutError(obj, ko, msg)
+                    else:
+                        import sys
+                        #print('skip', obj.bounding_box(MM), ko, file=sys.stderr)
                     return
 
         obj.parent = self
@@ -136,8 +144,12 @@ class Positioned:
     y: float
     _: KW_ONLY
     rotation: float = 0.0
+    side: str = 'top'
     unit: LengthUnit = MM
     parent: object = None
+
+    def flip(self):
+        self.side = 'top' if self.side == 'bottom' else 'bottom'
 
     @property
     def abs_pos(self):
@@ -153,10 +165,17 @@ class Positioned:
         self.render(stack)
         objects = chain(*(l.objects for l in stack.graphic_layers.values()),
                         stack.drill_pth.objects, stack.drill_npth.objects)
+        objects = list(objects)
+        #print('foo', type(self).__name__,
+        #      [(type(obj).__name__, [prim.bounding_box() for prim in obj.to_primitives(unit)]) for obj in objects], file=sys.stderr)
         return sum_bounds(prim.bounding_box() for obj in objects for prim in obj.to_primitives(unit))
 
     def overlaps(self, bbox, unit=MM):
         return bbox_intersect(self.bounding_box(unit), bbox)
+
+    @property
+    def single_sided(self):
+        return True
 
 
 @dataclass
@@ -171,10 +190,6 @@ class ObjectGroup(Positioned):
     bottom_paste: list = field(default_factory=list)
     drill_npth: list = field(default_factory=list)
     drill_pth: list = field(default_factory=list)
-    side: str = 'top'
-
-    def flip(self):
-        self.side = 'top' if self.side == 'bottom' else 'bottom'
 
     def render(self, layer_stack):
         x, y, rotation = self.abs_pos
@@ -193,6 +208,13 @@ class ObjectGroup(Positioned):
             for fe in source:
                 target.objects.append(copy(fe).rotate(rotation).offset(x, y, self.unit))
 
+    @property
+    def single_sided(self):
+        any_top = self.top_copper or self.top_mask or self.top_paste or self.top_silk
+        any_bottom = self.bottom_copper or self.bottom_mask or self.bottom_paste or self.bottom_silk
+        any_drill = self.drill_npth or self.drill_pth
+        return not (any_drill or (any_top and any_bottom))
+
 
 @dataclass
 class Text(Positioned):
@@ -202,11 +224,7 @@ class Text(Positioned):
     h_align: str = 'left'
     v_align: str = 'bottom'
     layer: str = 'silk'
-    side: str = 'top'
     polarity_dark: bool = True
-
-    def flip(self):
-        self.side = 'top' if self.side == 'bottom' else 'bottom'
 
     def render(self, layer_stack):
         obj_x, obj_y, rotation = self.abs_pos
@@ -259,7 +277,6 @@ class SMDPad(Pad):
     mask_aperture: Aperture
     paste_aperture: Aperture
     silk_features: list = field(default_factory=list)
-    side: str = 'top'
 
     def render(self, layer_stack):
         x, y, rotation = self.abs_pos
@@ -268,9 +285,6 @@ class SMDPad(Pad):
         layer_stack[self.side, 'paste' ].objects.append(Flash(x, y, self.paste_aperture.rotated(rotation), unit=self.unit))
         layer_stack[self.side, 'silk'  ].objects.extend([copy(feature).rotate(rotation).offset(x, y, self.unit)
                                                  for feature in self.silk_features])
-
-    def flip(self):
-        self.side = 'top' if self.side == 'bottom' else 'bottom'
 
     @classmethod
     def rect(kls, x, y, w, h, rotation=0, side='top', mask_expansion=0.0, paste_expansion=0.0, unit=MM):
@@ -285,8 +299,7 @@ class SMDPad(Pad):
         ap_c = CircleAperture(dia, unit=unit)
         ap_m = CircleAperture(dia+2*mask_expansion, unit=unit)
         ap_p = CircleAperture(dia+2*paste_expansion, unit=unit)
-        return kls(x, y, side=side, copper_aperture=ap_c, mask_aperture=ap_m, paste_aperture=ap_p, rotation=rotation,
-                      unit=unit)
+        return kls(x, y, side=side, copper_aperture=ap_c, mask_aperture=ap_m, paste_aperture=ap_p, unit=unit)
     
 
 @dataclass
@@ -310,7 +323,9 @@ class THTPad(Pad):
 
     def render(self, layer_stack):
         x, y, rotation = self.abs_pos
+        self.pad_top.parent = self
         self.pad_top.render(layer_stack)
+        self.pad_bottom.parent = self
         self.pad_bottom.render(layer_stack)
 
         if self.aperture_inner is None:
@@ -325,11 +340,15 @@ class THTPad(Pad):
         for (side, use), layer in layer_stack.inner_layers:
             layer.objects.append(Flash(x, y, self.aperture_inner.rotated(rotation), unit=self.unit))
 
-        hole = Flash(self.x, self.y, ExcellonTool(self.drill_dia, plated=self.plated, unit=self.unit), unit=self.unit)
+        hole = Flash(x, y, ExcellonTool(self.drill_dia, plated=self.plated, unit=self.unit), unit=self.unit)
         if self.plated:
             layer_stack.drill_pth.objects.append(hole)
         else:
             layer_stack.drill_npth.objects.append(hole)
+
+    @property
+    def single_sided(self):
+        return False
 
     @classmethod
     def rect(kls, x, y, hole_dia, w, h=None, rotation=0, mask_expansion=0.0, paste_expansion=0.0, unit=MM):
@@ -341,7 +360,7 @@ class THTPad(Pad):
     @classmethod
     def circle(kls, x, y, hole_dia, dia, mask_expansion=0.0, paste_expansion=0.0, unit=MM):
         pad = SMDPad.circle(0, 0, dia, mask_expansion=mask_expansion, paste_expansion=paste_expansion, unit=unit)
-        return kls(x, y, hole_dia, pad, rotation=rotation, unit=unit)
+        return kls(x, y, hole_dia, pad, unit=unit)
 
     @classmethod
     def obround(kls, x, y, hole_dia, w, h, rotation=0, mask_expansion=0.0, paste_expanson=0.0, unit=MM):
@@ -350,6 +369,21 @@ class THTPad(Pad):
         ap_p = CircleAperture(dia+2*paste_expansion, unit=unit)
         pad = SMDPad(0, 0, side='top', copper_aperture=ap_c, mask_aperture=ap_m, paste_aperture=ap_p, unit=unit)
         return kls(x, y, hole_dia, pad, rotation=rotation, unit=unit)
+
+
+@dataclass
+class Hole(Positioned):
+    diameter: float
+
+    def render(self, layer_stack):
+        x, y, rotation = self.abs_pos
+
+        hole = Flash(x, y, ExcellonTool(self.diameter, plated=False, unit=self.unit), unit=self.unit)
+        layer_stack.drill_npth.objects.append(hole)
+    
+    @property
+    def single_sided(self):
+        return False
 
 
 @dataclass
@@ -368,13 +402,16 @@ class Via(Positioned):
 
         layer_stack.drill_pth.objects.append(Flash(x, y, tool, unit=self.unit))
 
+    @property
+    def single_sided(self):
+        return False
+
 
 @dataclass
 class Trace:
     width: float
     start: object = None
     end: object = None
-    side: str = 'top'
     waypoints: [(float, float)] = field(default_factory=list)
     style: str = 'oblique'
     orientation: [str] = tuple() # 'top' or 'bottom'
