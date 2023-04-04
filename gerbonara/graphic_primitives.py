@@ -136,11 +136,11 @@ class ArcPoly(GraphicPrimitive):
         if len(self.outline) == 0:
             return
 
-        yield f'M {self.outline[0][0]:.6} {self.outline[0][1]:.6}'
+        yield f'M {float(self.outline[0][0]):.6} {float(self.outline[0][1]):.6}'
 
         for old, new, arc in self.segments:
             if not arc:
-                yield f'L {new[0]:.6} {new[1]:.6}'
+                yield f'L {float(new[0]):.6} {float(new[1]):.6}'
             else:
                 clockwise, center = arc
                 yield svg_arc(old, new, center, clockwise)
@@ -214,7 +214,7 @@ class Arc(GraphicPrimitive):
 
     def flip(self):
         return replace(self, x1=self.x2, y1=self.y2, x2=self.x1, y2=self.y1,
-            cx=(self.x + self.cx) - self.x2, cy=(self.y + self.cy) - self.y2, clockwise=not self.clockwise)
+            cx=(self.x1 + self.cx) - self.x2, cy=(self.y1 + self.cy) - self.y2, clockwise=not self.clockwise)
 
     def bounding_box(self):
         r = self.width/2
