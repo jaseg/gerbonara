@@ -442,7 +442,7 @@ def svg_arc(old, new, center, clockwise):
 
     :rtype: str
     """
-    r = math.hypot(*center)
+    r = float(math.hypot(*center))
     # invert sweep flag since the svg y axis is mirrored
     sweep_flag = int(not clockwise)
     # In the degenerate case where old == new, we always take the long way around. To represent this "full-circle arc"
@@ -451,13 +451,13 @@ def svg_arc(old, new, center, clockwise):
         intermediate = old[0] + 2*center[0], old[1] + 2*center[1]
         # Note that we have to preserve the sweep flag to avoid causing self-intersections by flipping the direction of
         # a circular cutin
-        return f'A {r:.6} {r:.6} 0 1 {sweep_flag} {intermediate[0]:.6} {intermediate[1]:.6} ' +\
-               f'A {r:.6} {r:.6} 0 1 {sweep_flag} {new[0]:.6} {new[1]:.6}'
+        return f'A {r:.6} {r:.6} 0 1 {sweep_flag} {float(intermediate[0]):.6} {float(intermediate[1]):.6} ' +\
+               f'A {r:.6} {r:.6} 0 1 {sweep_flag} {float(new[0]):.6} {float(new[1]):.6}'
 
     else: # normal case
         d = point_line_distance(old, new, (old[0]+center[0], old[1]+center[1]))
         large_arc = int((d < 0) == clockwise)
-        return f'A {r:.6} {r:.6} 0 {large_arc} {sweep_flag} {new[0]:.6} {new[1]:.6}'
+        return f'A {r:.6} {r:.6} 0 {large_arc} {sweep_flag} {float(new[0]):.6} {float(new[1]):.6}'
 
 
 def svg_rotation(angle_rad, cx=0, cy=0):
@@ -524,4 +524,14 @@ def point_in_polygon(point, poly):
         xp, yp = x, y
 
     return res
+
+
+def bbox_intersect(a, b):
+    (xa_min, ya_min), (xa_max, ya_max) = a
+    (xb_min, yb_min), (xb_mbx, yb_mbx) = b
+
+    x_overlap = not (xa_max < xb_min or xb_max < xa_min)
+    y_overlap = not (ya_max < yb_min or yb_max < ya_min)
+
+    return x_overlap and y_overlap
 

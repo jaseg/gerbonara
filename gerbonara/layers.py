@@ -296,8 +296,8 @@ class LayerStack:
                                   'bottom copper', 'bottom mask', 'bottom silk', 'bottom paste',
                                   'mechanical outline')}
 
-            drill_pth = ExcellonFile(plated=True)
-            drill_npth = ExcellonFile(plated=False)
+            drill_pth = ExcellonFile()
+            drill_npth = ExcellonFile()
 
         self.graphic_layers = graphic_layers
         self.drill_pth = drill_pth
@@ -557,7 +557,7 @@ class LayerStack:
         return kls(layers, drill_pth, drill_npth, drill_layers, board_name=board_name,
                 original_path=original_path, was_zipped=was_zipped, generator=[*all_generator_hints, None][0])
 
-    def save_to_zipfile(self, path, prefix='', overwrite_existing=True, naming_scheme={},
+    def save_to_zipfile(self, path, prefix='', overwrite_existing=True, board_name=None, naming_scheme={},
                           gerber_settings=None, excellon_settings=None):
         """ Save this board into a zip file at the given path. For other options, see
         :py:meth:`~.layers.LayerStack.save_to_directory`.
@@ -565,6 +565,7 @@ class LayerStack:
         :param path: Path of output zip file
         :param overwrite_existing: Bool specifying whether override an existing zip file. If :py:obj:`False` and
                                    :py:obj:`path` exists, a :py:obj:`ValueError` is raised.
+        :param board_name: Board name to use when naming the Gerber/Excellon files
 
         :param prefix: Store output files under the given prefix inside the zip file
         """
@@ -578,11 +579,11 @@ class LayerStack:
             excellon_settings = gerber_settings
 
         with ZipFile(path, 'w') as le_zip:
-            for path, layer in self._save_files_iter(naming_scheme=naming_scheme):
+            for path, layer in self._save_files_iter(board_name=board_name, naming_scheme=naming_scheme):
                 with le_zip.open(prefix + str(path), 'w') as out:
                     out.write(layer.instance.write_to_bytes())
 
-    def save_to_directory(self, path, naming_scheme={}, overwrite_existing=True,
+    def save_to_directory(self, path, naming_scheme={}, overwrite_existing=True, board_name=None,
                           gerber_settings=None, excellon_settings=None):
         """ Save this board into a directory at the given path. If the given path does not exist, a new directory is
         created in its place.
@@ -593,6 +594,7 @@ class LayerStack:
                               scheme is used. You can provide your own :py:obj:`dict` here, mapping :py:obj:`"side use"`
                               strings to filenames, or use one of :py:attr:`~.layers.NamingScheme.kicad` or
                               :py:attr:`~.layers.NamingScheme.kicad`.
+        :param board_name: Board name to use when naming the Gerber/Excellon files
         :param overwrite_existing: Bool specifying whether override an existing directory. If :py:obj:`False` and
                                    :py:obj:`path` exists, a :py:obj:`ValueError` is raised. Note that a
                                    :py:obj:`ValueError` will still be raised if the target exists and is not a
@@ -608,15 +610,32 @@ class LayerStack:
         if gerber_settings and not excellon_settings:
             excellon_settings = gerber_settings
 
-        for path, layer in self._save_files_iter(naming_scheme=naming_scheme):
+        for path, layer in self._save_files_iter(board_name=board_name, naming_scheme=naming_scheme):
             out = outdir / path
             if out.exists() and not overwrite_existing:
                 raise SystemError(f'Path exists but overwrite_existing is False: {out}')
             layer.instance.save(out)
 
-    def _save_files_iter(self, naming_scheme={}):
+    def _save_files_iter(self, board_name=None, naming_scheme={}):
+        board_name = board_name or self.board_name
+
+        if board_name is None:
+            import inspect
+            frame = inspect.currentframe()
+            if frame is None:
+                board_name = 'board'
+            else:
+                while frame is not None:
+                    import sys
+                    if not frame.f_globals['__name__'].startswith('gerbonara'):
+                        board_name = frame.f_code.co_name
+                        del frame
+                        break
+                    old_frame, frame = frame, frame.f_back
+                    del old_frame
+
         def get_name(layer_type, layer):
-            nonlocal naming_scheme
+            nonlocal naming_scheme, board_name
 
             if (m := re.match('inner_([0-9]+) copper', layer_type)):
                 layer_type = 'inner copper'
@@ -625,11 +644,13 @@ class LayerStack:
                 num = None
 
             if layer_type in naming_scheme:
-                path = naming_scheme[layer_type].format(layer_number=num, board_name=self.board_name)
+                path = naming_scheme[layer_type].format(layer_number=num, board_name=board_name)
             elif layer.original_path and layer.original_path.name:
                 path = layer.original_path.name
             else:
-                path = f'{self.board_name}-{layer_type.replace(" ", "_")}.gbr'
+                path = NamingScheme.kicad[layer_type].format(layer_number=num, board_name=board_name)
+                #ext = 'drl' if isinstance(layer, ExcellonFile) else 'gbr'
+                #path = f'{board_name}-{layer_type.replace(" ", "_")}.{ext}'
 
             return path
 
@@ -664,6 +685,9 @@ class LayerStack:
         unwanted. If you want to instead generate a nice-looking preview image for display or graphical editing in tools
         such as Inkscape, use :py:meth:`~.layers.LayerStack.to_pretty_svg` instead.
 
+        WARNING: The SVG files generated by this function preserve the Gerber coordinates 1:1, so the file will be
+        mirrored vertically.
+
         :param margin: Export SVG file with given margin around the board's bounding box.
         :param arg_unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit ``margin`` and
                          ``force_bounds`` are specified in. Default: mm
@@ -689,7 +713,7 @@ class LayerStack:
             tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg='black', bg="white", tag=Tag)),
                 id=f'l-drill-{i}'))
 
-        return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor=page_bg, tag=tag)
+        return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, tag=tag)
 
     def to_pretty_svg(self, side='top', margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag, inkscape=False,
                       colors=None):
