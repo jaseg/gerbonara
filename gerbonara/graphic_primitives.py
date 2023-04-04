@@ -188,7 +188,7 @@ class Line(GraphicPrimitive):
     def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
         width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
-        return tag('path', d=f'M {self.x1:.6} {self.y1:.6} L {self.x2:.6} {self.y2:.6}',
+        return tag('path', d=f'M {float(self.x1):.6} {float(self.y1):.6} L {float(self.x2):.6} {float(self.y2):.6}',
                 style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linecap: round')
 
 @dataclass(frozen=True)
@@ -240,7 +240,7 @@ class Arc(GraphicPrimitive):
         color = fg if self.polarity_dark else bg
         arc = svg_arc((self.x1, self.y1), (self.x2, self.y2), (self.cx, self.cy), self.clockwise)
         width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
-        return tag('path', d=f'M {self.x1:.6} {self.y1:.6} {arc}',
+        return tag('path', d=f'M {float(self.x1):.6} {float(self.y1):.6} {arc}',
                 style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linecap: round; fill: none')
 
 @dataclass(frozen=True)
