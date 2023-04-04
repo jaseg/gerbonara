@@ -1055,7 +1055,7 @@ class LayerStack:
 
         joins = {}
         for cur in lines:
-            for i, (x, y) in enumerate([(cur.x1, cur.y1), (cur.x2, cur.y2)]):
+            for (i, x, y) in [(0, cur.x1, cur.y1), (1, cur.x2, cur.y2)]:
                 x_left  = bisect.bisect_left (by_x, x, key=lambda elem: elem[0] + tol)
                 x_right = bisect.bisect_right(by_x, x, key=lambda elem: elem[0] - tol)
                 selected = { elem for elem_x, elem in by_x[x_left:x_right] if elem != cur }
@@ -1080,11 +1080,9 @@ class LayerStack:
                 joins[(cur, i)] = (nearest, j)
                 joins[(nearest, j)] = (cur, i)
 
-        def flip_if(obj, i):
-            if i:
-                c = copy.copy(obj)
-                c.flip()
-                return c
+        def flip_if(obj, cond):
+            if cond:
+                return obj.flip()
             else:
                 return obj
 

@@ -10,6 +10,7 @@ from ..utils import LengthUnit, MM, rotate_point, svg_arc, sum_bounds, bbox_inte
 from ..layers import LayerStack
 from ..graphic_objects import Line, Arc, Flash
 from ..apertures import Aperture, CircleAperture, RectangleAperture, ExcellonTool
+from ..newstroke import Newstroke
 
 
 def sgn(x):
@@ -21,6 +22,9 @@ class KeepoutError(ValueError):
         super().__init__(*args, **kwargs)
         self.obj = obj
         self.keepout = keepout
+
+
+newstroke_font = None
 
 
 class Board:
@@ -52,6 +56,9 @@ class Board:
             self.extra_silk_top.append(obj)
         else:
             self.extra_silk_bottom.append(obj)
+
+    def add_text(self, *args, **kwargs):
+        self.objects.append(Text(*args, **kwargs))
 
     def add_keepout(self, bbox, unit=MM):
         ((_x_min, _y_min), (_x_max, _y_max)) = bbox
@@ -150,6 +157,95 @@ class Positioned:
 
     def overlaps(self, bbox, unit=MM):
         return bbox_intersect(self.bounding_box(unit), bbox)
+
+
+@dataclass
+class ObjectGroup(Positioned):
+    top_copper: list = field(default_factory=list)
+    top_mask: list = field(default_factory=list)
+    top_silk: list = field(default_factory=list)
+    top_paste: list = field(default_factory=list)
+    bottom_copper: list = field(default_factory=list)
+    bottom_mask: list = field(default_factory=list)
+    bottom_silk: list = field(default_factory=list)
+    bottom_paste: list = field(default_factory=list)
+    drill_npth: list = field(default_factory=list)
+    drill_pth: list = field(default_factory=list)
+    side: str = 'top'
+
+    def flip(self):
+        self.side = 'top' if self.side == 'bottom' else 'bottom'
+
+    def render(self, layer_stack):
+        x, y, rotation = self.abs_pos
+        top, bottom = ('bottom', 'top') if self.side == 'bottom' else ('top', 'bottom')
+        for target, source in [
+                (layer_stack[top, 'copper'],    self.top_copper),
+                (layer_stack[top, 'mask'],      self.top_mask),
+                (layer_stack[top, 'silk'],      self.top_silk),
+                (layer_stack[top, 'paste'],     self.top_paste),
+                (layer_stack[bottom, 'copper'], self.bottom_copper),
+                (layer_stack[bottom, 'mask'],   self.bottom_mask),
+                (layer_stack[bottom, 'silk'],   self.bottom_silk),
+                (layer_stack[bottom, 'paste'],  self.bottom_paste),
+                (layer_stack.drill_pth,         self.drill_pth),
+                (layer_stack.drill_npth,        self.drill_npth)]:
+            for fe in source:
+                target.objects.append(copy(fe).rotate(rotation).offset(x, y, self.unit))
+
+
+@dataclass
+class Text(Positioned):
+    text: str
+    font_size: float = 2.5
+    stroke_width: float = 0.25
+    h_align: str = 'left'
+    v_align: str = 'bottom'
+    layer: str = 'silk'
+    side: str = 'top'
+    polarity_dark: bool = True
+
+    def flip(self):
+        self.side = 'top' if self.side == 'bottom' else 'bottom'
+
+    def render(self, layer_stack):
+        obj_x, obj_y, rotation = self.abs_pos
+        global newstroke_font
+
+        if newstroke_font is None:
+            newstroke_font = Newstroke()
+
+        strokes = list(newstroke_font.render(self.text, size=self.font_size))
+        xs = [x for points in strokes for x, _y in points]
+        ys = [y for points in strokes for _x, y in points]
+        min_x, min_y, max_x, max_y = min(xs), min(ys), max(xs), max(ys)
+
+        if self.h_align == 'left':
+            x0 = 0
+        elif self.h_align == 'center':
+            x0 = -max_x/2
+        elif self.h_align == 'right':
+            x0 = -max_x
+        else:
+            raise ValueError('h_align must be one of "left", "center", or "right".')
+
+        if self.v_align == 'top':
+            y0 = -max_y
+        elif self.v_align == 'middle':
+            y0 = -max_y/2
+        elif self.v_align == 'bottom':
+            y0 = 0
+        else:
+            raise ValueError('v_align must be one of "top", "middle", or "bottom".')
+
+        ap = CircleAperture(self.stroke_width, unit=self.unit)
+
+        for stroke in strokes:
+            for (x1, y1), (x2, y2) in zip(stroke[:-1], stroke[1:]):
+                obj = Line(x0+x1, y0-y1, x0+x2, y0-y2, aperture=ap, unit=self.unit, polarity_dark=self.polarity_dark)
+                obj.rotate(rotation)
+                obj.offset(obj_x, obj_y)
+                layer_stack[self.side, self.layer].objects.append(obj)
 
 
 @dataclass
@@ -454,7 +550,6 @@ class Trace:
 
 def _route_demo():
     from ..utils import setup_svg, Tag
-    from ..newstroke import Newstroke
 
     def pd_obj(objs):
         objs = list(objs)
@@ -530,7 +625,8 @@ def _board_demo():
     p2 = THTPad.rect(20, 15, 0.9, 1.8)
     b.add(p2)
     b.add(Trace(0.5, p1, p2, style='ortho', roundover=1.5))
-    print(b.svg())
+    b.add_text(50, 50, 'Foobar')
+    print(b.pretty_svg())
     b.layer_stack().save_to_directory('/tmp/testdir')
 
 
