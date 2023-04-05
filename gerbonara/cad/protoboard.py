@@ -171,7 +171,7 @@ class PatternProtoArea:
         for i in range(n_x):
             for j in range(n_y):
                 if hasattr(self.obj, 'inst'):
-                    inst = self.obj.inst(i, j)
+                    inst = self.obj.inst(i, j, i == n_x-1, j == n_y-1)
                 else:
                     inst = copy(self.obj)
 
@@ -229,6 +229,51 @@ class ManhattanPads(ObjectGroup):
         self.top_mask = self.top_copper
 
 
+class RFGroundProto(ObjectGroup):
+    def __init__(self, pitch=None, drill=None, clearance=None, via_dia=None, via_drill=None, pad_dia=None, trace_width=None, unit=MM):
+        super().__init__(0, 0)
+        self.unit = unit
+        self.pitch = pitch = pitch or unit(2.54, MM)
+        self.drill = drill = drill or unit(0.9, MM)
+        self.clearance = clearance = clearance or unit(0.3, MM)
+        self.via_drill = via_drill = via_drill or unit(0.4, MM)
+        self.via_dia = via_dia = via_dia or unit(0.8, MM)
+
+        if pad_dia is None:
+            self.trace_width = trace_width = trace_width or unit(0.3, MM)
+            pad_dia = pitch - trace_width - 2*clearance 
+        elif trace_width is None:
+            trace_width = pitch - pad_dia - 2*clearance
+        self.pad_dia = pad_dia
+
+        via_ap = RectangleAperture(via_dia, via_dia, rotation=math.pi/4, unit=unit)
+        pad_ap = CircleAperture(pad_dia, unit=unit)
+        pad_neg_ap = CircleAperture(pad_dia+2*clearance, unit=unit)
+        ground_ap = RectangleAperture(pitch + unit(0.01, MM), pitch + unit(0.01, MM), unit=unit)
+        pad_drill = ExcellonTool(drill, plated=True, unit=unit)
+        via_drill = ExcellonTool(via_drill, plated=True, unit=unit)
+
+        self.top_copper.append(Flash(0, 0, aperture=ground_ap, unit=unit))
+        self.top_copper.append(Flash(0, 0, aperture=pad_neg_ap, polarity_dark=False, unit=unit))
+        self.top_copper.append(Flash(0, 0, aperture=pad_ap, unit=unit))
+        self.top_mask.append(Flash(0, 0, aperture=pad_ap, unit=unit))
+        self.top_copper.append(Flash(pitch/2, pitch/2, aperture=via_ap, unit=unit))
+        self.top_mask.append(Flash(pitch/2, pitch/2, aperture=via_ap, unit=unit))
+        self.drill_pth.append(Flash(0, 0, aperture=pad_drill, unit=unit))
+        self.drill_pth.append(Flash(pitch/2, pitch/2, aperture=via_drill, unit=unit))
+
+        self.bottom_copper = self.top_copper
+        self.bottom_mask = self.top_mask
+
+    def inst(self, x, y, border_x, border_y):
+        inst = copy(self)
+        if border_x or border_y:
+            inst.drill_pth = inst.drill_pth[:-1]
+            inst.top_copper = inst.bottom_copper = inst.top_copper[:-1]
+            inst.top_mask = inst.bottom_mask = inst.top_mask[:-1]
+        return inst
+
+
 class PoweredProto(ObjectGroup):
     def __init__(self, pitch=None, drill=None, clearance=None, power_pad_dia=None, via_size=None, trace_width=None, unit=MM):
         super().__init__(0, 0)
@@ -270,7 +315,7 @@ class PoweredProto(ObjectGroup):
         self.bottom_copper.append(Line(-pitch/2, -pitch/2, pitch/2, -pitch/2, aperture=self.line_ap, unit=unit))
         self.bottom_copper.append(Line(-pitch/2, pitch/2, pitch/2, pitch/2, aperture=self.line_ap, unit=unit))
 
-    def inst(self, x, y):
+    def inst(self, x, y, border_x, border_y):
         inst = copy(self)
         if (x + y) % 2 == 0:
             inst.drill_pth = inst.drill_pth[:-1]
@@ -331,7 +376,8 @@ def _demo():
     #stack = TwoSideLayout(pattern2, pattern3)
     #layout = PropLayout([pattern1, stack], 'h', [0.5, 0.5])
     #pattern = PatternProtoArea(2.54, obj=ManhattanPads(2.54))
-    pattern = PatternProtoArea(2.54, obj=PoweredProto())
+    #pattern = PatternProtoArea(2.54, obj=PoweredProto())
+    pattern = PatternProtoArea(2.54, obj=RFGroundProto())
     pb = ProtoBoard(100, 80, pattern, mounting_hole_dia=3.2, mounting_hole_offset=5)
     print(pb.pretty_svg())
     pb.layer_stack().save_to_directory('/tmp/testdir')
