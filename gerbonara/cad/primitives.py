@@ -206,7 +206,10 @@ class ObjectGroup(Positioned):
                 (layer_stack.drill_pth,         self.drill_pth),
                 (layer_stack.drill_npth,        self.drill_npth)]:
             for fe in source:
-                target.objects.append(copy(fe).rotate(rotation).offset(x, y, self.unit))
+                fe = copy(fe)
+                fe.rotate(rotation)
+                fe.offset(x, y, self.unit)
+                target.objects.append(fe)
 
     @property
     def single_sided(self):
@@ -282,23 +285,24 @@ class SMDPad(Pad):
         x, y, rotation = self.abs_pos
         layer_stack[self.side, 'copper'].objects.append(Flash(x, y, self.copper_aperture.rotated(rotation), unit=self.unit))
         layer_stack[self.side, 'mask'  ].objects.append(Flash(x, y, self.mask_aperture.rotated(rotation), unit=self.unit))
-        layer_stack[self.side, 'paste' ].objects.append(Flash(x, y, self.paste_aperture.rotated(rotation), unit=self.unit))
+        if self.paste_aperture:
+            layer_stack[self.side, 'paste' ].objects.append(Flash(x, y, self.paste_aperture.rotated(rotation), unit=self.unit))
         layer_stack[self.side, 'silk'  ].objects.extend([copy(feature).rotate(rotation).offset(x, y, self.unit)
                                                  for feature in self.silk_features])
 
     @classmethod
-    def rect(kls, x, y, w, h, rotation=0, side='top', mask_expansion=0.0, paste_expansion=0.0, unit=MM):
+    def rect(kls, x, y, w, h, rotation=0, side='top', mask_expansion=0.0, paste_expansion=0.0, paste=True, unit=MM):
         ap_c = RectangleAperture(w, h, unit=unit)
         ap_m = RectangleAperture(w+2*mask_expansion, h+2*mask_expansion, unit=unit)
-        ap_p = RectangleAperture(w+2*paste_expansion, h+2*paste_expansion, unit=unit)
+        ap_p = RectangleAperture(w+2*paste_expansion, h+2*paste_expansion, unit=unit) if paste else None
         return kls(x, y, side=side, copper_aperture=ap_c, mask_aperture=ap_m, paste_aperture=ap_p, rotation=rotation,
                       unit=unit)
 
     @classmethod
-    def circle(kls, x, y, dia, side='top', mask_expansion=0.0, paste_expansion=0.0, unit=MM):
+    def circle(kls, x, y, dia, side='top', mask_expansion=0.0, paste_expansion=0.0, paste=True, unit=MM):
         ap_c = CircleAperture(dia, unit=unit)
         ap_m = CircleAperture(dia+2*mask_expansion, unit=unit)
-        ap_p = CircleAperture(dia+2*paste_expansion, unit=unit)
+        ap_p = CircleAperture(dia+2*paste_expansion, unit=unit) if paste else None
         return kls(x, y, side=side, copper_aperture=ap_c, mask_aperture=ap_m, paste_aperture=ap_p, unit=unit)
     
 
@@ -351,22 +355,22 @@ class THTPad(Pad):
         return False
 
     @classmethod
-    def rect(kls, x, y, hole_dia, w, h=None, rotation=0, mask_expansion=0.0, paste_expansion=0.0, unit=MM):
+    def rect(kls, x, y, hole_dia, w, h=None, rotation=0, mask_expansion=0.0, paste_expansion=0.0, paste=True, unit=MM):
         if h is None:
             h = w
-        pad = SMDPad.rect(0, 0, w, h, mask_expansion=mask_expansion, paste_expansion=paste_expansion, unit=unit)
+        pad = SMDPad.rect(0, 0, w, h, mask_expansion=mask_expansion, paste_expansion=paste_expansion, paste=paste, unit=unit)
         return kls(x, y, hole_dia, pad, rotation=rotation, unit=unit)
 
     @classmethod
-    def circle(kls, x, y, hole_dia, dia, mask_expansion=0.0, paste_expansion=0.0, unit=MM):
-        pad = SMDPad.circle(0, 0, dia, mask_expansion=mask_expansion, paste_expansion=paste_expansion, unit=unit)
+    def circle(kls, x, y, hole_dia, dia, mask_expansion=0.0, paste_expansion=0.0, paste=True, unit=MM):
+        pad = SMDPad.circle(0, 0, dia, mask_expansion=mask_expansion, paste_expansion=paste_expansion, paste=paste, unit=unit)
         return kls(x, y, hole_dia, pad, unit=unit)
 
     @classmethod
-    def obround(kls, x, y, hole_dia, w, h, rotation=0, mask_expansion=0.0, paste_expanson=0.0, unit=MM):
+    def obround(kls, x, y, hole_dia, w, h, rotation=0, mask_expansion=0.0, paste_expanson=0.0, paste=True, unit=MM):
         ap_c = CircleAperture(dia, unit=unit)
         ap_m = CircleAperture(dia+2*mask_expansion, unit=unit)
-        ap_p = CircleAperture(dia+2*paste_expansion, unit=unit)
+        ap_p = CircleAperture(dia+2*paste_expansion, unit=unit) if paste else None
         pad = SMDPad(0, 0, side='top', copper_aperture=ap_c, mask_aperture=ap_m, paste_aperture=ap_p, unit=unit)
         return kls(x, y, hole_dia, pad, rotation=rotation, unit=unit)
 
