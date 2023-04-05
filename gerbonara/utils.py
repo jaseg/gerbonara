@@ -527,6 +527,9 @@ def point_in_polygon(point, poly):
 
 
 def bbox_intersect(a, b):
+    if a is None or b is None:
+        return False
+
     (xa_min, ya_min), (xa_max, ya_max) = a
     (xb_min, yb_min), (xb_max, yb_max) = b
 

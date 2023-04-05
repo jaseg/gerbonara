@@ -2,6 +2,8 @@
 import sys
 import re
 import math
+import string
+import itertools
 from copy import copy, deepcopy
 import warnings
 
@@ -137,12 +139,51 @@ class TwoSideLayout:
             yield obj
 
 
+def numeric(start=1):
+    def gen():
+        nonlocal start
+        for i in itertools.count(start):
+            yield str(i)
+
+    return gen
+
+
+def alphabetic(case='upper'):
+    if case not in ('lower', 'upper'):
+        raise ValueError('case must be one of "lower" or "upper".')
+
+    index = string.ascii_lowercase if case == 'lower' else string.ascii_uppercase
+
+    def gen():
+        nonlocal index
+
+        for i in itertools.count():
+            out = ''
+            mod = 26
+
+            while i > 0:
+                rem = i % mod
+                i //= mod
+                mod *= 26
+                out = index[rem] + out
+
+            yield out
+
+    return gen
+
+
 class PatternProtoArea:
-    def __init__(self, pitch_x, pitch_y=None, obj=None, unit=MM):
+    def __init__(self, pitch_x, pitch_y=None, obj=None, numbers=True, font_size=None, font_stroke=None, number_x_gen=alphabetic(), number_y_gen=numeric(), interval_x=5, interval_y=None, unit=MM):
         self.pitch_x = pitch_x
         self.pitch_y = pitch_y or pitch_x
         self.obj = obj
         self.unit = unit
+        self.numbers = numbers
+        self.font_size = font_size or unit(1.5, MM)
+        self.font_stroke = font_stroke or unit(0.2, MM)
+        self.interval_x = interval_x
+        self.interval_y = interval_y or (1 if self.pitch_y > self.font_size*1.2 else 5)
+        self.number_x_gen, self.number_y_gen = number_x_gen, number_y_gen
 
     def fit_size(self, w, h, unit=MM):
         (min_x, min_y), (max_x, max_y) = self.fit_rect(((0, 0), (w, h)))
@@ -163,15 +204,50 @@ class PatternProtoArea:
     def generate(self, bbox, unit=MM):
         (x, y), (w, h) = bbox
         w, h = w-x, h-y
+
+        if self.numbers:
+            x += self.font_size
+            y += self.font_size
+            w -= 2*self.font_size
+            h -= 2*self.font_size
+
         n_x = int(w//unit(self.pitch_x, self.unit))
         n_y = int(h//unit(self.pitch_y, self.unit))
         off_x = (w % unit(self.pitch_x, self.unit)) / 2
         off_y = (h % unit(self.pitch_y, self.unit)) / 2
 
+        if self.numbers:
+            for i, lno_i in zip(range(n_y), self.number_x_gen()):
+                if (i+1) % self.interval_y == 0:
+                    t_y = off_y + y + (i + 0.5) * self.pitch_y
+
+                    t_x = x
+                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit)
+                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', side='bottom', unit=self.unit)
+
+                    t_x = x + w
+                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit)
+                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', side='bottom', unit=self.unit)
+
+            for i, lno_i in zip(range(n_x), self.number_y_gen()):
+                if (i+1) % self.interval_x == 0:
+                    t_x = off_x + x + (i + 0.5) * self.pitch_x
+
+                    t_y = y
+                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit)
+                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', side='bottom', unit=self.unit)
+
+                    t_y = y + h
+                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
+                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', side='bottom', unit=self.unit)
+
+
         for i in range(n_x):
             for j in range(n_y):
                 if hasattr(self.obj, 'inst'):
                     inst = self.obj.inst(i, j, i == n_x-1, j == n_y-1)
+                    if not inst:
+                        continue
                 else:
                     inst = copy(self.obj)
 
@@ -273,6 +349,37 @@ class RFGroundProto(ObjectGroup):
             inst.top_mask = inst.bottom_mask = inst.top_mask[:-1]
         return inst
 
+
+class THTFlowerProto(ObjectGroup):
+    def __init__(self, pitch=None, drill=None, diameter=None, unit=MM):
+        super().__init__(0, 0, unit=unit)
+        self.pitch = pitch = pitch or unit(2.54, MM)
+        drill = drill or unit(0.9, MM)
+        diameter = diameter or unit(2.0, MM)
+
+        p = pitch / 2
+        self.objects.append(THTPad.circle(-p, 0, drill, diameter, paste=False, unit=unit))
+        self.objects.append(THTPad.circle( p, 0, drill, diameter, paste=False, unit=unit))
+        self.objects.append(THTPad.circle(0, -p, drill, diameter, paste=False, unit=unit))
+        self.objects.append(THTPad.circle(0,  p, drill, diameter, paste=False, unit=unit))
+
+        middle_ap = CircleAperture(diameter, unit=unit)
+        self.top_copper.append(Flash(0, 0, aperture=middle_ap, unit=unit))
+        self.bottom_copper = self.top_mask = self.bottom_mask = self.top_copper
+    
+    def inst(self, x, y, border_x, border_y):
+        if (x % 2 == 0) and (y % 2 == 0):
+            return copy(self)
+
+        if (x % 2 == 1) and (y % 2 == 1):
+            return copy(self)
+
+        return None
+
+    def bounding_box(self, unit=MM):
+        x, y, rotation = self.abs_pos
+        p = self.pitch/2
+        return unit.convert_bounds_from(self.unit, ((x-p, y-p), (x+p, y+p)))
 
 class PoweredProto(ObjectGroup):
     def __init__(self, pitch=None, drill=None, clearance=None, power_pad_dia=None, via_size=None, trace_width=None, unit=MM):
@@ -377,7 +484,10 @@ def _demo():
     #layout = PropLayout([pattern1, stack], 'h', [0.5, 0.5])
     #pattern = PatternProtoArea(2.54, obj=ManhattanPads(2.54))
     #pattern = PatternProtoArea(2.54, obj=PoweredProto())
-    pattern = PatternProtoArea(2.54, obj=RFGroundProto())
+    #pattern = PatternProtoArea(2.54, obj=RFGroundProto())
+    #pattern = PatternProtoArea(2.54*1.5, obj=THTFlowerProto())
+    #pattern = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
+    pattern = PatternProtoArea(2.54, obj=PoweredProto())
     pb = ProtoBoard(100, 80, pattern, mounting_hole_dia=3.2, mounting_hole_offset=5)
     print(pb.pretty_svg())
     pb.layer_stack().save_to_directory('/tmp/testdir')
