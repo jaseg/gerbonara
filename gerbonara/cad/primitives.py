@@ -80,9 +80,6 @@ class Board:
                         warnings.warn(msg)
                     elif keepout_errors == 'raise':
                         raise KeepoutError(obj, ko, msg)
-                    else:
-                        import sys
-                        #print('skip', obj.bounding_box(MM), ko, file=sys.stderr)
                     return
 
         obj.parent = self
@@ -190,10 +187,16 @@ class ObjectGroup(Positioned):
     bottom_paste: list = field(default_factory=list)
     drill_npth: list = field(default_factory=list)
     drill_pth: list = field(default_factory=list)
+    objects: list = field(default_factory=list)
 
     def render(self, layer_stack):
         x, y, rotation = self.abs_pos
         top, bottom = ('bottom', 'top') if self.side == 'bottom' else ('top', 'bottom')
+
+        for obj in self.objects:
+            obj.parent = self
+            obj.render(layer_stack)
+
         for target, source in [
                 (layer_stack[top, 'copper'],    self.top_copper),
                 (layer_stack[top, 'mask'],      self.top_mask),
@@ -205,6 +208,7 @@ class ObjectGroup(Positioned):
                 (layer_stack[bottom, 'paste'],  self.bottom_paste),
                 (layer_stack.drill_pth,         self.drill_pth),
                 (layer_stack.drill_npth,        self.drill_npth)]:
+
             for fe in source:
                 fe = copy(fe)
                 fe.rotate(rotation)
@@ -237,6 +241,9 @@ class Text(Positioned):
             newstroke_font = Newstroke()
 
         strokes = list(newstroke_font.render(self.text, size=self.font_size))
+        if not strokes:
+            return
+
         xs = [x for points in strokes for x, _y in points]
         ys = [y for points in strokes for _x, y in points]
         min_x, min_y, max_x, max_y = min(xs), min(ys), max(xs), max(ys)
@@ -251,19 +258,25 @@ class Text(Positioned):
             raise ValueError('h_align must be one of "left", "center", or "right".')
 
         if self.v_align == 'top':
-            y0 = -max_y
+            y0 = -(max_y - min_y)
         elif self.v_align == 'middle':
-            y0 = -max_y/2
+            y0 = -(max_y - min_y)/2
         elif self.v_align == 'bottom':
             y0 = 0
         else:
             raise ValueError('v_align must be one of "top", "middle", or "bottom".')
 
+        if self.side == 'bottom':
+            x0 += min_x + max_x
+            x_sign = -1
+        else:
+            x_sign = 1
+
         ap = CircleAperture(self.stroke_width, unit=self.unit)
 
         for stroke in strokes:
             for (x1, y1), (x2, y2) in zip(stroke[:-1], stroke[1:]):
-                obj = Line(x0+x1, y0-y1, x0+x2, y0-y2, aperture=ap, unit=self.unit, polarity_dark=self.polarity_dark)
+                obj = Line(x0+x_sign*x1, y0-y1, x0+x_sign*x2, y0-y2, aperture=ap, unit=self.unit, polarity_dark=self.polarity_dark)
                 obj.rotate(rotation)
                 obj.offset(obj_x, obj_y)
                 layer_stack[self.side, self.layer].objects.append(obj)
