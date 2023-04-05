@@ -301,13 +301,14 @@ class RectangleAperture(Aperture):
         return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None, hole_rect_h=None)
 
     def rotated(self, angle=0):
-        angle += self.rotation
-        if math.isclose(angle % math.pi, 0):
+        self.rotation += angle
+        if math.isclose(self.rotation % math.pi, 0):
+            self.rotation = 0
             return self
-        elif math.isclose(angle % math.pi, math.pi/2):
+        elif math.isclose(self.rotation % math.pi, math.pi/2):
             return replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=0)
         else: # odd angle
-            return self.to_macro(angle)
+            return self.to_macro()
 
     def scaled(self, scale):
         return replace(self, 
