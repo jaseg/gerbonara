@@ -204,7 +204,7 @@ class OperatorExpression(Expression):
 
         op = {operator.add: '+',
               operator.sub: '-',
-              operator.mul: 'X',
+              operator.mul: 'x',
               operator.truediv: '/'} [self.op]
 
         return f'{lval}{op}{rval}'
