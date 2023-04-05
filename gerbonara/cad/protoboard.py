@@ -38,7 +38,7 @@ class ProtoBoard(Board):
     def generate(self, unit=MM):
         bbox = ((self.margin, self.margin), (self.w-self.margin, self.h-self.margin))
         bbox = unit.convert_bounds_from(self.unit, bbox)
-        for obj in self.content.generate(bbox, unit):
+        for obj in self.content.generate(bbox, (True, True, True, True), unit):
             self.add(obj, keepout_errors='skip')
 
 
@@ -52,9 +52,16 @@ class PropLayout:
         if len(content) != len(proportions):
             raise ValueError('proportions and content must have same length')
 
-    def generate(self, bbox, unit=MM):
-        for bbox, child in self.layout_2d(bbox, unit):
-            yield from child.generate(bbox, unit)
+    def generate(self, bbox, border_text, unit=MM):
+        for i, (bbox, child) in enumerate(self.layout_2d(bbox, unit)):
+            first = bool(i == 0)
+            last = bool(i == len(self.content)-1)
+            yield from child.generate(bbox, (
+                border_text[0] and (first or self.direction == 'h'),
+                border_text[1] and (last or self.direction == 'v'),
+                border_text[2] and (last or self.direction == 'h'),
+                border_text[3] and (first or self.direction == 'v'),
+                ), unit)
 
     def fit_size(self, w, h, unit=MM):
         widths = []
@@ -132,9 +139,9 @@ class TwoSideLayout:
             return w1, h1
         return max(w1, w2), max(h1, h2)
 
-    def generate(self, bbox, unit=MM):
-        yield from self.top.generate(bbox, unit)
-        for obj in self.bottom.generate(bbox, unit):
+    def generate(self, bbox, border_text, unit=MM):
+        yield from self.top.generate(bbox, border_text, unit)
+        for obj in self.bottom.generate(bbox, border_text, unit):
             obj.side = 'bottom'
             yield obj
 
@@ -158,16 +165,21 @@ def alphabetic(case='upper'):
         nonlocal index
 
         for i in itertools.count():
-            out = ''
-            mod = 26
+            if i<26:
+                yield index[i]
+                continue
 
-            while i > 0:
-                rem = i % mod
-                i //= mod
-                mod *= 26
-                out = index[rem] + out
+            i -= 26
+            if i<26*26:
+                yield index[i//26] + index[i%26]
+                continue
 
-            yield out
+            i -= 26*26
+            if i<26*26*26:
+                yield index[i//(26*26)] + index[(i//26)%26] + index[i%26]
+
+            else:
+                raise ValueError('row/column index out of range')
 
     return gen
 
@@ -179,10 +191,10 @@ class PatternProtoArea:
         self.obj = obj
         self.unit = unit
         self.numbers = numbers
-        self.font_size = font_size or unit(1.5, MM)
+        self.font_size = font_size or unit(1.0, MM)
         self.font_stroke = font_stroke or unit(0.2, MM)
         self.interval_x = interval_x
-        self.interval_y = interval_y or (1 if self.pitch_y > self.font_size*1.2 else 5)
+        self.interval_y = interval_y or (1 if MM(self.pitch_y, unit) >= 2.0 else 5)
         self.number_x_gen, self.number_y_gen = number_x_gen, number_y_gen
 
     def fit_size(self, w, h, unit=MM):
@@ -201,15 +213,9 @@ class PatternProtoArea:
         y = y + (h-h_fit)/2
         return (x, y), (x+w_fit, y+h_fit)
 
-    def generate(self, bbox, unit=MM):
+    def generate(self, bbox, border_text, unit=MM):
         (x, y), (w, h) = bbox
         w, h = w-x, h-y
-
-        if self.numbers:
-            x += self.font_size
-            y += self.font_size
-            w -= 2*self.font_size
-            h -= 2*self.font_size
 
         n_x = int(w//unit(self.pitch_x, self.unit))
         n_y = int(h//unit(self.pitch_y, self.unit))
@@ -217,29 +223,37 @@ class PatternProtoArea:
         off_y = (h % unit(self.pitch_y, self.unit)) / 2
 
         if self.numbers:
-            for i, lno_i in zip(range(n_y), self.number_x_gen()):
-                if (i+1) % self.interval_y == 0:
-                    t_y = off_y + y + (i + 0.5) * self.pitch_y
+            for i, lno_i in list(zip(range(n_y), self.number_y_gen())):
+                if i == 0 or i == n_y - 1 or (i+1) % self.interval_y == 0:
+                    t_y = off_y + y + (n_y - 1 - i + 0.5) * self.pitch_y
 
-                    t_x = x
-                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit)
-                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', side='bottom', unit=self.unit)
+                    if border_text[3]:
+                        t_x = x + off_x
+                        yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit)
+                        if not self.single_sided:
+                            yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', side='bottom', unit=self.unit)
 
-                    t_x = x + w
-                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit)
-                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', side='bottom', unit=self.unit)
+                    if border_text[1]:
+                        t_x = x + w - off_x
+                        yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit)
+                        if not self.single_sided:
+                            yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', side='bottom', unit=self.unit)
 
-            for i, lno_i in zip(range(n_x), self.number_y_gen()):
-                if (i+1) % self.interval_x == 0:
+            for i, lno_i in zip(range(n_x), self.number_x_gen()):
+                if i == 0 or i == n_x - 1 or (i+1) % self.interval_x == 0:
                     t_x = off_x + x + (i + 0.5) * self.pitch_x
 
-                    t_y = y
-                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit)
-                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', side='bottom', unit=self.unit)
+                    if border_text[2]:
+                        t_y = y + off_y
+                        yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit)
+                        if not self.single_sided:
+                            yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', side='bottom', unit=self.unit)
 
-                    t_y = y + h
-                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
-                    yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', side='bottom', unit=self.unit)
+                    if border_text[0]:
+                        t_y = y + h - off_y
+                        yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
+                        if not self.single_sided:
+                            yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', side='bottom', unit=self.unit)
 
 
         for i in range(n_x):
@@ -267,7 +281,7 @@ class EmptyProtoArea:
     def fit_size(self, w, h, unit=MM):
         return w, h
 
-    def generate(self, bbox, unit=MM):
+    def generate(self, bbox, border_text, unit=MM):
         if self.copper:
             (min_x, min_y), (max_x, max_y) = bbox
             yield ObjectGroup(top_copper=[Region([(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)],
@@ -477,17 +491,17 @@ def eval_value(value, total_length=None):
 
 
 def _demo():
-    #pattern1 = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
-    #pattern2 = PatternProtoArea(1.2, 2.0, obj=SMDPad.rect(0, 0, 1.0, 1.8, paste=False))
-    #pattern3 = PatternProtoArea(2.54, 1.27, obj=SMDPad.rect(0, 0, 2.3, 1.0, paste=False))
-    #stack = TwoSideLayout(pattern2, pattern3)
-    #layout = PropLayout([pattern1, stack], 'h', [0.5, 0.5])
+    pattern1 = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
+    pattern2 = PatternProtoArea(1.2, 2.0, obj=SMDPad.rect(0, 0, 1.0, 1.8, paste=False))
+    pattern3 = PatternProtoArea(2.54, 1.27, obj=SMDPad.rect(0, 0, 2.3, 1.0, paste=False))
+    stack = TwoSideLayout(pattern2, pattern3)
+    pattern = PropLayout([pattern1, stack], 'h', [0.5, 0.5])
     #pattern = PatternProtoArea(2.54, obj=ManhattanPads(2.54))
     #pattern = PatternProtoArea(2.54, obj=PoweredProto())
     #pattern = PatternProtoArea(2.54, obj=RFGroundProto())
     #pattern = PatternProtoArea(2.54*1.5, obj=THTFlowerProto())
     #pattern = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
-    pattern = PatternProtoArea(2.54, obj=PoweredProto())
+    #pattern = PatternProtoArea(2.54, obj=PoweredProto())
     pb = ProtoBoard(100, 80, pattern, mounting_hole_dia=3.2, mounting_hole_offset=5)
     print(pb.pretty_svg())
     pb.layer_stack().save_to_directory('/tmp/testdir')
@@ -495,3 +509,9 @@ def _demo():
 
 if __name__ == '__main__':
     _demo()
+    #cnt = alphabetic()()
+    #for _ in range(32):
+    #    for _ in range(26):
+    #        print(f'{next(cnt):>2}', end=' ', file=sys.stderr)
+    #    print(file=sys.stderr)
+
