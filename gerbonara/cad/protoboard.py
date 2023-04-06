@@ -287,7 +287,6 @@ class EmptyProtoArea:
             group = ObjectGroup(0, 0, top_copper=[Region([(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)],
                                                 unit=unit, polarity_dark=True)])
             group.bounding_box = lambda *args, **kwargs: None
-            print('adding', self, bbox, group.bounding_box(), file=sys.stderr)
             yield group
 
     @property

@@ -189,7 +189,7 @@ class Line(GraphicPrimitive):
         color = fg if self.polarity_dark else bg
         width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
         return tag('path', d=f'M {float(self.x1):.6} {float(self.y1):.6} L {float(self.x2):.6} {float(self.y2):.6}',
-                fill='none', stroke=color, stroke_width=str(width), stroke_linecap='round')
+                fill='none', stroke=color, stroke_width=str(width))
 
 @dataclass(frozen=True)
 class Arc(GraphicPrimitive):
@@ -241,7 +241,7 @@ class Arc(GraphicPrimitive):
         arc = svg_arc((self.x1, self.y1), (self.x2, self.y2), (self.cx, self.cy), self.clockwise)
         width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
         return tag('path', d=f'M {float(self.x1):.6} {float(self.y1):.6} {arc}',
-                fill='none', stroke=color, stroke_width=width, stroke_linecap='round')
+                fill='none', stroke=color, stroke_width=width)
 
 @dataclass(frozen=True)
 class Rectangle(GraphicPrimitive):
