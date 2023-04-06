@@ -391,12 +391,18 @@ class THTPad(Pad):
 @dataclass
 class Hole(Positioned):
     diameter: float
+    mask_copper_margin: float = 0.2
 
     def render(self, layer_stack):
         x, y, rotation = self.abs_pos
 
         hole = Flash(x, y, ExcellonTool(self.diameter, plated=False, unit=self.unit), unit=self.unit)
         layer_stack.drill_npth.objects.append(hole)
+
+        if self.mask_copper_margin > 0:
+            mask = Flash(x, y, CircleAperture(self.mask_copper_margin, unit=self.unit), polarity_dark=False, unit=self.unit)
+            layer_stack['top', 'copper'].objects.append(mask)
+            layer_stack['bottom', 'copper'].objects.append(mask)
     
     @property
     def single_sided(self):

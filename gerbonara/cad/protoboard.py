@@ -282,10 +282,13 @@ class EmptyProtoArea:
         return w, h
 
     def generate(self, bbox, border_text, unit=MM):
-        if self.copper:
+        if self.copper_fill:
             (min_x, min_y), (max_x, max_y) = bbox
-            yield ObjectGroup(top_copper=[Region([(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)],
+            group = ObjectGroup(0, 0, top_copper=[Region([(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)],
                                                 unit=unit, polarity_dark=True)])
+            group.bounding_box = lambda *args, **kwargs: None
+            print('adding', self, bbox, group.bounding_box(), file=sys.stderr)
+            yield group
 
     @property
     def single_sided(self):
@@ -491,18 +494,19 @@ def eval_value(value, total_length=None):
 
 
 def _demo():
-    pattern1 = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
+    #pattern1 = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
     pattern2 = PatternProtoArea(1.2, 2.0, obj=SMDPad.rect(0, 0, 1.0, 1.8, paste=False))
-    pattern3 = PatternProtoArea(2.54, 1.27, obj=SMDPad.rect(0, 0, 2.3, 1.0, paste=False))
+    #pattern3 = PatternProtoArea(2.54, 1.27, obj=SMDPad.rect(0, 0, 2.3, 1.0, paste=False))
+    pattern3 = EmptyProtoArea(copper_fill=True)
     stack = TwoSideLayout(pattern2, pattern3)
-    pattern = PropLayout([pattern1, stack], 'h', [0.5, 0.5])
+    #pattern = PropLayout([pattern1, stack], 'h', [0.5, 0.5])
     #pattern = PatternProtoArea(2.54, obj=ManhattanPads(2.54))
     #pattern = PatternProtoArea(2.54, obj=PoweredProto())
     #pattern = PatternProtoArea(2.54, obj=RFGroundProto())
     #pattern = PatternProtoArea(2.54*1.5, obj=THTFlowerProto())
     #pattern = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
     #pattern = PatternProtoArea(2.54, obj=PoweredProto())
-    pb = ProtoBoard(100, 80, pattern, mounting_hole_dia=3.2, mounting_hole_offset=5)
+    pb = ProtoBoard(100, 80, stack, mounting_hole_dia=3.2, mounting_hole_offset=5)
     print(pb.pretty_svg())
     pb.layer_stack().save_to_directory('/tmp/testdir')
 
