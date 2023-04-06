@@ -77,7 +77,7 @@ class Circle(GraphicPrimitive):
 
     def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
-        return tag('circle', cx=prec(self.x), cy=prec(self.y), r=prec(self.r), style=f'fill: {color}')
+        return tag('circle', cx=prec(self.x), cy=prec(self.y), r=prec(self.r), fill=color)
 
 
 @dataclass(frozen=True)
@@ -147,7 +147,7 @@ class ArcPoly(GraphicPrimitive):
 
     def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
-        return tag('path', d=' '.join(self.path_d()), style=f'fill: {color}')
+        return tag('path', d=' '.join(self.path_d()), fill=color)
 
 
 @dataclass(frozen=True)
@@ -189,7 +189,7 @@ class Line(GraphicPrimitive):
         color = fg if self.polarity_dark else bg
         width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
         return tag('path', d=f'M {float(self.x1):.6} {float(self.y1):.6} L {float(self.x2):.6} {float(self.y2):.6}',
-                style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linecap: round')
+                fill='none', stroke=color, stroke_width=str(width), stroke_linecap='round')
 
 @dataclass(frozen=True)
 class Arc(GraphicPrimitive):
@@ -241,7 +241,7 @@ class Arc(GraphicPrimitive):
         arc = svg_arc((self.x1, self.y1), (self.x2, self.y2), (self.cx, self.cy), self.clockwise)
         width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
         return tag('path', d=f'M {float(self.x1):.6} {float(self.y1):.6} {arc}',
-                style=f'fill: none; stroke: {color}; stroke-width: {width}; stroke-linecap: round; fill: none')
+                fill='none', stroke=color, stroke_width=width, stroke_linecap='round')
 
 @dataclass(frozen=True)
 class Rectangle(GraphicPrimitive):
@@ -275,5 +275,5 @@ class Rectangle(GraphicPrimitive):
         color = fg if self.polarity_dark else bg
         x, y = self.x - self.w/2, self.y - self.h/2
         return tag('rect', x=prec(x), y=prec(y), width=prec(self.w), height=prec(self.h),
-                transform=svg_rotation(self.rotation, self.x, self.y), style=f'fill: {color}')
+                *svg_rotation(self.rotation, self.x, self.y), fill=color)
 

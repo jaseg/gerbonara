@@ -461,7 +461,10 @@ def svg_arc(old, new, center, clockwise):
 
 
 def svg_rotation(angle_rad, cx=0, cy=0):
-    return f'rotate({float(math.degrees(angle_rad)):.4} {float(cx):.6} {float(cy):.6})'
+    if math.isclose(angle_rad, 0.0, abs_tol=1e-3):
+        return {}
+    else:
+        return {'transform': f'rotate({float(math.degrees(angle_rad)):.4} {float(cx):.6} {float(cy):.6})'}
 
 def setup_svg(tags, bounds, margin=0, arg_unit=MM, svg_unit=MM, pagecolor='white', tag=Tag, inkscape=False):
     (min_x, min_y), (max_x, max_y) = bounds
