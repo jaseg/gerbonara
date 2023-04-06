@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>Protoserve</title>
+        <link rel="stylesheet" type="text/css" href="{{url_for('static', filename='pure-min.css')}}">
+        <link rel="icon" type="image/png" href="{{url_for('static', filename='favicon-512.png')}}">
+        <link rel="apple-touch-icon" href="{{url_for('static', filename='favicon-512.png')}}">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+:root {
+    --u-display-metric: default;
+    --u-display-us: none;
+}
+
+html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+}
+
+body {
+    display: grid;
+    grid-template-columns: clamp(200px, 500px, 50vw) 1fr;
+    grid-template-rows: 1fr 0fr;
+    grid-template-areas: "controls main"
+                         "links main";
+
+}
+
+#controls {
+    grid-area: controls;
+    user-select: none;
+    display: grid;
+    grid-template-columns: 10fr 1fr 1fr;
+    align-content: start
+}
+
+label {
+    grid-column-start: 1;
+    grid-column-end: span 3;
+    display: grid;
+    grid-template-columns: subgrid;
+    text-align: right;
+}
+
+input[type="checkbox"] {
+    justify-self: start;
+}
+
+input {
+    align-self: start;
+}
+
+.group > h4 {
+    text-align: center;
+    margin: 5px;
+    grid-column-start: 1;
+    grid-column-end: span 3;
+}
+
+.expand > :first-child {
+    grid-column-start: 1;
+    grid-column-end: span 3;
+}
+
+.group, .field, .expand {
+    grid-column-start: 1;
+    grid-column-end: span 3;
+    display: grid;
+    grid-template-columns: subgrid;
+    align-content: start;
+}
+
+.group {
+    background-color: hsl(.0turn 50% 10% / 4%);
+    padding: 10px;
+    border-radius: 10px;
+    box-shadow: 0 0 8px 0px hsl(0 0% 0% / 20%);
+    margin: 10px 0 10px 0;
+}
+
+.expand > .field:first-child {
+    display: grid;
+    grid-template-columns: 1fr 100fr 1fr;
+    align-items: center;
+    text-align: left;
+    width: 100%;
+    position: relative;
+}
+
+.group > .content {
+    grid-column-start: 1;
+    grid-column-end: span 3;
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+}
+
+.group > div > .proportion {
+    display: none;
+}
+
+.group.proportional > div > .proportion {
+    display: grid;
+}
+
+.field > input, .field > select { max-width: 5em;
+    text-align: right;
+    margin: 0 5px 0 5px;
+}
+
+.group.expand {
+    border-radius: 0;
+}
+
+.expand > :first-child {
+    font-weight: bold;
+}
+
+.expand.collapsed > :nth-child(n+2) {
+    display: none;
+}
+
+.unit.metric {
+    display: var(--u-display-metric);
+}
+
+.unit.us {
+    display: var(--u-display-us);
+}
+
+#preview {
+    grid-area: main;
+}
+
+#links {
+    grid-area: links;
+}
+
+.layout-area {
+    grid-column-start: 1;
+    grid-column-end: span 3;
+}
+
+a.drop-target {
+    text-align: center;
+}
+
+.placeholder hr {
+    width: 3em;
+    border: none;
+    border-top: 1px solid hsl(0 0% 60%);
+}
+</style>
+    </head>
+    <body>
+        <div id="controls">
+            <div class="group">
+                <h4>Board settings</h4>
+                <label id="g-board-units">Units
+                    <select value="metric">
+                        <option value="metric">Metric</option>
+                        <option value="us">US Customary</option>
+                    </select>
+                </label>
+
+                <label id="g-board-w">Board width
+                    <input id="input-board-w" type="text" placeholder="width" value="100">
+                    <span class="unit metric">mm</span>
+                    <span class="unit us">inch</span>
+                </label>
+
+                <label id="g-board-h">Board height
+                    <input id="input-board-h" type="text" placeholder="height" value="80">
+                    <span class="unit metric">mm</span>
+                    <span class="unit us">inch</span>
+                </label>
+
+                <div class="group expand">
+                    <label id="g-round-corners">Round corners
+                        <input type="checkbox" checked>
+                    </label>
+
+                    <label id="g-board-corner-radius">Radius
+                        <input type="text" placeholder="radius" value="1.5">
+                        <span class="unit metric">mm</span> 
+                        <span class="unit us">inch</span> 
+                    </label>
+                </div>
+
+                <div class="group expand">
+                    <label>Mounting holes
+                        <input type="checkbox" name="has_holes" checked>
+                    </label>
+
+                    <label>Diameter
+                        <input type="text" placeholder="diameter" name="hole_dia" value="3.2"></input>
+                        <span class="unit metric">mm</span> 
+                        <span class="unit us">inch</span> 
+                    </label>
+
+                    <label>Board edge to hole center (X)
+                        <input type="text" placeholder="distance" name="hole_off_x" value="5"></input>
+                        <span class="unit metric">mm</span> 
+                        <span class="unit us">inch</span> 
+                    </label>
+
+                    <label>Board edge to hole center (Y)
+                        <input type="text" placeholder="distance" name="hole_off_y" value="5"></input>
+                        <span class="unit metric">mm</span> 
+                        <span class="unit us">inch</span> 
+                    </label>
+                </div>
+
+                <h4>Content</h4>
+                <div class="group proportional">
+                    <h4>Proportional Layout</h4>
+                    <label>Direction
+                        <select name="direction" value="horizontal">
+                            <option value="h">horizontal</option>
+                            <option value="v">vertical</option>
+                        </select>
+                    </label>
+
+                    <div class="group placeholder">
+                        <h4>Empty area</h4>
+                        <label class="proportion">Proportion
+                            <input type="text" name="layout_prop">
+                        </label>
+                        <div class="content">
+                            <a href="#">Add Layout</a>
+                            <hr/>
+                            <a href="#">Add SMD area</a>
+                            <a href="#">Add THT area</a>
+                            <a href="#">Add Manhattan area</a>
+                            <a href="#">Add THT Flower area</a>
+                        </div>
+                    </div>
+
+                    <div class="group smd-area">
+                        <h4>SMD area</h4>
+                        <label class="proportion">Proportion
+                            <input type="text" name="layout_prop">
+                        </label>
+                        <label>Pitch X
+                            <input type="text" name="pitch_x" placeholder="length">
+                            <span class="unit metric">mm</span>
+                            <span class="unit us">mil</span>
+                        </label>
+                        <label>Pitch Y
+                            <input type="text" name="pitch_y" placeholder="length">
+                            <span class="unit metric">mm</span>
+                            <span class="unit us">mil</span>
+                        </label>
+                        <label>Clearance
+                            <input type="text" name="clearance" placeholder="length">
+                            <span class="unit metric">mm</span>
+                            <span class="unit us">mil</span>
+                        </label>
+                        <label>Pad shape
+                            <select name="pad_shape" value="rect">
+                                <option value="rect">Rectangle</option>
+                                <option value="circle">Circle</option>
+                                <option value="obround">Obround</option>
+                            </select>
+                        </label>
+                        <label>Pad width
+                            <input type="text" name="pad_w" placeholder="length">
+                            <span class="unit metric">mm</span>
+                            <span class="unit us">mil</span>
+                        </label>
+                        <label>Pad height
+                            <input type="text" name="pad_h" placeholder="length">
+                            <span class="unit metric">mm</span>
+                            <span class="unit us">mil</span>
+                        </label>
+                    </div>
+                    <a class="content" href="#">Add element</a>
+                </div>
+            </div>
+        </div>
+        <div id="preview">
+            <img src="/preview.svg" alt="Automaticallly generated preview image"/>
+        </div>
+        <div id="links">
+            <a href="#controls">Settings</a>
+            <a href="#preview">Preview</a>
+            <a href='/download'>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="1em">
+                    <title>Download</title>
+                    <!--! Font Awesome Pro 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path d="M288 32c0-17.7-14.3-32-32-32s-32 14.3-32 32V274.7l-73.4-73.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l128 128c12.5 12.5 32.8 12.5 45.3 0l128-128c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L288 274.7V32zM64 352c-35.3 0-64 28.7-64 64v32c0 35.3 28.7 64 64 64H448c35.3 0 64-28.7 64-64V416c0-35.3-28.7-64-64-64H346.5l-45.3 45.3c-25 25-65.5 25-90.5 0L165.5 352H64zm368 56a24 24 0 1 1 0 48 24 24 0 1 1 0-48z"/>
+                </svg>
+                Gerbers
+            </a>
+        </div>
+        <template id="tpl-drop-target">
+            <a class="drop-target" href="#">
+                <svg viewBox="0 0 532 532" width="1em" xmlns="http://www.w3.org/2000/svg">
+                    <title>Move here</title>
+                    <path id="path2" d="m 424.025,300.075 c 17.7,0 32,-14.3 32,-32 0,-17.7 -14.3,-32 -32,-32 h -82.7 l 181.3,-181.4 c 12.5,-12.5 12.5,-32.8 0,-45.3 -12.5,-12.5 -32.8,-12.5 -45.3,0 l -181.3,181.4 v -82.7 c 0,-17.7 -14.3,-32 -32,-32 -17.7,0 -32,14.3 -32,32 v 160 c 0,17.7 14.3,32 32,32 z M 80,52 C 35.8,52 0,87.8 0,132 v 320 c 0,44.2 35.8,80 80,80 h 320 c 44.2,0 80,-35.8 80,-80 v -72 c 0,-17.7 -14.3,-32 -32,-32 -17.7,0 -32,14.3 -32,32 v 72 c 0,8.8 -7.2,16 -16,16 H 80 c -8.8,0 -16,-7.2 -16,-16 V 132 c 0,-8.8 7.2,-16 16,-16 h 72 c 17.7,0 32,-14.3 32,-32 0,-17.7 -14.3,-32 -32,-32 z" />
+                </svg>
+            </a>
+        </template>
+        <script>
+            document.querySelectorAll('.expand').forEach((elem) => {
+                const checkbox = elem.querySelector(':first-child > input');
+                checkbox.addEventListener("change", (evt) => {
+                    if (evt.currentTarget.checked) {
+                        elem.classList.remove('collapsed');
+                    } else {
+                        elem.classList.add('collapsed');
+                    }
+                });
+                if (checkbox.checked) {
+                    elem.classList.remove('collapsed');
+                } else {
+                    elem.classList.add('collapsed');
+                }
+            });
+        </script>
+    </body>
+</html>
