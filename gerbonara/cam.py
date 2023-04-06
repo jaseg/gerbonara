@@ -249,7 +249,9 @@ class Polyline:
         (x0, y0), *rest = self.coords
         d = f'M {float(x0):.6} {float(y0):.6} ' + ' '.join(f'L {float(x):.6} {float(y):.6}' for x, y in rest)
         width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
-        return tag('path', d=d, style=f'fill: none; stroke: {color}; stroke-width: {float(width):.6}; stroke-linejoin: round; stroke-linecap: round')
+        return tag('path', d=d,
+                   fill='none', stroke=color,
+                   stroke_width=f'{float(width):.6}')
 
 
 class CamFile:

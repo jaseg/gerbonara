@@ -703,15 +703,17 @@ class LayerStack:
             bounds = svg_unit.convert_bounds_from(arg_unit, force_bounds)
         else:
             bounds = self.bounding_box(svg_unit, default=((0, 0), (0, 0)))
+
+        stroke_attrs = {'stroke_linejoin': 'round', 'stroke_linecap': 'round'}
         
         tags = []
         for (side, use), layer in self.graphic_layers.items():
             tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg='black', bg="white", tag=Tag)),
-                id=f'l-{side}-{use}'))
+                    **stroke_attrs, id=f'l-{side}-{use}'))
 
         for i, layer in enumerate(self.drill_layers):
             tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg='black', bg="white", tag=Tag)),
-                id=f'l-drill-{i}'))
+                    **stroke_attrs, id=f'l-drill-{i}'))
 
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, tag=tag)
 
@@ -779,6 +781,7 @@ class LayerStack:
                 </filter>'''.strip()))
 
         inkscape_attrs = lambda label: dict(inkscape__groupmode='layer', inkscape__label=label) if inkscape else {}
+        stroke_attrs = {'stroke_linejoin': 'round', 'stroke_linecap': 'round'}
         
         layers = []
         for use in ['copper', 'mask', 'silk', 'paste']:
@@ -788,18 +791,36 @@ class LayerStack:
 
             layer = self[(side, use)]
             fg, bg = ('white', 'black') if use != 'mask' else ('black', 'white')
-            objects = list(layer.instance.svg_objects(svg_unit=svg_unit, fg=fg, bg=bg, tag=Tag))
+
+            default_fill = {'copper': fg, 'mask': fg, 'silk': 'none', 'paste': fg}[use]
+            default_stroke = {'copper': 'none', 'mask': 'none', 'silk': fg, 'paste': 'none'}[use]
+
+            objects = []
+            for obj in layer.instance.svg_objects(svg_unit=svg_unit, fg=fg, bg=bg, tag=Tag):
+                if obj.attrs.get('fill') == default_fill:
+                    del obj.attrs['fill']
+                elif 'fill' not in obj.attrs:
+                    obj.attrs['fill'] = 'none'
+
+                if obj.attrs.get('stroke') == default_stroke:
+                    del obj.attrs['stroke']
+                elif default_stroke != 'none' and 'stroke' not in obj.attrs:
+                    obj.attrs['stroke'] = 'none'
+                objects.append(obj)
+
             if use == 'mask':
-                objects.insert(0, tag('path', id='outline-path', d=self.outline_svg_d(unit=svg_unit), style='fill:white'))
-            layers.append(tag('g', objects, id=f'l-{side}-{use}', filter=f'url(#f-{use})', **inkscape_attrs(f'{side} {use}')))
+                objects.insert(0, tag('path', id='outline-path', d=self.outline_svg_d(unit=svg_unit), fill='white'))
+            layers.append(tag('g', objects, id=f'l-{side}-{use}', filter=f'url(#f-{use})',
+                              fill=default_fill, stroke=default_stroke, **stroke_attrs,
+                              **inkscape_attrs(f'{side} {use}')))
 
         for i, layer in enumerate(self.drill_layers):
             layers.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
-                id=f'g-drill-{i}', filter=f'url(#f-drill)', **inkscape_attrs(f'drill-{i}')))
+                id=f'g-drill-{i}', filter=f'url(#f-drill)', **stroke_attrs, **inkscape_attrs(f'drill-{i}')))
 
         if self.outline:
             layers.append(tag('g', list(self.outline.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
-                id=f'g-outline-{i}', **inkscape_attrs(f'outline-{i}')))
+                id=f'g-outline-{i}', **stroke_attrs, **inkscape_attrs(f'outline-{i}')))
 
         layer_group = tag('g', layers, transform=f'translate(0 {bounds[0][1] + bounds[1][1]}) scale(1 -1)')
         tags = [tag('defs', filter_defs), layer_group]
