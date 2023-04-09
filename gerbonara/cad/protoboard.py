@@ -116,6 +116,10 @@ class PropLayout:
         return [ unit(leftover * (value or 1.0) / sum_props if not isinstance(value, str) else calculated, MM)
                 for value, calculated in zip(self.proportions, out) ]
 
+    @property
+    def single_sided(self):
+        return all(elem.single_sided for elem in self.content)
+
     def __str__(self):
         children = ', '.join( f'{elem}:{width}' for elem, width in zip(self.content, self.proportions))
         return f'PropLayout[{self.direction.upper()}]({children})'
