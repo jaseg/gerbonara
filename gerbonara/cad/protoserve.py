@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
 import importlib.resources
-from tempfile import TemporaryDirectory
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from pathlib import Path
 
-from quart import Quart, request, Response
+from quart import Quart, request, Response, send_file
 
 from . import protoboard as pb
 from . import protoserve_data
@@ -104,10 +104,7 @@ def deserialize(obj, unit):
             via_drill = float(obj['via_hole_dia'])
             return pb.PatternProtoArea(pitch, pitch, pb.RFGroundProto(pitch, hole_dia, clearance, via_dia, via_drill, unit=MM), unit=MM)
 
-@app.route('/preview.svg', methods=['POST'])
-async def preview():
-    obj = await request.get_json()
-
+def to_board(obj):
     unit = Inch if obj.get('units' == 'us') else MM
     w = float(obj.get('width', unit(100, MM)))
     h = float(obj.get('height', unit(80, MM)))
@@ -118,12 +115,26 @@ async def preview():
 
     content = deserialize(obj['children'][0], unit)
 
-    board = pb.ProtoBoard(w, h, content,
+    return pb.ProtoBoard(w, h, content,
                        corner_radius=corner_radius,
                        mounting_hole_dia=mounting_hole_dia,
                        mounting_hole_offset=mounting_hole_offset,
                        unit=unit)
+
+@app.route('/preview.svg', methods=['POST'])
+async def preview():
+    obj = await request.get_json()
+    board = to_board(obj)
     return Response(str(board.pretty_svg()), mimetype='image/svg+xml')
+
+@app.route('/gerbers.zip', methods=['POST'])
+async def gerbers():
+    obj = await request.get_json()
+    board = to_board(obj)
+    with NamedTemporaryFile(suffix='.zip') as f:
+        f = Path(f.name)
+        board.layer_stack().save_to_zipfile(f)
+        return Response(f.read_bytes(), mimetype='image/svg+xml')
 
 
 if __name__ == '__main__':
