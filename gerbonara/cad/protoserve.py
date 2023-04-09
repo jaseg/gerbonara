@@ -41,11 +41,20 @@ def deserialize(obj, unit):
     pitch_y = float(obj.get('pitch_y', 1.27))
     clearance = float(obj.get('clearance', 0.2))
 
+    mil = lambda x: x/1000 if unit == Inch else x
+
     match obj['type']:
         case 'layout':
+            if not obj.get('children'):
+                return pb.EmptyProtoArea()
+
             proportions = [float(child['layout_prop']) for child in obj['children']]
             content = [deserialize(child, unit) for child in obj['children']]
             return pb.PropLayout(content, obj['direction'], proportions)
+
+        case 'twoside':
+            top, bottom = obj['children']
+            return pb.TwoSideLayout(deserialize(top, unit), deserialize(bottom, unit))
 
         case 'placeholder':
             return pb.EmptyProtoArea()
@@ -59,7 +68,7 @@ def deserialize(obj, unit):
             return pb.PatternProtoArea(pitch_x, pitch_y, obj=pad, unit=unit)
 
         case 'tht':
-            hole_dia = float(obj['hole_dia'])
+            hole_dia = mil(float(obj['hole_dia']))
             match obj['plating']:
                 case 'plated':
                     oneside, plated = False, True
@@ -85,16 +94,16 @@ def deserialize(obj, unit):
             return pb.PatternProtoArea(pitch_x, pitch_y, obj=pb.ManhattanPads(pitch_x, pitch_y, clearance, unit=unit), unit=unit)
 
         case 'powered':
-            pitch = float(obj.get('pitch', 2.54))
-            hole_dia = float(obj['hole_dia'])
-            via_drill = float(obj['via_hole_dia'])
-            trace_width = float(obj['trace_width'])
+            pitch = mil(float(obj.get('pitch', 2.54)))
+            hole_dia = mil(float(obj['hole_dia']))
+            via_drill = mil(float(obj['via_hole_dia']))
+            trace_width = mil(float(obj['trace_width']))
             return pb.PatternProtoArea(pitch, pitch, pb.PoweredProto(pitch, hole_dia, clearance, via_size=via_drill, trace_width=trace_width, unit=unit), unit=unit)
 
         case 'flower':
-            pitch = float(obj.get('pitch', 2.54))
-            hole_dia = float(obj['hole_dia'])
-            pattern_dia = float(obj['pattern_dia'])
+            pitch = mil(float(obj.get('pitch', 2.54)))
+            hole_dia = mil(float(obj['hole_dia']))
+            pattern_dia = mil(float(obj['pattern_dia']))
             return pb.PatternProtoArea(2*pitch, 2*pitch, pb.THTFlowerProto(pitch, hole_dia, pattern_dia, unit=unit), unit=unit)
 
         case 'rf':
@@ -113,7 +122,10 @@ def to_board(obj):
     mounting_hole_dia = float(holes.get('diameter', unit(3.2, MM)))
     mounting_hole_offset = float(holes.get('offset', unit(5, MM)))
 
-    content = deserialize(obj['children'][0], unit)
+    if obj.get('children'):
+        content = deserialize(obj['children'][0], unit)
+    else:
+        content = [pb.EmptyProtoArea()]
 
     return pb.ProtoBoard(w, h, content,
                        corner_radius=corner_radius,

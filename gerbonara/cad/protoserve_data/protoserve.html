@@ -15,6 +15,7 @@ html, body {
     margin: 0;
     width: 100%;
     height: 100%;
+    font-family: Helvetica, Segoe UI, Sans-Serif;
 }
 
 body {
@@ -161,6 +162,7 @@ input {
 
 #preview {
     grid-area: main;
+    padding: 20px;
 }
 
 #preview-image {
@@ -171,6 +173,18 @@ input {
 
 #links {
     grid-area: links;
+    display: flex;
+    justify-content: center;
+    padding: 5px;
+}
+
+#link-gerbers {
+    background-color: #0d6efd;
+    color: white;
+    font-weight: bold;
+    box-shadow: 0px 0px 1px 1px hsl(0, 0%, 0% / 20%);
+    border-radius: .5em;
+    padding: 1em 2em 1em 2em;
 }
 
 .layout-area {
@@ -201,6 +215,10 @@ input {
 
 #controls.move-in-progress {
     color: hsl(0 0% 60%);
+}
+
+.narrow-only {
+    display: none;
 }
 
 </style>
@@ -266,8 +284,8 @@ input {
             <img id="preview-image" alt="Automatically generated preview image"/>
         </div>
         <div id="links">
-            <a href="#controls">Settings</a>
-            <a href="#preview">Preview</a>
+            <a class="narrow-only" href="#controls">Settings</a>
+            <a class="narrow-only" href="#preview">Preview</a>
             <a id="link-gerbers" href='#'>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="1em">
                     <title>Download</title>
@@ -313,7 +331,7 @@ input {
         </template>
 
         <template id="tpl-g-twoside">
-            <div class="group split-sides">
+            <div data-type='twoside' class="group split-sides">
                 <h4>Split front and back</h4>
                 <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
                 <label class="proportion">Proportion
