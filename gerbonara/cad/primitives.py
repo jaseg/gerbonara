@@ -342,17 +342,21 @@ class THTPad(Pad):
         x, y, rotation = self.abs_pos
         self.pad_top.parent = self
         self.pad_top.render(layer_stack)
-        self.pad_bottom.parent = self
-        self.pad_bottom.render(layer_stack)
+        if self.pad_bottom:
+            self.pad_bottom.parent = self
+            self.pad_bottom.render(layer_stack)
 
         if self.aperture_inner is None:
             (x_min, y_min), (x_max, y_max) = self.pad_top.bounding_box(MM)
             w_top = x_max - x_min
             h_top = y_max - y_min
-            (x_min, y_min), (x_max, y_max) = self.pad_bottom.bounding_box(MM)
-            w_bottom = x_max - x_min
-            h_bottom = y_max - y_min
-            self.aperture_inner = CircleAperture(min(w_top, h_top, w_bottom, h_bottom), unit=MM)
+            if self.pad_bottom:
+                (x_min, y_min), (x_max, y_max) = self.pad_bottom.bounding_box(MM)
+                w_bottom = x_max - x_min
+                h_bottom = y_max - y_min
+                w_top = min(w_top, w_bottom)
+                h_top = min(h_top, h_bottom)
+            self.aperture_inner = CircleAperture(min(w_top, h_top), unit=MM)
 
         for (side, use), layer in layer_stack.inner_layers:
             layer.objects.append(Flash(x, y, self.aperture_inner.rotated(rotation), unit=self.unit))
@@ -368,24 +372,24 @@ class THTPad(Pad):
         return False
 
     @classmethod
-    def rect(kls, x, y, hole_dia, w, h=None, rotation=0, mask_expansion=0.0, paste_expansion=0.0, paste=True, unit=MM):
+    def rect(kls, x, y, hole_dia, w, h=None, rotation=0, mask_expansion=0.0, paste_expansion=0.0, paste=True, plated=True, unit=MM):
         if h is None:
             h = w
         pad = SMDPad.rect(0, 0, w, h, mask_expansion=mask_expansion, paste_expansion=paste_expansion, paste=paste, unit=unit)
-        return kls(x, y, hole_dia, pad, rotation=rotation, unit=unit)
+        return kls(x, y, hole_dia, pad, rotation=rotation, plated=plated, unit=unit)
 
     @classmethod
-    def circle(kls, x, y, hole_dia, dia, mask_expansion=0.0, paste_expansion=0.0, paste=True, unit=MM):
+    def circle(kls, x, y, hole_dia, dia, mask_expansion=0.0, paste_expansion=0.0, paste=True, plated=True, unit=MM):
         pad = SMDPad.circle(0, 0, dia, mask_expansion=mask_expansion, paste_expansion=paste_expansion, paste=paste, unit=unit)
-        return kls(x, y, hole_dia, pad, unit=unit)
+        return kls(x, y, hole_dia, pad, plated=plated, unit=unit)
 
     @classmethod
-    def obround(kls, x, y, hole_dia, w, h, rotation=0, mask_expansion=0.0, paste_expanson=0.0, paste=True, unit=MM):
+    def obround(kls, x, y, hole_dia, w, h, rotation=0, mask_expansion=0.0, paste_expanson=0.0, paste=True, plated=True, unit=MM):
         ap_c = CircleAperture(dia, unit=unit)
         ap_m = CircleAperture(dia+2*mask_expansion, unit=unit)
         ap_p = CircleAperture(dia+2*paste_expansion, unit=unit) if paste else None
         pad = SMDPad(0, 0, side='top', copper_aperture=ap_c, mask_aperture=ap_m, paste_aperture=ap_p, unit=unit)
-        return kls(x, y, hole_dia, pad, rotation=rotation, unit=unit)
+        return kls(x, y, hole_dia, pad, rotation=rotation, plated=plated, unit=unit)
 
 
 @dataclass
