@@ -275,5 +275,5 @@ class Rectangle(GraphicPrimitive):
         color = fg if self.polarity_dark else bg
         x, y = self.x - self.w/2, self.y - self.h/2
         return tag('rect', x=prec(x), y=prec(y), width=prec(self.w), height=prec(self.h),
-                *svg_rotation(self.rotation, self.x, self.y), fill=color)
+                **svg_rotation(self.rotation, self.x, self.y), fill=color)
 

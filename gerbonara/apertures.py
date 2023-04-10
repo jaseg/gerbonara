@@ -452,7 +452,7 @@ class PolygonAperture(Aperture):
 
     def _params(self, unit=None):
         rotation = self.rotation % (2*math.pi / self.n_vertices)
-        if math.isclose(rotation, 0, abs_tol=1-e6):
+        if math.isclose(rotation, 0, abs_tol=1e-6):
             rotation = None
 
         if self.hole_dia is not None:
