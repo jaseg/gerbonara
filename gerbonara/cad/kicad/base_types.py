@@ -5,6 +5,8 @@ import time
 from dataclasses import field
 import math
 import uuid
+from contextlib import contextmanager
+from itertools import cycle
 
 
 @sexp_type('color')
@@ -20,14 +22,43 @@ class Stroke:
     width: Named(float) = 0.254
     type: Named(AtomChoice(Atom.dash, Atom.dot, Atom.dash_dot_dot, Atom.dash_dot, Atom.default, Atom.solid)) = Atom.default
     color: Color = None
+    
 
-    @property
-    def width_mil(self):
-        return mm_to_mil(self.width)
+class Dasher:
+    def __init__(self, stroke):
+        self.width = stroke.width
+        gap = 4*stroke.width
+        dot = 0
+        gap = 11*stroke.width
+        self.pattern = {
+                Atom.dash: [dash, gap],
+                Atom.dot: [dot, gap],
+                Atom.dash_dot_dot: [dash, gap, dot, gap, dot, gap],
+                Atom.dash_dot: [dash, gap, dot, gap],
+                Atom.default: [1e99],
+                Atom.solid: [1e99]}[stroke.type]
+        self.start_x, self.start_y = None, None
+        self.cur_x, self.cur_y = None, None
+        self.segments = []
 
-    @width_mil.setter
-    def width_mil(self, value):
-        self.width = mil_to_mm(value)
+    def move(self, x, y):
+        self.start_x, self.start_y = x, y
+
+    def line(x, y):
+        if x is None or y is None:
+            raise ValueError('line() called before move()')
+        self.segments.append((self.cur_x, self.cur_y, x, y))
+        cur_x, cur_y = x, y
+
+    def close():
+        self.segments.append((self.cur_x, self.cur_y, start_x, start_y))
+
+    def __iter__(self):
+        offset = 0
+        for length, stroked in cycle(zip(self.pattern, cycle([True, False]))):
+            for x1, y1, x2, y2 in segments:
+                segment_length = math.dist((x1, y1), (x2, y2))
+
 
 
 @sexp_type('xy')

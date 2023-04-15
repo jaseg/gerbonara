@@ -58,26 +58,6 @@ test:ubuntu2204:
     paths:
       - gerbonara_test_failures/*
 
-test:ubuntu2004:
-  stage: test
-  image: "registry.gitlab.com/gerbolyze/build-containers/ubuntu:20.04"
-  script:
-    - python3 -m pip install pytest beautifulsoup4 pillow numpy slugify lxml click scipy
-    - python3 -m pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
-  dependencies:
-    - build:archlinux
-  cache:
-    key: test-image-cache
-    paths:
-      - gerbonara/tests/image_cache/*.svg
-      - gerbonara/tests/image_cache/*.png
-  artifacts:
-    name: "gerbolyze-$CI_COMMIT_REF_NAME-gerbonara"
-    when: on_failure
-    paths:
-      - gerbonara_test_failures/*
-
-
 docs:archlinux:
   stage: test
   image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
