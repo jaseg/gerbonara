@@ -25,7 +25,9 @@ test:archlinux:
   stage: test
   image: "registry.gitlab.com/gerbolyze/build-containers/archlinux:latest"
   script:
-    - pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
+    - git clone --depth 1 https://gitlab.com/kicad/libraries/kicad-symbols
+    - git clone --depth 1 https://gitlab.com/kicad/libraries/kicad-footprints
+    - env KICAD_SYMBOLS=kicad-symbols KICAD_FOOTPRINTS=kicad-footprints pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
   dependencies:
     - build:archlinux
   cache:
@@ -44,7 +46,9 @@ test:ubuntu2204:
   image: "registry.gitlab.com/gerbolyze/build-containers/ubuntu:22.04"
   script:
     - python3 -m pip install pytest beautifulsoup4 pillow numpy slugify lxml click scipy
-    - python3 -m pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
+    - git clone --depth 1 https://gitlab.com/kicad/libraries/kicad-symbols
+    - git clone --depth 1 https://gitlab.com/kicad/libraries/kicad-footprints
+    - env KICAD_SYMBOLS=kicad-symbols KICAD_FOOTPRINTS=kicad-footprints python3 -m pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
   dependencies:
     - build:archlinux
   cache:
