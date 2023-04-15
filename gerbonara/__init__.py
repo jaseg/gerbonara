@@ -31,4 +31,4 @@ from .ipc356 import Netlist
 from .layers import LayerStack
 from .utils import MM, Inch
 
-__version__ = '1.0.1'
+__version__ = '1.0.2'
