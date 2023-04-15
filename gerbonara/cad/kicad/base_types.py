@@ -29,7 +29,7 @@ class Dasher:
         self.width = stroke.width
         gap = 4*stroke.width
         dot = 0
-        gap = 11*stroke.width
+        dash = 11*stroke.width
         self.pattern = {
                 Atom.dash: [dash, gap],
                 Atom.dot: [dot, gap],
@@ -42,23 +42,63 @@ class Dasher:
         self.segments = []
 
     def move(self, x, y):
-        self.start_x, self.start_y = x, y
+        if self.cur_x is None:
+            self.start_x, self.start_y = x, y
+        self.cur_x, self.cur_y = x, y
 
-    def line(x, y):
+    def line(self, x, y):
         if x is None or y is None:
             raise ValueError('line() called before move()')
         self.segments.append((self.cur_x, self.cur_y, x, y))
-        cur_x, cur_y = x, y
+        self.cur_x, self.cur_y = x, y
 
-    def close():
-        self.segments.append((self.cur_x, self.cur_y, start_x, start_y))
+    def close(self):
+        self.segments.append((self.cur_x, self.cur_y, self.start_x, self.start_y))
+        self.cur_x, self.cur_y = None, None
+
+    @staticmethod
+    def _interpolate(x1, y1, x2, y2, length):
+        dx, dy = x2-x1, y2-y1
+        total = math.hypot(dx, dy)
+        if total == 0:
+            return x2, y2
+        frac = length / total
+        return x1 + dx*frac, y1 + dy*frac
 
     def __iter__(self):
-        offset = 0
+        it = iter(self.segments)
+        segment_remaining, segment_pos = 0, 0
         for length, stroked in cycle(zip(self.pattern, cycle([True, False]))):
-            for x1, y1, x2, y2 in segments:
-                segment_length = math.dist((x1, y1), (x2, y2))
+            length = max(1e-12, length)
+            import sys
+            print('new dash', length, stroked, file=sys.stderr)
+            while length > 0:
+                print(f'{length=} {segment_remaining=}', file=sys.stderr)
+                if segment_remaining == 0:
+                    try:
+                        x1, y1, x2, y2 = next(it)
+                    except StopIteration:
+                        return
+                    dx, dy = x2-x1, y2-y1
+                    lx, ly = x1, y1
+                    segment_remaining = math.hypot(dx, dy)
+                    segment_pos = 0
+                    print('new segment', x1, y1, x2, y2, segment_remaining, file=sys.stderr)
 
+                if segment_remaining > length:
+                    segment_pos += length
+                    ix, iy = self._interpolate(x1, y1, x2, y2, segment_pos)
+                    segment_remaining -= length
+                    if stroked:
+                        yield lx, ly, ix, iy
+                    lx, ly = ix, iy
+                    break
+
+                else:
+                    length -= segment_remaining
+                    segment_remaining = 0
+                    if stroked:
+                        yield lx, ly, x2, y2
 
 
 @sexp_type('xy')
@@ -151,3 +191,18 @@ class EditTime:
     def bump(self):
         self.value = time.time()
 
+if __name__ == '__main__':
+    d = Dasher(Stroke(0.01, Atom.dash_dot_dot))
+    #d = Dasher(Stroke(0.01, Atom.solid))
+    d.move(1, 1)
+    d.line(1, 2)
+    d.line(3, 2)
+    d.line(3, 1)
+    d.close()
+
+    print('<?xml version="1.0" standalone="no"?>')
+    print('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">')
+    print('<svg version="1.1" width="4cm" height="3cm" viewBox="0 0 4 3" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">')
+    for x1, y1, x2, y2 in d:
+        print(f'<path fill="none" stroke="black" stroke-width="0.01" stroke-linecap="round" d="M {x1},{y1} L {x2},{y2}"/>')
+    print('</svg>')
