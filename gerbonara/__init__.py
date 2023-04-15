@@ -29,5 +29,6 @@ from .rs274x import GerberFile
 from .excellon import ExcellonFile
 from .ipc356 import Netlist
 from .layers import LayerStack
+from .utils import MM, Inch
 
 __version__ = '1.0.0'

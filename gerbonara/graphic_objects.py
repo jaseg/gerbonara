@@ -281,7 +281,7 @@ class Region(GraphicObject):
     cut-in, the region is allowed to touch (but never overlap!) itself.
     """
 
-    def __init__(self, outline=None, arc_centers=None, *, unit, polarity_dark):
+    def __init__(self, outline=None, arc_centers=None, *, unit=MM, polarity_dark=True):
         self.unit = unit
         self.polarity_dark = polarity_dark
         self.outline = [] if outline is None else outline
