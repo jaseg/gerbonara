@@ -497,7 +497,8 @@ def eval_value(value, total_length=None):
 
 
 def _demo():
-    pattern1 = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
+    #pattern1 = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
+    pattern1 = PatternProtoArea(2.54, 3.84, obj=THTPad.obround(0, 0, 0.9, 1.8, 2.5, paste=False))
     pattern2 = PatternProtoArea(1.2, 2.0, obj=SMDPad.rect(0, 0, 1.0, 1.8, paste=False))
     pattern3 = PatternProtoArea(2.54, 1.27, obj=SMDPad.rect(0, 0, 2.3, 1.0, paste=False))
     #pattern3 = EmptyProtoArea(copper_fill=True)

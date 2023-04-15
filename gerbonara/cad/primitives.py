@@ -10,7 +10,7 @@ from collections import defaultdict
 from ..utils import LengthUnit, MM, rotate_point, svg_arc, sum_bounds, bbox_intersect, Tag
 from ..layers import LayerStack
 from ..graphic_objects import Line, Arc, Flash
-from ..apertures import Aperture, CircleAperture, RectangleAperture, ExcellonTool
+from ..apertures import Aperture, CircleAperture, ObroundAperture, RectangleAperture, ExcellonTool
 from ..newstroke import Newstroke
 
 
@@ -385,9 +385,9 @@ class THTPad(Pad):
 
     @classmethod
     def obround(kls, x, y, hole_dia, w, h, rotation=0, mask_expansion=0.0, paste_expanson=0.0, paste=True, plated=True, unit=MM):
-        ap_c = CircleAperture(dia, unit=unit)
-        ap_m = CircleAperture(dia+2*mask_expansion, unit=unit)
-        ap_p = CircleAperture(dia+2*paste_expansion, unit=unit) if paste else None
+        ap_c = ObroundAperture(w, h, unit=unit)
+        ap_m = ObroundAperture(w+2*mask_expansion, h+2*mask_expansion, unit=unit)
+        ap_p = ObroundAperture(w, h, unit=unit) if paste else None
         pad = SMDPad(0, 0, side='top', copper_aperture=ap_c, mask_aperture=ap_m, paste_aperture=ap_p, unit=unit)
         return kls(x, y, hole_dia, pad, rotation=rotation, plated=plated, unit=unit)
 

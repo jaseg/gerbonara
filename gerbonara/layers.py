@@ -816,11 +816,11 @@ class LayerStack:
 
         for i, layer in enumerate(self.drill_layers):
             layers.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
-                id=f'g-drill-{i}', filter=f'url(#f-drill)', **stroke_attrs, **inkscape_attrs(f'drill-{i}')))
+                id=f'l-drill-{i}', filter=f'url(#f-drill)', **stroke_attrs, **inkscape_attrs(f'drill-{i}')))
 
         if self.outline:
             layers.append(tag('g', list(self.outline.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
-                id=f'g-outline-{i}', **stroke_attrs, **inkscape_attrs(f'outline-{i}')))
+                id=f'l-mechanical-outline', **stroke_attrs, **inkscape_attrs(f'outline')))
 
         layer_group = tag('g', layers, transform=f'translate(0 {bounds[0][1] + bounds[1][1]}) scale(1 -1)')
         tags = [tag('defs', filter_defs), layer_group]
