@@ -11,6 +11,7 @@ import math
 from .expression import Expression, UnitExpression, ConstantExpression, expr
 
 from .. import graphic_primitives as gp
+from .. import graphic_objects as go
 
 
 def point_distance(a, b):
@@ -18,8 +19,13 @@ def point_distance(a, b):
     x2, y2 = b
     return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
+
 def deg_to_rad(a):
-    return (a / 180) * math.pi
+    return a * (math.pi / 180)
+
+def rad_to_deg(a):
+    return a * (180 / math.pi)
+
 
 class Primitive:
     def __init__(self, unit, args):
@@ -240,7 +246,7 @@ class Outline(Primitive):
         self.exposure = args.pop(0)
 
         # length arg must not contain variables (that would not make sense)
-        length_arg = args.pop(0).calculate()
+        length_arg = (args.pop(0) * ConstantExpression(1)).calculate()
 
         if length_arg != len(args)//2-1:
             raise ValueError(f'Invalid aperture macro outline primitive, given size {length_arg} does not match length of coordinate list({len(args)//2-1}).')
@@ -289,6 +295,7 @@ class Comment:
 
     def scale(self, scale):
         pass
+
 
 PRIMITIVE_CLASSES = {
     **{cls.code: cls for cls in [

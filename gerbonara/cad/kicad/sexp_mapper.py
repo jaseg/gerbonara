@@ -209,9 +209,9 @@ class _SexpTemplate:
         return [kls.name_atom]
 
     @staticmethod
-    def __map__(kls, value, parent=None):
+    def __map__(kls, value, *args, parent=None, **kwargs):
         positional = iter(kls.positional)
-        inst = kls()
+        inst = kls(*args, **kwargs)
 
         for v in value[1:]: # skip key
             if isinstance(v, Atom) and v in kls.keys:
@@ -248,8 +248,8 @@ class _SexpTemplate:
         yield out
 
     @staticmethod
-    def parse(kls, data):
-        return kls.__map__(parse_sexp(data))
+    def parse(kls, data, *args, **kwargs):
+        return kls.__map__(parse_sexp(data), *args, **kwargs)
 
     @staticmethod
     def sexp(self):

@@ -4,6 +4,7 @@ from pathlib import Path
 import unicodedata
 import re
 import ast
+from functools import lru_cache
 from importlib.resources import files
 
 from . import data
@@ -21,7 +22,12 @@ class Newstroke:
     def __init__(self, newstroke_cpp=None):
         if newstroke_cpp is None:
             newstroke_cpp = files(data).joinpath('newstroke_font.cpp').read_bytes()
-        self.glyphs = dict(self.load(newstroke_cpp))
+        self.glyphs = dict(self.load_font(newstroke_cpp))
+
+    @classmethod
+    @lru_cache
+    def load(kls):
+        return kls()
 
     def render(self, text, size=1.0, space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP):
         text = unicodedata.normalize('NFC', text)
@@ -47,7 +53,7 @@ class Newstroke:
         return [(x*sx+dx, y*sy+dy) for x, y in stroke]
             
 
-    def load(self, newstroke_cpp):
+    def load_font(self, newstroke_cpp):
         e = []
         for char, (width, strokes) in self.load_glyphs(newstroke_cpp):
             yield char, (width, strokes)

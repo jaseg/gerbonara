@@ -178,6 +178,17 @@ class GenericMacros:
         ap.Circle('mm', [1, var(3)*2, -(var(1)/2-var(3)), -(var(2)/2-var(3)), 0]),
         *_generic_hole(4)])
 
+    # params: width, height, length difference between narrow side (top) and wide side (bottom), *hole, rotation
+    isosceles_trapezoid = ApertureMacro('GTR', [
+        ap.Outline('mm', [1, 4,
+                          var(1)/-2,            var(2)/-2,
+                          var(1)/-2+var(3)/2,   var(2)/2,
+                          var(1)/2-var(3)/2,    var(2)/2,
+                          var(1)/2,             var(2)/-2,
+                          var(1)/-2,            var(2)/-2,
+                          var(6) * -deg_per_rad]),
+        *_generic_hole(4)])
+
     # w must be larger than h
     obround = ApertureMacro('GNO', [
         ap.CenterLine('mm', [1, var(1), var(2), 0, 0, var(5) * -deg_per_rad]),

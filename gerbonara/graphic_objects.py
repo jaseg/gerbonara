@@ -19,9 +19,11 @@
 import math
 import copy
 from dataclasses import dataclass, astuple, field, fields
+from itertools import zip_longest
 
 from .utils import MM, InterpMode, to_unit, rotate_point
 from . import graphic_primitives as gp
+from .aperture_macros import primitive as amp
 
 
 def convert(value, src, dst):
@@ -300,13 +302,22 @@ class Region(GraphicObject):
         self.outline = [ gp.rotate_point(x, y, angle, cx, cy) for x, y in self.outline ]
         self.arc_centers = [
                 (arc[0], gp.rotate_point(*arc[1], angle, cx-p[0], cy-p[1])) if arc else None
-                for p, arc in zip(self.outline, self.arc_centers) ]
+                for p, arc in zip_longest(self.outline, self.arc_centers) ]
 
     def _scale(self, factor):
         self.outline = [ (x*factor, y*factor) for x, y in self.outline ]
         self.arc_centers = [
                 (arc[0], (arc[1][0]*factor, arc[1][1]*factor)) if arc else None
-                for p, arc in zip(self.outline, self.arc_centers) ]
+                for p, arc in zip_longest(self.outline, self.arc_centers) ]
+
+    @classmethod
+    def from_rectangle(kls, x, y, w, h, unit=MM):
+        return kls([
+            (x, y),
+            (x+w, y),
+            (x+w, y+h),
+            (x, y+h),
+            ], unit=unit)
 
     def append(self, obj):
         if obj.unit != self.unit:
@@ -320,6 +331,46 @@ class Region(GraphicObject):
             self.arc_centers.append((obj.clockwise, obj.center_relative))
         else:
             self.arc_centers.append(None)
+
+    def close(self):
+        if not self.outline:
+            return
+
+        if self.outline[-1] != self.outline[0]:
+            self.outline.append(self.outline[0])
+
+    def outline_objects(self, aperture=None):
+        for p1, p2, arc in zip_longest(self.outline[:-1], self.outline[1:], self.arc_centers):
+            if arc:
+                clockwise, pc  = arc
+                yield Arc(*p1, *p2, *pc, clockwise, aperture=aperture, unit=self.unit, polarity_dark=self.polarity_dark)
+            else:
+                yield Line(*p1, *p2, aperture=aperture, unit=self.unit, polarity_dark=self.polarity_dark)
+
+    def _aperture_macro_primitives(self, max_error=1e-2, unit=MM):
+        # unit is only for max_error, the resulting primitives will always be in MM
+        
+        if len(self.outline) < 3:
+            return
+
+        points = [self.outline[0]]
+        for p1, p2, arc in zip_longest(self.outline[:-1], self.outline[1:], self.arc_centers):
+            if arc:
+                clockwise, pc  = arc
+                #r = math.hypot(*pc) # arc center is relative to p1.
+                #d = math.dist(p1, p2)
+                #err = r - math.sqrt(r**2 - (d/(2*n))**2)
+                #n = math.ceil(1/(2*math.sqrt(r**2 - (r - max_err)**2)/d))
+                arc = Arc(*p1, *p2, *pc, clockwise, unit=self.unit, polarity_dark=self.polarity_dark)
+                for line in arc.approximate(max_error=max_error, unit=unit):
+                    points.append(line.p2)
+
+            else:
+                points.append(p2)
+
+        if points[-1] != points[0]:
+            points.append(points[0])
+        yield amp.Outline(self.unit, int(self.polarity_dark), len(points)-1, *(coord for p in points for coord in p))
 
     def to_primitives(self, unit=None):
         if unit == self.unit:
@@ -343,7 +394,7 @@ class Region(GraphicObject):
 
         yield from gs.set_current_point(self.outline[0], unit=self.unit)
 
-        for point, arc_center in zip(self.outline[1:], self.arc_centers):
+        for point, arc_center in zip_longest(self.outline[1:], self.arc_centers):
             if arc_center is None:
                 yield from gs.set_interpolation_mode(InterpMode.LINEAR)
 
@@ -446,6 +497,12 @@ class Line(GraphicObject):
     def to_primitives(self, unit=None):
         yield self.as_primitive(unit=unit)
 
+    def _aperture_macro_primitives(self):
+        obj = self.converted(MM) # Gerbonara aperture macros use MM units.
+        yield amp.VectorLine(int(self.polarity_dark), obj.width, obj.x1, obj.y1, obj.x2, obj.y2)
+        yield amp.Circle(int(self.polarity_dark), obj.width, obj.x1, obj.y1)
+        yield amp.Circle(int(self.polarity_dark), obj.width, obj.x2, obj.y2)
+
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)
         yield from gs.set_aperture(self.aperture)
@@ -504,6 +561,10 @@ class Arc(GraphicObject):
     #: Aperture for this arc. Should be a subclass of :py:class:`.CircleAperture`, whose diameter determines the line
     #: width.
     aperture : object
+
+    @classmethod
+    def from_circle(kls, cx, cy, r, aperture, unit=MM):
+        return kls(cx-r, cy, cx-r, cy, r, 0, aperture=aperture, unit=MM)
     
     def _offset(self, dx, dy):
         self.x1 += dx
@@ -664,6 +725,17 @@ class Arc(GraphicObject):
 
     def to_primitives(self, unit=None):
         yield self.as_primitive(unit=unit)
+
+    def to_region(self):
+        reg = Region(unit=self.unit, polarity_dark=self.polarity_dark)
+        reg.append(self)
+        reg.close()
+        return reg
+
+    def _aperture_macro_primitives(self, max_error=1e-2, unit=MM):
+        # unit is only for max_error, the resulting primitives will always be in MM
+        for line in self.approximate(max_error=max_error, unit=unit):
+            yield from line._aperture_macro_primitives()
 
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)

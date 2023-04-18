@@ -25,18 +25,25 @@ class Stroke:
     
 
 class Dasher:
-    def __init__(self, stroke):
-        self.width = stroke.width
-        gap = 4*stroke.width
+    def __init__(self, obj):
+        if obj.stroke:
+            w, t = obj.stroke.width, obj.stroke.type
+        else:
+            w = obj.width or 0
+            t = Atom.solid
+            
+        self.width = w
+        gap = 4*w
         dot = 0
-        dash = 11*stroke.width
+        dash = 11*w
         self.pattern = {
                 Atom.dash: [dash, gap],
                 Atom.dot: [dot, gap],
                 Atom.dash_dot_dot: [dash, gap, dot, gap, dot, gap],
                 Atom.dash_dot: [dash, gap, dot, gap],
                 Atom.default: [1e99],
-                Atom.solid: [1e99]}[stroke.type]
+                Atom.solid: [1e99]}[t]
+        self.solid = t in (Atom.default, Atom.solid)
         self.start_x, self.start_y = None, None
         self.cur_x, self.cur_y = None, None
         self.segments = []
@@ -68,12 +75,14 @@ class Dasher:
     def __iter__(self):
         it = iter(self.segments)
         segment_remaining, segment_pos = 0, 0
+
+        if self.width is None or self.width < 1e-3:
+            return
+
         for length, stroked in cycle(zip(self.pattern, cycle([True, False]))):
             length = max(1e-12, length)
             import sys
-            print('new dash', length, stroked, file=sys.stderr)
             while length > 0:
-                print(f'{length=} {segment_remaining=}', file=sys.stderr)
                 if segment_remaining == 0:
                     try:
                         x1, y1, x2, y2 = next(it)
@@ -83,7 +92,6 @@ class Dasher:
                     lx, ly = x1, y1
                     segment_remaining = math.hypot(dx, dy)
                     segment_pos = 0
-                    print('new segment', x1, y1, x2, y2, segment_remaining, file=sys.stderr)
 
                 if segment_remaining > length:
                     segment_pos += length
@@ -192,7 +200,12 @@ class EditTime:
         self.value = time.time()
 
 if __name__ == '__main__':
-    d = Dasher(Stroke(0.01, Atom.dash_dot_dot))
+    class Foo:
+        pass
+
+    foo = Foo()
+    foo.stroke =  troke(0.01, Atom.dash_dot_dot)
+    d = Dasher(foo)
     #d = Dasher(Stroke(0.01, Atom.solid))
     d.move(1, 1)
     d.line(1, 2)
