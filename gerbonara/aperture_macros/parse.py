@@ -120,7 +120,7 @@ class ApertureMacro:
         return dup
 
     def to_gerber(self, unit=None):
-        comments = [ c.to_gerber() for c in self.comments ]
+        comments = [ str(c) for c in self.comments ]
         variable_defs = [ f'${var.to_gerber(unit)}={expr}' for var, expr in self.variables.items() ]
         primitive_defs = [ prim.to_gerber(unit) for prim in self.primitives ]
         return '*\n'.join(comments + variable_defs + primitive_defs)
