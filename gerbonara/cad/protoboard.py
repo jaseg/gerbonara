@@ -6,10 +6,13 @@ import string
 import itertools
 from copy import copy, deepcopy
 import warnings
+import importlib.resources
 
 from .primitives import *
 from ..graphic_objects import Region
 from ..apertures import RectangleAperture, CircleAperture
+from .kicad import footprints as kfp
+from . import data as package_data
 
 
 class ProtoBoard(Board):
@@ -468,6 +471,21 @@ class PoweredProto(ObjectGroup):
         return unit.convert_bounds_from(self.unit, ((x-p, y-p), (x+p, y+p)))
 
 
+class SpikyProto(ObjectGroup):
+    def __init__(self, pitch=None, drill=None, clearance=None, power_pad_dia=None, via_size=None, trace_width=None, unit=MM):
+        super().__init__(0, 0)
+        res = importlib.resources.files(package_data)
+
+        self.fp_center = kfp.Footprint.load(res.joinpath('center-pad-spikes.kicad_mod').read_text(encoding='utf-8'))
+        self.objects.append(kfp.FootprintInstance(1.27, 1.27, self.fp_center, unit=MM))
+
+        self.fp_between = kfp.Footprint.load(res.joinpath('pad-between-spiked.kicad_mod').read_text(encoding='utf-8'))
+        self.objects.append(kfp.FootprintInstance(1.27, 0, self.fp_between, unit=MM))
+        self.objects.append(kfp.FootprintInstance(0, 1.27, self.fp_between, rotation=math.pi/2, unit=MM))
+
+        self.pad = kfp.Footprint.load(res.joinpath('tht-0.8.kicad_mod').read_text(encoding='utf-8'))
+        self.objects.append(kfp.FootprintInstance(0, 0, self.pad, unit=MM))
+
 def convert_to_mm(value, unit):
     unitl  = unit.lower()
     if unitl == 'mm':
@@ -498,7 +516,7 @@ def eval_value(value, total_length=None):
 
 def _demo():
     #pattern1 = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
-    pattern1 = PatternProtoArea(2.54, 3.84, obj=THTPad.obround(0, 0, 0.9, 1.8, 2.5, paste=False))
+    pattern1 = PatternProtoArea(2.54, 2.54, obj=SpikyProto())
     pattern2 = PatternProtoArea(1.2, 2.0, obj=SMDPad.rect(0, 0, 1.0, 1.8, paste=False))
     pattern3 = PatternProtoArea(2.54, 1.27, obj=SMDPad.rect(0, 0, 2.3, 1.0, paste=False))
     #pattern3 = EmptyProtoArea(copper_fill=True)
@@ -511,7 +529,7 @@ def _demo():
     #pattern = PatternProtoArea(2.54*1.5, obj=THTFlowerProto())
     #pattern = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
     #pattern = PatternProtoArea(2.54, obj=PoweredProto())
-    pb = ProtoBoard(100, 80, pattern, mounting_hole_dia=3.2, mounting_hole_offset=5)
+    pb = ProtoBoard(30, 30, pattern1, mounting_hole_dia=3.2, mounting_hole_offset=5)
     print(pb.pretty_svg())
     pb.layer_stack().save_to_directory('/tmp/testdir')
 

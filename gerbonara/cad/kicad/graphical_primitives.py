@@ -8,7 +8,7 @@ from .primitives import *
 from ... import graphic_objects as go
 from ... import apertures as ap
 from ...newstroke import Newstroke
-from ...utils import rotate_point
+from ...utils import rotate_point, MM
 
 @sexp_type('layer')
 class TextLayer:
@@ -84,7 +84,7 @@ class TextBox:
                 if self.stroke.type not in (None, Atom.default, Atom.solid):
                     raise ValueError('Dashed strokes are not supported on vector text')
 
-                yield from reg.outline_objects(aperture=CircleAperture(self.stroke.width, unit=MM))
+                yield from reg.outline_objects(aperture=ap.CircleAperture(self.stroke.width, unit=MM))
 
             yield reg
 
@@ -137,7 +137,7 @@ class Rectangle:
             yield rect
 
         if self.width:
-            yield from rect.outline_objects(aperture=CircleAperture(self.width, unit=MM))
+            yield from rect.outline_objects(aperture=ap.CircleAperture(self.width, unit=MM))
 
 
 @sexp_type('gr_circle')
@@ -177,7 +177,7 @@ class Arc:
         arc = go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, unit=MM)
 
         if self.width:
-            arc.aperture = CircleAperture(self.width, unit=MM)
+            arc.aperture = ap.CircleAperture(self.width, unit=MM)
             yield arc
 
         if self.fill:
@@ -189,14 +189,14 @@ class Polygon:
     pts: PointList = field(default_factory=PointList)
     layer: Named(str) = None
     width: Named(float) = None
-    fill: FillMode= False
+    fill: FillMode = True
     tstamp: Timestamp = None
 
     def render(self):
         reg = go.Region([(pt.x, pt.y) for pt in self.pts.xy], unit=MM)
         
-        if width:
-            yield from reg.outline_objects(aperture=CircleAperture(self.width, unit=MM))
+        if self.width and self.width >= 0.005:
+            yield from reg.outline_objects(aperture=ap.CircleAperture(self.width, unit=MM))
 
         if self.fill:
             yield reg

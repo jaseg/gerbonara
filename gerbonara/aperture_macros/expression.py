@@ -65,7 +65,10 @@ class Expression:
 
 class UnitExpression(Expression):
     def __init__(self, expr, unit):
-        self._expr = expr
+        if isinstance(expr, Expression):
+            self._expr = expr
+        else:
+            self._expr = ConstantExpression(expr)
         self.unit = unit
 
     def to_gerber(self, unit=None):

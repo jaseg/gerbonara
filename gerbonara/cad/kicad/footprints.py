@@ -22,7 +22,7 @@ from ... import graphic_primitives as gp
 from ... import graphic_objects as go
 from ... import apertures as ap
 from ...utils import MM
-from ...aperture_macros.parse import GenericMacros
+from ...aperture_macros.parse import GenericMacros, ApertureMacro
 
 
 @sexp_type('property')
@@ -376,7 +376,7 @@ class Pad:
             dx, dy = self.rect_delta.x, self.rect_delta.y
 
             # Note: KiCad already uses MM units, so no conversion needed here.
-            return ApertureMacroInstance(GenericMacros.isosceles_trapezoid,
+            return ap.ApertureMacroInstance(GenericMacros.isosceles_trapezoid,
                     [x+dx, y+dy,
                      2*max(dx, dy),
                      0, 0, # no hole
@@ -385,7 +385,7 @@ class Pad:
         elif self.shape == Atom.roundrect:
             x, y = self.size.x, self.size.y
             r = min(x, y) * self.roundrect_rratio
-            return ApertureMacroInstance(GenericMacros.rounded_rect,
+            return ap.ApertureMacroInstance(GenericMacros.rounded_rect,
                     [x, y,
                      r,
                      0, 0, # no hole
@@ -398,7 +398,7 @@ class Pad:
                 for gn_obj in obj.render():
                     primitives += gn_obj._aperture_macro_primitives() # todo: precision params
             macro = ApertureMacro(primitives=primitives)
-            return ApertureMacroInstance(macro)
+            return ap.ApertureMacroInstance(macro)
 
     def render_drill(self):
         if not self.drill:
@@ -548,6 +548,8 @@ class Footprint:
                     for fe in obj.render():
                         fe.rotate(rotation)
                         fe.offset(x, y, MM)
+                        if isinstance(fe, go.Flash) and fe.aperture:
+                            fe.aperture = fe.aperture.rotated(rotation)
                         layer_stack[layer_map[layer]].objects.append(fe)
 
         for obj in self.pads:

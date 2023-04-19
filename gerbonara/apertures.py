@@ -474,7 +474,7 @@ class ApertureMacroInstance(Aperture):
     macro : object
     #: The parameters to the :py:class:`.ApertureMacro`. All elements should be floats or ints. The first item in the
     #: list is parameter ``$1``, the second is ``$2`` etc.
-    parameters : list
+    parameters : list = field(default_factory=list)
     #: Aperture rotation in radians. When saving, a copy of the :py:class:`.ApertureMacro` is re-written with this
     #: rotation.
     rotation : float = 0

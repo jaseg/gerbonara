@@ -113,7 +113,7 @@ class VectorLine(Primitive):
     start_y : UnitExpression
     end_x : UnitExpression
     end_y : UnitExpression
-    rotation : Expression
+    rotation : Expression = None
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
@@ -243,7 +243,7 @@ class Outline(Primitive):
         if len(args) > 5004:
             raise ValueError(f'Invalid aperture macro outline primitive, too many points ({len(args)//2-2}).')
 
-        self.exposure = args.pop(0)
+        self.exposure = expr(args.pop(0))
 
         # length arg must not contain variables (that would not make sense)
         length_arg = (args.pop(0) * ConstantExpression(1)).calculate()
@@ -252,7 +252,7 @@ class Outline(Primitive):
             raise ValueError(f'Invalid aperture macro outline primitive, given size {length_arg} does not match length of coordinate list({len(args)//2-1}).')
 
         if len(args) % 2 == 1:
-            self.rotation = args.pop()
+            self.rotation = expr(args.pop())
         else:
             self.rotation = ConstantExpression(0.0)
 
