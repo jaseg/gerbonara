@@ -1,4 +1,5 @@
 
+import string
 import math
 
 from .sexp import *
@@ -24,12 +25,14 @@ class Text:
     tstamp: Timestamp = None
     effects: TextEffect = field(default_factory=TextEffect)
 
-    def render(self):
+    def render(self, variables={}):
         if not self.effects or self.effects.hide or not self.effects.font:
             return
 
         font = Newstroke.load()
-        strokes = list(font.render(self.text, size=self.effects.font.size.y))
+        line_width = self.effects.font.thickness
+        text = string.Template(self.text).safe_substitute(variables)
+        strokes = list(font.render(text, size=self.effects.font.size.y))
         min_x = min(x for st in strokes for x, y in st)
         min_y = min(y for st in strokes for x, y in st)
         max_x = max(x for st in strokes for x, y in st)
@@ -42,21 +45,25 @@ class Text:
                 Atom.right: -w,
                 Atom.left: 0
                 }[self.effects.justify.h if self.effects.justify else None]
+
         offy = {
-                None: -h/2,
-                Atom.top: -h,
+                None: self.effects.font.size.y/2,
+                Atom.top: self.effects.font.size.y,
                 Atom.bottom: 0
                 }[self.effects.justify.v if self.effects.justify else None]
 
-        aperture = ap.CircleAperture(self.effects.font.width or 0.2, unit=MM)
+        aperture = ap.CircleAperture(line_width or 0.2, unit=MM)
         for stroke in strokes:
             out = []
-            for point in stroke:
-                x, y = rotate_point(x, y, math.radians(self.at.rotation or 0))
+
+            for x, y in stroke:
                 x, y = x+offx, y+offy
+                x, y = rotate_point(x, y, math.radians(self.at.rotation or 0))
+                x, y = x+self.at.x, y+self.at.y
                 out.append((x, y))
+
             for p1, p2 in zip(out[:-1], out[1:]):
-                yield go.Line(*p1, *p2, aperture=ap, unit=MM)
+                yield go.Line(*p1, *p2, aperture=aperture, unit=MM)
 
 
 @sexp_type('gr_text_box')
@@ -73,9 +80,13 @@ class TextBox:
     stroke: Stroke = field(default_factory=Stroke)
     render_cache: RenderCache = None
 
-    def render(self):
+    def render(self, variables={}):
+        text = string.Template(self.text).safe_substitute(variables)
+        if text != self.text:
+            raise ValueError('Rendering of vector font text with variables not yet supported')
+
         if not render_cache or not render_cache.polygons:
-            raise ValueError('Text box with empty render cache')
+            raise ValueError('Vector font text with empty render cache')
 
         for poly in render_cache.polygons:
             reg = go.Region([(p.x, p.y) for p in poly.pts.xy], unit=MM)
@@ -98,12 +109,12 @@ class Line:
     width: Named(float) = None
     tstamp: Timestamp = None
 
-    def render(self):
+    def render(self, variables=None):
         if self.angle:
             raise NotImplementedError('Angles on lines are not implemented. Please raise an issue and provide an example file.')
 
-        ap = ap.CircleAperture(self.width, unit=MM)
-        return go.Line(self.start.x, self.start.y, self.end.x, self.end.y, aperture=ap, unit=MM)
+        aperture = ap.CircleAperture(self.width, unit=MM)
+        yield go.Line(self.start.x, self.start.y, self.end.x, self.end.y, aperture=aperture, unit=MM)
 
 
 @sexp_type('fill')
@@ -128,7 +139,7 @@ class Rectangle:
     fill: FillMode = False
     tstamp: Timestamp = None
 
-    def render(self):
+    def render(self, variables=None):
         rect = go.Region.from_rectangle(self.start.x, self.start.y,
                                        self.end.x-self.start.x, self.end.y-self.start.y,
                                        unit=MM)
@@ -149,12 +160,12 @@ class Circle:
     fill: FillMode = False
     tstamp: Timestamp = None
 
-    def render(self):
+    def render(self, variables=None):
         r = math.dist((self.center.x, self.center.y), (self.end.x, self.end.y))
-        arc = go.Arc.from_circle(self.center.x, self.center.y, r, unit=MM)
+        aperture = ap.CircleAperture(self.width or 0, unit=MM)
+        arc = go.Arc.from_circle(self.center.x, self.center.y, r, aperture=aperture, unit=MM)
 
         if self.width:
-            arc.aperture = ap.CircleAperture(self.width, unit=MM)
             yield arc
 
         if self.fill:
@@ -170,18 +181,14 @@ class Arc:
     width: Named(float) = None
     tstamp: Timestamp = None
 
-    def render(self):
+    def render(self, variables=None):
+        if not self.width:
+            return
+
         cx, cy = self.mid.x, self.mid.y
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
-        arc = go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, unit=MM)
-
-        if self.width:
-            arc.aperture = ap.CircleAperture(self.width, unit=MM)
-            yield arc
-
-        if self.fill:
-            yield arc.to_region()
+        yield go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, aperture=ap.CircleAperture(self.width or 0, unit=MM), clockwise=True, unit=MM)
 
 
 @sexp_type('gr_poly')
@@ -192,7 +199,7 @@ class Polygon:
     fill: FillMode = True
     tstamp: Timestamp = None
 
-    def render(self):
+    def render(self, variables=None):
         reg = go.Region([(pt.x, pt.y) for pt in self.pts.xy], unit=MM)
         
         if self.width and self.width >= 0.005:
@@ -209,7 +216,7 @@ class Curve:
     width: Named(float) = None
     tstamp: Timestamp = None
 
-    def render(self):
+    def render(self, variables=None):
         raise NotImplementedError('Bezier rendering is not yet supported. Please raise an issue and provide an example file.')
 
 
@@ -218,6 +225,6 @@ class AnnotationBBox:
     start: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
  
-    def render(self):
+    def render(self, variables=None):
         return []
 

@@ -29,6 +29,7 @@ import itertools
 from collections import namedtuple
 from pathlib import Path
 from zipfile import ZipFile, is_zipfile
+from collections import defaultdict
 import tempfile
 
 from .excellon import ExcellonFile, parse_allegro_ncparam, parse_allegro_logfile
@@ -289,12 +290,22 @@ class LayerStack:
                      :py:obj:`"altium"`
     """
 
-    def __init__(self, graphic_layers=None, drill_pth=None, drill_npth=None, drill_layers=(), netlist=None, board_name=None, original_path=None, was_zipped=False, generator=None):
+    def __init__(self, graphic_layers=None, drill_pth=None, drill_npth=None, drill_layers=(), netlist=None, board_name=None, original_path=None, was_zipped=False, generator=None, courtyard=False, fabrication=False):
         if not drill_layers and (graphic_layers, drill_pth, drill_npth) == (None, None, None):
             graphic_layers = {tuple(layer.split()): GerberFile()
                     for layer in ('top paste', 'top silk', 'top mask', 'top copper',
                                   'bottom copper', 'bottom mask', 'bottom silk', 'bottom paste',
                                   'mechanical outline')}
+
+            if courtyard:
+                graphic_layers = {('top', 'courtyard'): GerberFile(),
+                                  **graphic_layers,
+                                  ('bottom', 'courtyard'): GerberFile()}
+
+            if fabrication:
+                graphic_layers = {('top', 'fabrication'): GerberFile(),
+                                  **graphic_layers,
+                                  ('bottom', 'fabrication'): GerberFile()}
 
             drill_pth = ExcellonFile()
             drill_npth = ExcellonFile()
@@ -679,7 +690,7 @@ class LayerStack:
     def __repr__(self):
         return str(self)
 
-    def to_svg(self, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag):
+    def to_svg(self, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, color_map=None, tag=Tag):
         """ Convert this layer stack to a plain SVG string. This is intended for use cases where the resulting SVG will
         be processed by other tools, and thus styling with colors or extra markup like Inkscape layer information are
         unwanted. If you want to instead generate a nice-looking preview image for display or graphical editing in tools
@@ -706,13 +717,28 @@ class LayerStack:
 
         stroke_attrs = {'stroke_linejoin': 'round', 'stroke_linecap': 'round'}
         
+        if color_map is None:
+            color_map = default_dict(lambda: 'black')
+        
         tags = []
-        for (side, use), layer in self.graphic_layers.items():
-            tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg='black', bg="white", tag=Tag)),
+        for (side, use), layer in reversed(self.graphic_layers.items()):
+            fg = color_map[(side, use)]
+            tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
                     **stroke_attrs, id=f'l-{side}-{use}'))
 
-        for i, layer in enumerate(self.drill_layers):
-            tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg='black', bg="white", tag=Tag)),
+        if self.drill_pth:
+            fg = color_map[('drill', 'pth')]
+            tags.append(tag('g', list(self.drill_pth.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
+                    **stroke_attrs, id=f'l-drill-pth'))
+
+        if self.drill_npth:
+            fg = color_map[('drill', 'npth')]
+            tags.append(tag('g', list(self.drill_npth.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
+                    **stroke_attrs, id=f'l-drill-npth'))
+
+        for i, layer in enumerate(self._drill_layers):
+            fg = color_map[('drill', 'unknown')]
+            tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
                     **stroke_attrs, id=f'l-drill-{i}'))
 
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, tag=tag)
@@ -991,6 +1017,20 @@ class LayerStack:
             return self.graphic_layers[index]
 
         return self.copper_layers[index][1]
+
+    def __setitem__(self, index, value):
+        if isinstance(index, str):
+            side, _, use = index.partition(' ')
+            self.graphic_layers[(side, use)] = value
+
+        elif isinstance(index, tuple):
+            self.graphic_layers[index] = value
+
+        else:
+            raise IndexError('Layer {index} not found. Valid layer indices are "{side} {use}" strings or (side, use) tuples.')
+
+    def add_layer(self, index):
+        self[index] = GerberFile()
 
     @property
     def copper_layers(self):

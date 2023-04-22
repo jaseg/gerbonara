@@ -565,7 +565,7 @@ class Arc(GraphicObject):
 
     @classmethod
     def from_circle(kls, cx, cy, r, aperture, unit=MM):
-        return kls(cx-r, cy, cx-r, cy, r, 0, aperture=aperture, unit=MM)
+        return kls(cx-r, cy, cx-r, cy, r, 0, aperture=aperture, clockwise=True, unit=MM)
     
     def _offset(self, dx, dy):
         self.x1 += dx
@@ -681,7 +681,7 @@ class Arc(GraphicObject):
             max_error = min(max_error, r*0.4588038998538031)
 
         elif max_error >= r:
-            return [Line(*self.p1, *self.p2, aperture=self.aperture, polarity_dark=self.polarity_dark)]
+            return [Line(*self.p1, *self.p2, aperture=self.aperture, polarity_dark=self.polarity_dark, unit=self.unit)]
 
         # see https://www.mathopenref.com/sagitta.html
         l = math.sqrt(r**2 - (r - max_error)**2)
@@ -696,7 +696,7 @@ class Arc(GraphicObject):
 
         cx, cy = self.center
         points = [ rotate_point(self.x1, self.y1, i*angle, cx, cy) for i in range(num_segments + 1) ]
-        return [ Line(*p1, *p2, aperture=self.aperture, polarity_dark=self.polarity_dark)
+        return [ Line(*p1, *p2, aperture=self.aperture, polarity_dark=self.polarity_dark, unit=self.unit)
                 for p1, p2 in zip(points[0::], points[1::]) ]
 
     def _rotate(self, rotation, cx=0, cy=0):

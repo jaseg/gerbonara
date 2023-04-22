@@ -4,12 +4,14 @@ Library for handling KiCad's footprint files (`*.kicad_mod`).
 
 import copy
 import enum
+import string
 import datetime
 import math
 import time
 import fnmatch
 from itertools import chain
 from pathlib import Path
+from dataclasses import field
 
 from .sexp import *
 from .base_types import *
@@ -21,6 +23,7 @@ from ..primitives import Positioned
 from ... import graphic_primitives as gp
 from ... import graphic_objects as go
 from ... import apertures as ap
+from ...newstroke import Newstroke
 from ...utils import MM
 from ...aperture_macros.parse import GenericMacros, ApertureMacro
 
@@ -50,8 +53,11 @@ class Text:
     effects: TextEffect = field(default_factory=TextEffect)
     tstamp: Timestamp = None
 
-    def render(self):
-        raise NotImplementedError()
+    def render(self, variables={}):
+        if self.hide: # why
+            return
+
+        yield from gr.Text.render(self, variables=variables)
 
 
 @sexp_type('fp_text_box')
@@ -68,8 +74,8 @@ class TextBox:
     stroke: Stroke = field(default_factory=Stroke)
     render_cache: RenderCache = None
 
-    def render(self):
-        raise NotImplementedError()
+    def render(self, variables={}):
+        yield from gr.TextBox.render(self, variables=variables)
 
 
 @sexp_type('fp_line')
@@ -82,7 +88,7 @@ class Line:
     locked: Flag() = False
     tstamp: Timestamp = None
 
-    def render(self):
+    def render(self, variables=None):
         dasher = Dasher(self)
         dasher.move(self.start.x, self.start.y)
         dasher.line(self.end.x, self.end.y)
@@ -102,7 +108,7 @@ class Rectangle:
     locked: Flag() = False
     tstamp: Timestamp = None
 
-    def render(self):
+    def render(self, variables=None):
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
         x1, x2 = min(x1, x2), max(x1, x2)
@@ -135,17 +141,19 @@ class Circle:
     locked: Flag() = False
     tstamp: Timestamp = None
 
-    def render(self):
+    def render(self, variables=None):
         x, y = self.center.x, self.center.y
         r = math.dist((x, y), (self.end.x, self.end.y)) # insane
 
-        circle = go.Arc.from_circle(x, y, r, unit=MM)
+        dasher = Dasher(self)
+        aperture = ap.CircleAperture(dasher.width or 0, unit=MM)
+
+        circle = go.Arc.from_circle(x, y, r, aperture=aperture, unit=MM)
+
         if self.fill == Atom.solid:
             yield circle.to_region()
 
-        dasher = Dasher(self)
         if dasher.solid:
-            circle.aperture = CircleAperture(dasher.width, unit=MM)
             yield circle
 
         else: # pain
@@ -168,7 +176,7 @@ class Arc:
     tstamp: Timestamp = None
 
 
-    def render(self):
+    def render(self, variables=None):
         cx, cy = self.mid.x, self.mid.y
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
@@ -198,7 +206,7 @@ class Polygon:
     locked: Flag() = False
     tstamp: Timestamp = None
 
-    def render(self):
+    def render(self, variables=None):
         if len(self.pts.xy) < 2:
             return
 
@@ -225,7 +233,7 @@ class Curve:
     locked: Flag() = False
     tstamp: Timestamp = None
 
-    def render(self):
+    def render(self, variables=None):
         raise NotImplementedError('Bezier rendering is not yet supported. Please raise an issue and provide an example file.')
 
 
@@ -265,7 +273,7 @@ class Dimension:
     format: DimensionFormat = field(default_factory=DimensionFormat)
     style: DimensionStyle = field(default_factory=DimensionStyle)
 
-    def render(self):
+    def render(self, variables=None):
         raise NotImplementedError()
 
 
@@ -351,7 +359,7 @@ class Pad:
     options: OmitDefault(CustomPadOptions) = None
     primitives: OmitDefault(CustomPadPrimitives) = None
 
-    def render(self):
+    def render(self, variables=None):
         if self.type in (Atom.connect, Atom.np_thru_hole):
             return
 
@@ -380,7 +388,7 @@ class Pad:
                     [x+dx, y+dy,
                      2*max(dx, dy),
                      0, 0, # no hole
-                     math.radians(self.at.rotation)])
+                     math.radians(self.at.rotation)], unit=MM)
 
         elif self.shape == Atom.roundrect:
             x, y = self.size.x, self.size.y
@@ -389,7 +397,7 @@ class Pad:
                     [x, y,
                      r,
                      0, 0, # no hole
-                     math.radians(self.at.rotation)])
+                     math.radians(self.at.rotation)], unit=MM)
 
         elif self.shape == Atom.custom:
             primitives = []
@@ -398,7 +406,7 @@ class Pad:
                 for gn_obj in obj.render():
                     primitives += gn_obj._aperture_macro_primitives() # todo: precision params
             macro = ApertureMacro(primitives=primitives)
-            return ap.ApertureMacroInstance(macro)
+            return ap.ApertureMacroInstance(macro, unit=MM)
 
     def render_drill(self):
         if not self.drill:
@@ -517,6 +525,7 @@ class Footprint:
     def objects(self, text=False, pads=True):
         return chain(
                 (self.texts if text else []),
+                (self.text_boxes if text else []),
                 self.lines,
                 self.rectangles,
                 self.circles,
@@ -524,20 +533,19 @@ class Footprint:
                 self.polygons,
                 self.curves,
                 (self.dimensions if text else []),
-                (self.pads if pads else []),
-                self.zones)
+                (self.pads if pads else []))
 
-    def render(self, layer_stack, layer_map, x=0, y=0, rotation=0, side=None):
+    def render(self, layer_stack, layer_map, x=0, y=0, rotation=0, text=False, side=None, variables={}):
         x += self.at.x
         y += self.at.y
         rotation += math.radians(self.at.rotation)
         flip = (side != 'top') if side else (self.layer != 'F.Cu')
 
-        for obj in self.objects(pads=False, text=False):
+        for obj in self.objects(pads=False, text=text):
             if not (layer := layer_map.get(obj.layer)):
                 continue
 
-            for fe in obj.render():
+            for fe in obj.render(variables=variables):
                 fe.rotate(rotation)
                 fe.offset(x, y, MM)
                 layer_stack[layer].objects.append(fe)
@@ -562,7 +570,7 @@ class Footprint:
                 else:
                     layer_stack.drill_pth.append(fe)
 
-LAYER_MAP = {
+LAYER_MAP_K2G = {
         'F.Cu': ('top', 'copper'),
         'B.Cu': ('bottom', 'copper'),
         'F.SilkS': ('top', 'silk'),
@@ -571,18 +579,41 @@ LAYER_MAP = {
         'B.Paste': ('bottom', 'paste'),
         'F.Mask': ('top', 'mask'),
         'B.Mask': ('bottom', 'mask'),
+        'B.CrtYd': ('bottom', 'courtyard'),
+        'F.CrtYd': ('top', 'courtyard'),
+        'B.Fab': ('bottom', 'fabrication'),
+        'F.Fab': ('top', 'fabrication'),
         'Edge.Cuts': ('mechanical', 'outline'),
         }
+
+LAYER_MAP_G2K = {v: k for k, v in LAYER_MAP_K2G.items()}
 
 
 @dataclass
 class FootprintInstance(Positioned):
     sexp: Footprint = None
+    hide_text: bool = True 
+    reference: str = 'REF**'
+    value: str = None
+    variables: dict = field(default_factory=lambda: {})
 
     def render(self, layer_stack):
         x, y, rotation = self.abs_pos
         x, y = MM(x, self.unit), MM(y, self.unit)
-        self.sexp.render(layer_stack, LAYER_MAP, x=x, y=y, rotation=rotation, side=self.side)
+
+        variables = dict(self.variables)
+
+        if self.reference is not None:
+            variables['REFERENCE'] = str(self.reference)
+
+        if self.value is not None:
+            variables['VALUE'] = str(self.value)
+
+        self.sexp.render(layer_stack, LAYER_MAP_K2G,
+                         x=x, y=y, rotation=rotation,
+                         side=self.side,
+                         text=(not self.hide_text),
+                         variables=variables)
 
 if __name__ == '__main__':
     import sys

@@ -292,6 +292,10 @@ class Tag:
     own implementation by passing a ``tag`` parameter. """
 
     def __init__(self, name, children=None, root=False, **attrs):
+        if (fill := attrs.get('fill')) and isinstance(fill, tuple):
+            attrs['fill'], attrs['fill-opacity'] = fill
+        if (stroke := attrs.get('stroke')) and isinstance(stroke, tuple):
+            attrs['stroke'], attrs['stroke-opacity'] = stroke
         self.name, self.attrs = name, attrs
         self.children = children or []
         self.root = root

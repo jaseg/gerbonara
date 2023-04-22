@@ -143,6 +143,29 @@ def gerbv_export(in_gbr, out_svg, export_format='svg', origin=(0, 0), size=(6, 6
         print(f'Re-using cache for {Path(in_gbr).name}')
     shutil.copy(cachefile, out_svg)
 
+def kicad_fp_export(mod_file, out_svg):
+    mod_file = Path(mod_file)
+    if mod_file.suffix.lower() != '.kicad_mod':
+        raise ValueError("KiCad footprint file must have .kicad_mod extension for kicad-cli to do it's thing")
+
+    params = f'(noparams)'.encode()
+    digest = hashlib.blake2b(mod_file.read_bytes() + params).hexdigest()
+    cachefile = cachedir / f'{digest}.svg'
+
+    if not cachefile.is_file():
+        print(f'Building cache for {mod_file.name}')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pretty_dir = mod_file.parent
+            fp_name = mod_file.name[:-len('.kicad_mod')]
+            cmd = ['kicad-cli', 'fp', 'export', 'svg', '--output', tmpdir, '--footprint', fp_name, pretty_dir]
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            out_file = Path(tmpdir) / f'{fp_name}.svg'
+            shutil.copy(out_file, cachefile)
+    else:
+        print(f'Re-using cache for {mod_file.name}')
+    shutil.copy(cachefile, out_svg)
+
 @contextmanager
 def svg_soup(filename):
     with open(filename, 'r') as f:
@@ -258,12 +281,12 @@ def gerber_difference_merge(ref1, ref2, actual, diff_out=None, composite_out=Non
 
         return svg_difference(ref1_svg.name, act_svg.name, diff_out=diff_out)
 
-def svg_difference(reference, actual, diff_out=None, background=None):
+def svg_difference(reference, actual, diff_out=None, background=None, dpi=100):
     with tempfile.NamedTemporaryFile(suffix='-ref.png') as ref_png,\
         tempfile.NamedTemporaryFile(suffix='-act.png') as act_png:
 
-        svg_to_png(reference, ref_png.name, bg=background)
-        svg_to_png(actual, act_png.name, bg=background)
+        svg_to_png(reference, ref_png.name, bg=background, dpi=dpi)
+        svg_to_png(actual, act_png.name, bg=background, dpi=dpi)
 
         return image_difference(ref_png.name, act_png.name, diff_out=diff_out)
 
