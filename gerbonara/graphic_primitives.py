@@ -218,23 +218,8 @@ class Arc(GraphicPrimitive):
 
     def bounding_box(self):
         r = self.width/2
-        endpoints = add_bounds(Circle(self.x1, self.y1, r).bounding_box(), Circle(self.x2, self.y2, r).bounding_box())
-
-        arc_r = math.dist((self.cx, self.cy), (self.x1, self.y1))
-
-        # extend C -> P1 line by line width / 2 along radius
-        dx, dy = self.x1 - self.cx, self.y1 - self.cy
-        x1 = self.x1 + dx/arc_r * r
-        y1 = self.y1 + dy/arc_r * r
-        
-        # same for C -> P2
-        dx, dy = self.x2 - self.cx, self.y2 - self.cy
-        x2 = self.x2 + dx/arc_r * r
-        y2 = self.y2 + dy/arc_r * r
-
-        arc = arc_bounds(x1, y1, x2, y2, self.cx, self.cy, self.clockwise)
-
-        return add_bounds(endpoints, arc) # FIXME add "include_center" switch
+        (min_x, min_y), (max_x, max_y) = arc_bounds(self.x1, self.y1, self.x2, self.y2, self.cx, self.cy, self.clockwise)
+        return (min_x-r, min_y-r), (max_x+r, max_y+r)
 
     def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
