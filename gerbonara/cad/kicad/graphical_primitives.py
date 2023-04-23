@@ -124,7 +124,7 @@ class FillMode:
 
     @classmethod
     def __map__(self, obj, parent=None):
-        return obj[0] in (Atom.solid, Atom.yes)
+        return obj[1] in (Atom.solid, Atom.yes)
 
     @classmethod
     def __sexp__(self, value):

@@ -172,10 +172,10 @@ class GenericMacros:
     rounded_rect = ApertureMacro('GRR', [
         ap.CenterLine('mm', [1, var(1)-2*var(3), var(2), 0, 0, var(6) * -deg_per_rad]),
         ap.CenterLine('mm', [1, var(1), var(2)-2*var(3), 0, 0, var(6) * -deg_per_rad]),
-        ap.Circle('mm', [1, var(3)*2, +(var(1)/2-var(3)), +(var(2)/2-var(3)), 0]),
-        ap.Circle('mm', [1, var(3)*2, +(var(1)/2-var(3)), -(var(2)/2-var(3)), 0]),
-        ap.Circle('mm', [1, var(3)*2, -(var(1)/2-var(3)), +(var(2)/2-var(3)), 0]),
-        ap.Circle('mm', [1, var(3)*2, -(var(1)/2-var(3)), -(var(2)/2-var(3)), 0]),
+        ap.Circle('mm', [1, var(3)*2, +(var(1)/2-var(3)), +(var(2)/2-var(3)), var(6) * -deg_per_rad]),
+        ap.Circle('mm', [1, var(3)*2, +(var(1)/2-var(3)), -(var(2)/2-var(3)), var(6) * -deg_per_rad]),
+        ap.Circle('mm', [1, var(3)*2, -(var(1)/2-var(3)), +(var(2)/2-var(3)), var(6) * -deg_per_rad]),
+        ap.Circle('mm', [1, var(3)*2, -(var(1)/2-var(3)), -(var(2)/2-var(3)), var(6) * -deg_per_rad]),
         *_generic_hole(4)])
 
     # params: width, height, length difference between narrow side (top) and wide side (bottom), *hole, rotation

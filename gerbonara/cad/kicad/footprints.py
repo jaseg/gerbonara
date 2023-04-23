@@ -177,13 +177,18 @@ class Arc:
 
 
     def render(self, variables=None):
-        cx, cy = self.mid.x, self.mid.y
+        mx, my = self.mid.x, self.mid.y
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
         dasher = Dasher(self)
 
+        # https://stackoverflow.com/questions/56224824/how-do-i-find-the-circumcenter-of-the-triangle-using-python-without-external-lib
+        d = 2 * (x1 * (y2 - my) + x2 * (my - y1) + mx * (y1 - y2))
+        cx = ((x1 * x1 + y1 * y1) * (y2 - my) + (x2 * x2 + y2 * y2) * (my - y1) + (mx * mx + my * my) * (y1 - y2)) / d
+        cy = ((x1 * x1 + y1 * y1) * (mx - x2) + (x2 * x2 + y2 * y2) * (x1 - mx) + (mx * mx + my * my) * (x2 - x1)) / d
+
         # KiCad only has clockwise arcs.
-        arc = go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, clockwise=True, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
+        arc = go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, clockwise=False, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
         if dasher.solid:
             yield arc
 
@@ -360,20 +365,20 @@ class Pad:
     primitives: OmitDefault(CustomPadPrimitives) = None
 
     def render(self, variables=None):
-        if self.type in (Atom.connect, Atom.np_thru_hole):
-            return
+        #if self.type in (Atom.connect, Atom.np_thru_hole):
+        #    return
 
-        yield go.Flash(self.at.x, self.at.y, self.aperture().rotated(math.radians(self.at.rotation)), unit=MM)
+        yield go.Flash(self.at.x, self.at.y, self.aperture(), unit=MM)
 
     def aperture(self):
         if self.shape == Atom.circle:
             return ap.CircleAperture(self.size.x, unit=MM)
 
         elif self.shape == Atom.rect:
-            return ap.RectangleAperture(self.size.x, self.size.y, unit=MM)
+            return ap.RectangleAperture(self.size.x, self.size.y, unit=MM).rotated(self.at.rotation)
 
         elif self.shape == Atom.oval:
-            return ap.ObroundAperture(self.size.x, self.size.y, unit=MM)
+            return ap.ObroundAperture(self.size.x, self.size.y, unit=MM).rotated(self.at.rotation)
 
         elif self.shape == Atom.trapezoid:
             # KiCad's trapezoid aperture "rect_delta" param is just weird to the point that I think it's probably
@@ -405,7 +410,7 @@ class Pad:
             for obj in self.primitives.all():
                 for gn_obj in obj.render():
                     primitives += gn_obj._aperture_macro_primitives() # todo: precision params
-            macro = ApertureMacro(primitives=primitives)
+            macro = ApertureMacro(primitives=primitives).rotated(self.at.rotation)
             return ap.ApertureMacroInstance(macro, unit=MM)
 
     def render_drill(self):
@@ -413,14 +418,30 @@ class Pad:
             return
 
         plated = self.type != Atom.np_thru_hole
-        aperture = ap.ExcellonTool(self.drill.diameter, plated=plated, unit=MM)
         if self.drill.oval:
-            w = self.drill.width / 2
-            l = go.Line(-w, 0, w, 0, aperture=aperture, unit=MM) 
+            dia = self.drill.diameter
+            w = self.drill.width
+
+            if self.drill.offset:
+                ox, oy = self.drill.offset.x, self.drill.offset.y
+            else:
+                ox, oy = 0, 0
+            
+            if w > dia:
+                dx = 0
+                dy = (w-dia)/2
+            else:
+                dx = (dia-w)/2
+                dy = 0
+
+            aperture = ap.ExcellonTool(min(dia, w), plated=plated, unit=MM)
+            l = go.Line(ox-dx, oy-dy, ox+dx, oy+dy, aperture=aperture, unit=MM) 
             l.rotate(math.radians(self.at.rotation))
             l.offset(self.at.x, self.at.y)
             yield l
+
         else:
+            aperture = ap.ExcellonTool(self.drill.diameter, plated=plated, unit=MM)
             yield go.Flash(self.at.x, self.at.y, aperture=aperture, unit=MM) 
 
 
@@ -583,6 +604,8 @@ LAYER_MAP_K2G = {
         'F.CrtYd': ('top', 'courtyard'),
         'B.Fab': ('bottom', 'fabrication'),
         'F.Fab': ('top', 'fabrication'),
+        'Dwgs.User': ('mechanical', 'drawings'),
+        'Cmts.User': ('mechanical', 'comments'),
         'Edge.Cuts': ('mechanical', 'outline'),
         }
 
@@ -609,7 +632,9 @@ class FootprintInstance(Positioned):
         if self.value is not None:
             variables['VALUE'] = str(self.value)
 
-        self.sexp.render(layer_stack, LAYER_MAP_K2G,
+        layer_map = {kc_id: gn_id for kc_id, gn_id in LAYER_MAP_K2G.items() if gn_id in layer_stack}
+
+        self.sexp.render(layer_stack, layer_map,
                          x=x, y=y, rotation=rotation,
                          side=self.side,
                          text=(not self.hide_text),

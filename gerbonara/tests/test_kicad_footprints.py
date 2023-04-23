@@ -1,13 +1,16 @@
 
+import math
 from itertools import zip_longest
 import subprocess
 import re
+
+import bs4
 
 from .utils import tmpfile, print_on_error
 from .image_support import kicad_fp_export, svg_difference, svg_soup, svg_to_png, run_cargo_cmd
 
 from .. import graphic_objects as go
-from ..utils import MM
+from ..utils import MM, arc_bounds, sum_bounds
 from ..layers import LayerStack
 from ..cad.kicad.sexp import build_sexp
 from ..cad.kicad.sexp_mapper import sexp
@@ -65,15 +68,104 @@ def test_round_trip(kicad_mod_file):
             assert original == stage1
     
 
+def _compute_style(elem):
+    current_style = {}
+    for elem in [*reversed(list(elem.parents)), elem]:
+        attrs = dict(elem.attrs)
+        for match in re.finditer(r'([^:;]+):([^:;]+)', attrs.pop('style', '')):
+            k, v = match.groups()
+            current_style[k.strip().lower()] = v.strip()
+
+        for k, v in elem.attrs.items():
+            current_style[k.lower()] = v
+    return current_style
+
+
 def _parse_path_d(path):
     path_d = path.get('d')
     if not path_d:
         return
 
-    for match in re.finditer(r'[ML] ?([0-9.]+) *,? *([0-9.]+)', path_d):
-        x, y = match.groups()
-        x, y = float(x), float(y)
-        yield x, y
+    style = _compute_style(path)
+    if style.get('stroke', 'none') != 'none':
+        sr = float(style.get('stroke-width', 0)) / 2
+    else:
+        sr = 0
+
+    if 'C' in path_d:
+        raise ValueError('Path contains cubic beziers')
+
+    last_x, last_y = None, None
+    for match in re.finditer(r'([ML]) ?([0-9.]+) *,? *([0-9.]+)|(A) ?([0-9.]+) *,? *([0-9.]+) *,? *([0-9.]+) *,? * ([01]) *,? *([01]) *,? *([0-9.]+) *,? *([0-9.]+)', path_d):
+        ml, x, y, a, rx, ry, angle, large_arc, sweep, ax, ay = match.groups()
+
+        if ml:
+            x, y = float(x), float(y)
+            last_x, last_y = x, y
+            yield x-sr, y-sr
+            yield x-sr, y+sr
+            yield x+sr, y-sr
+            yield x+sr, y+sr
+
+        elif a:
+            rx, ry = float(rx), float(ry)
+            ax, ay = float(ax), float(ay)
+            angle = float(angle)
+            large_arc = bool(int(large_arc))
+            sweep = bool(int(sweep))
+
+            if not math.isclose(rx, ry, abs_tol=1e-6):
+                raise ValueError("Elliptical arcs not supported. How did that end up here? KiCad can't do those either!")
+
+            mx = (last_x + ax)/2
+            my = (last_y + ay)/2
+            dx = ax - last_x
+            dy = ay - last_y
+            l = math.hypot(dx, dy)
+            # clockwise normal
+            nx = -dy/l
+            ny = dx/l
+            nl = math.sqrt(rx**2 - (l/2)**2)
+            if sweep != large_arc:
+                cx = mx + nx*nl
+                cy = my + ny*nl
+            else:
+                cx = mx - nx*nl
+                cy = my - ny*nl
+
+            (min_x, min_y), (max_x, max_y) = arc_bounds(last_x, last_y, ax, ay, cx-last_x, cy-last_y, clockwise=(not sweep))
+            min_x -= sr
+            min_y -= sr
+            max_x += sr
+            max_y += sr
+            # dbg_i += 1
+            # with open(f'/tmp/dbg-arc-{dbg_i}.svg', 'w') as f:
+            #     vbx, vby = min(last_x, ax), min(last_y, ay)
+            #     vbw, vbh = max(last_x, ax), max(last_y, ay)
+            #     vbw -= vbx
+            #     vbh -= vby
+            #     k = 2
+            #     vbx -= vbw*k
+            #     vby -= vbh*k
+            #     vbw *= 2*k+1
+            #     vbh *= 2*k+1
+            #     sw = min(vbw, vbh)*1e-3
+            #     mr = 3*sw
+            #     f.write('<?xml version="1.0" standalone="no"?>\n')
+            #     f.write('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n')
+            #     f.write(f'<svg version="1.1" width="200mm" height="200mm" viewBox="{vbx} {vby} {vbw} {vbh}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">>\n')
+            #     f.write(f'<path fill="none" stroke="#ff00ff" stroke-width="{sw}" d="{path_d}"/>\n')
+            #     f.write(f'<rect fill="none" stroke="#404040" stroke-width="{sw}" x="{min_x}" y="{min_y}" width="{max_x-min_x}" height="{max_y-min_y}"/>\n')
+            #     f.write(f'<circle fill="none" r="{mr}" stroke="blue" stroke-width="{sw}" cx="{last_x}" cy="{last_y}"/>\n')
+            #     f.write(f'<circle fill="none" r="{mr}" stroke="blue" stroke-width="{sw}" cx="{ax}" cy="{ay}"/>\n')
+            #     f.write(f'<circle fill="none" r="{mr}" stroke="red" stroke-width="{sw}" cx="{mx}" cy="{my}"/>\n')
+            #     f.write(f'<circle fill="none" r="{mr}" stroke="red" stroke-width="{sw}" cx="{cx}" cy="{cy}"/>\n')
+            #     f.write('</svg>\n')
+            yield min_x, min_y
+            yield min_x, max_y
+            yield max_x, min_y
+            yield max_x, max_y
+            last_x, last_y = ax, ay
 
 def test_render(kicad_mod_file, tmpfile, print_on_error):
     # Hide text and remove text from KiCad's renders. Our text rendering is alright, but KiCad has some weird issue
@@ -82,31 +174,35 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
     # micrometers, but it's enough to really throw off our error calculation, so we just ignore text.
     fp = FootprintInstance(0, 0, sexp=Footprint.open_mod(kicad_mod_file), hide_text=True)
     stack = LayerStack(courtyard=True, fabrication=True)
+    stack.add_layer('mechanical drawings')
+    stack.add_layer('mechanical comments')
     fp.render(stack)
     color_map = {gn_id: KICAD_LAYER_COLORS[kicad_id] for gn_id, kicad_id in LAYER_MAP_G2K.items()}
     color_map[('drill', 'pth')] = (255, 255, 255, 1)
     color_map[('drill', 'npth')] = (255, 255, 255, 1)
-    color_map = {key: (f'#{r:02x}{g:02x}{b:02x}', str(a)) for key, (r, g, b, a) in color_map.items()}
+    # Remove alpha since overlaid shapes won't work correctly with non-1 alpha without complicated svg filter hacks
+    color_map = {key: (f'#{r:02x}{g:02x}{b:02x}', '1') for key, (r, g, b, _a) in color_map.items()}
 
     margin = 10 # mm
 
     layer = stack[('top', 'courtyard')]
-    points = []
+    bounds = []
+    print('===== BOUNDS =====')
     for obj in layer.objects:
         if isinstance(obj, (go.Line, go.Arc)):
-            points.append((obj.x1, obj.y1))
-            points.append((obj.x2, obj.y2))
+            bbox = (min_x, min_y), (max_x, max_y) = obj.bounding_box(unit=MM)
+            import textwrap
+            print(f'{min_x: 3.6f} {min_y: 3.6f} {max_x: 3.6f} {max_y: 3.6f}', '\n'.join(textwrap.wrap(str(obj), width=80, subsequent_indent=' '*(3+4*(3+1+6)))))
+            bounds.append(bbox)
+    print('===== END =====')
 
-    if not points:
+    if not bounds:
         print('Footprint has no paths on courtyard layer')
         return
 
-    min_x = min(x for x, y in points)
-    min_y = min(y for x, y in points)
-    max_x = max(x for x, y in points)
-    max_y = max(y for x, y in points)
+    bounds = sum_bounds(bounds)
+    (min_x, min_y), (max_x, max_y) = bounds
     w, h = max_x-min_x, max_y-min_y
-    bounds = ((min_x, min_y), (max_x, max_y))
     print_on_error('Gerbonara bounds:', bounds, f'w={w:.6f}', f'h={h:.6f}')
 
     out_svg = tmpfile('Output', '.svg')
@@ -158,11 +254,36 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
     # Sample footprint: Connector_PinSocket_2.00mm.pretty/PinSocket_2x11_P2.00mm_Vertical.kicad_mod
     run_cargo_cmd('usvg', [str(ref_svg), str(ref_svg)])
 
-    # fix up usvg width/height
     with svg_soup(ref_svg) as soup:
+        # fix up usvg width/height
         root = soup.find('svg')
         root['width'] = root_w
         root['height'] = root_h
+
+        # remove alpha to avoid complicated filter hacks
+        for elem in root.descendants:
+            if not isinstance(elem, bs4.Tag):
+                continue
+
+            if elem.has_attr('opacity'):
+                elem['opacity'] = '1'
+
+            if elem.has_attr('fill-opacity'):
+                elem['fill-opacity'] = '1'
+
+            if elem.has_attr('stroke-opacity'):
+                elem['stroke-opacity'] = '1'
+
+        # kicad-cli incorrectly fills arcs
+        for elem in root.find_all('path'):
+            if ' C ' in elem.get('d', '') and elem.get('stroke', 'none') != 'none':
+                elem['fill'] = 'none'
+
+    # Move fabrication layers above drills because kicad-cli's svg rendering is wonky.
+    with svg_soup(out_svg) as soup:
+        root = soup.find('svg')
+        root.append(soup.find('g', id='l-bottom-fabrication').extract())
+        root.append(soup.find('g', id='l-top-fabrication').extract())
 
     svg_to_png(ref_svg, tmpfile('Reference render', '.png'), bg=None, dpi=600)
     svg_to_png(out_svg, tmpfile('Output render', '.png'), bg=None, dpi=600)

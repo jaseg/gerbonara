@@ -716,7 +716,7 @@ class Arc(GraphicObject):
 
     def as_primitive(self, unit=None):
         conv = self.converted(unit)
-        w = self.aperture.equivalent_width(unit) if self.aperture else 0.1 # for debugging
+        w = self.aperture.equivalent_width(unit) if self.aperture else 0
         return gp.Arc(x1=conv.x1, y1=conv.y1,
                 x2=conv.x2, y2=conv.y2,
                 cx=conv.cx, cy=conv.cy,
