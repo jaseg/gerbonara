@@ -24,8 +24,9 @@ from ... import graphic_primitives as gp
 from ... import graphic_objects as go
 from ... import apertures as ap
 from ...newstroke import Newstroke
-from ...utils import MM
+from ...utils import MM, rotate_point
 from ...aperture_macros.parse import GenericMacros, ApertureMacro
+from ...aperture_macros import primitive as amp
 
 
 @sexp_type('property')
@@ -113,10 +114,10 @@ class Rectangle:
         x2, y2 = self.end.x, self.end.y
         x1, x2 = min(x1, x2), max(x1, x2)
         y1, y2 = min(y1, y2), max(y1, y2)
-        w, h = x2-x1, y1-y2
+        w, h = x2-x1, y2-y1
 
         if self.fill == Atom.solid:
-            yield go.Region.from_rectangle(x1, y1, w, y, unit=MM)
+            yield go.Region.from_rectangle(x1, y1, w, h, unit=MM)
 
         dasher = Dasher(self)
         dasher.move(x1, y1)
@@ -364,21 +365,27 @@ class Pad:
     options: OmitDefault(CustomPadOptions) = None
     primitives: OmitDefault(CustomPadPrimitives) = None
 
-    def render(self, variables=None):
+    def render(self, variables=None, margin=None):
         #if self.type in (Atom.connect, Atom.np_thru_hole):
         #    return
+        if self.drill and self.drill.offset:
+            ox, oy = rotate_point(self.drill.offset.x, self.drill.offset.y, math.radians(self.at.rotation))
+        else:
+            ox, oy = 0, 0
 
-        yield go.Flash(self.at.x, self.at.y, self.aperture(), unit=MM)
+        yield go.Flash(self.at.x+ox, self.at.y+oy, self.aperture(margin), unit=MM)
 
-    def aperture(self):
+    def aperture(self, margin=None):
+        rotation = -math.radians(self.at.rotation)
+
         if self.shape == Atom.circle:
             return ap.CircleAperture(self.size.x, unit=MM)
 
         elif self.shape == Atom.rect:
-            return ap.RectangleAperture(self.size.x, self.size.y, unit=MM).rotated(self.at.rotation)
+            return ap.RectangleAperture(self.size.x, self.size.y, unit=MM).rotated(rotation)
 
         elif self.shape == Atom.oval:
-            return ap.ObroundAperture(self.size.x, self.size.y, unit=MM).rotated(self.at.rotation)
+            return ap.ObroundAperture(self.size.x, self.size.y, unit=MM).rotated(rotation)
 
         elif self.shape == Atom.trapezoid:
             # KiCad's trapezoid aperture "rect_delta" param is just weird to the point that I think it's probably
@@ -386,14 +393,17 @@ class Pad:
             # original bounding box, and the trapezoid's base and tip length are 3mm and 1mm.
 
             x, y = self.size.x, self.size.y
-            dx, dy = self.rect_delta.x, self.rect_delta.y
+            if self.rect_delta:
+                dx, dy = self.rect_delta.x, self.rect_delta.y
+            else: # RF_Antenna/Pulse_W3011 has trapezoid pads w/o rect_delta, which KiCad renders as plain rects.
+                dx, dy = 0, 0
 
             # Note: KiCad already uses MM units, so no conversion needed here.
             return ap.ApertureMacroInstance(GenericMacros.isosceles_trapezoid,
                     [x+dx, y+dy,
                      2*max(dx, dy),
                      0, 0, # no hole
-                     math.radians(self.at.rotation)], unit=MM)
+                     rotation], unit=MM)
 
         elif self.shape == Atom.roundrect:
             x, y = self.size.x, self.size.y
@@ -402,7 +412,7 @@ class Pad:
                     [x, y,
                      r,
                      0, 0, # no hole
-                     math.radians(self.at.rotation)], unit=MM)
+                     rotation], unit=MM)
 
         elif self.shape == Atom.custom:
             primitives = []
@@ -410,7 +420,16 @@ class Pad:
             for obj in self.primitives.all():
                 for gn_obj in obj.render():
                     primitives += gn_obj._aperture_macro_primitives() # todo: precision params
-            macro = ApertureMacro(primitives=primitives).rotated(self.at.rotation)
+
+            if self.options:
+                if self.options.anchor == Atom.rect and self.size.x > 0 and self.size.y > 0:
+                    primitives.append(amp.CenterLine(MM, [1, self.size.x, self.size.y, 0, 0, 0]))
+
+                elif self.options.anchor == Atom.circle and self.size.x > 0:
+                    primitives.append(amp.Circle(MM, [1, self.size.x, 0, 0, 0]))
+
+
+            macro = ApertureMacro(primitives=primitives).rotated(rotation)
             return ap.ApertureMacroInstance(macro, unit=MM)
 
     def render_drill(self):

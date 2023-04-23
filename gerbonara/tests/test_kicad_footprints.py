@@ -68,6 +68,8 @@ def test_round_trip(kicad_mod_file):
             assert original == stage1
     
 
+# Regrettably, we have to re-implement a significant part of the SVG spec to fix up the SVGs that kicad-cli produces.
+
 def _compute_style(elem):
     current_style = {}
     for elem in [*reversed(list(elem.parents)), elem]:
@@ -187,14 +189,14 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
 
     layer = stack[('top', 'courtyard')]
     bounds = []
-    print('===== BOUNDS =====')
+    #print('===== BOUNDS =====')
     for obj in layer.objects:
         if isinstance(obj, (go.Line, go.Arc)):
             bbox = (min_x, min_y), (max_x, max_y) = obj.bounding_box(unit=MM)
-            import textwrap
-            print(f'{min_x: 3.6f} {min_y: 3.6f} {max_x: 3.6f} {max_y: 3.6f}', '\n'.join(textwrap.wrap(str(obj), width=80, subsequent_indent=' '*(3+4*(3+1+6)))))
+            #import textwrap
+            #print(f'{min_x: 3.6f} {min_y: 3.6f} {max_x: 3.6f} {max_y: 3.6f}', '\n'.join(textwrap.wrap(str(obj), width=80, subsequent_indent=' '*(3+4*(3+1+6)))))
             bounds.append(bbox)
-    print('===== END =====')
+    #print('===== END =====')
 
     if not bounds:
         print('Footprint has no paths on courtyard layer')

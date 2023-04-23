@@ -392,8 +392,8 @@ class ObroundAperture(Aperture):
         return ApertureMacroInstance(GenericMacros.obround,
                 [MM(inst.w, self.unit),
                  MM(inst.h, self.unit),
-                 MM(inst.hole_dia, self.unit),
-                 MM(inst.hole_rect_h, self.unit),
+                 MM(inst.hole_dia, self.unit) or 0,
+                 MM(inst.hole_rect_h, self.unit) or 0,
                  inst.rotation])
 
     def _params(self, unit=None):

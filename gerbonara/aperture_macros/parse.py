@@ -13,6 +13,7 @@ from . import primitive as ap
 from .expression import *
 from ..utils import MM
 
+# we make our own here instead of using math.degrees to make sure this works with expressions, too.
 def rad_to_deg(x):
     return (x / math.pi) * 180
 
@@ -190,6 +191,7 @@ class GenericMacros:
         *_generic_hole(4)])
 
     # w must be larger than h
+    # params: width, height, *hole, rotation
     obround = ApertureMacro('GNO', [
         ap.CenterLine('mm', [1, var(1), var(2), 0, 0, var(5) * -deg_per_rad]),
         ap.Circle('mm', [1, var(2), +var(1)/2, 0, var(5) * -deg_per_rad]),
