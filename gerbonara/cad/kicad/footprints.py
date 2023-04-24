@@ -182,14 +182,31 @@ class Arc:
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
         dasher = Dasher(self)
+        aperture = ap.CircleAperture(dasher.width, unit=MM)
 
-        # https://stackoverflow.com/questions/56224824/how-do-i-find-the-circumcenter-of-the-triangle-using-python-without-external-lib
-        d = 2 * (x1 * (y2 - my) + x2 * (my - y1) + mx * (y1 - y2))
-        cx = ((x1 * x1 + y1 * y1) * (y2 - my) + (x2 * x2 + y2 * y2) * (my - y1) + (mx * mx + my * my) * (y1 - y2)) / d
-        cy = ((x1 * x1 + y1 * y1) * (mx - x2) + (x2 * x2 + y2 * y2) * (x1 - mx) + (mx * mx + my * my) * (x2 - x1)) / d
+        if math.isclose(x1, x2, abs_tol=1e-6) and math.isclose(y1, y2, abs_tol=1e-6):
+            cx = (x1 + mx) / 2
+            cy = (y1 + my) / 2
+            arc = go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, clockwise=True, aperture=aperture, unit=MM)
+            if dasher.solid:
+                yield arc
+
+            else:
+                # use approximation from graphic object arc class 
+                for line in arc.approximate():
+                    dasher.segments.append((line.x1, line.y1, line.x2, line.y2))
+                
+                for line in dasher:
+                    yield go.Line(x1, y1, x2, y2, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
+
+        else:
+            # https://stackoverflow.com/questions/56224824/how-do-i-find-the-circumcenter-of-the-triangle-using-python-without-external-lib
+            d = 2 * (x1 * (y2 - my) + x2 * (my - y1) + mx * (y1 - y2))
+            cx = ((x1 * x1 + y1 * y1) * (y2 - my) + (x2 * x2 + y2 * y2) * (my - y1) + (mx * mx + my * my) * (y1 - y2)) / d
+            cy = ((x1 * x1 + y1 * y1) * (mx - x2) + (x2 * x2 + y2 * y2) * (x1 - mx) + (mx * mx + my * my) * (x2 - x1)) / d
 
         # KiCad only has clockwise arcs.
-        arc = go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, clockwise=False, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
+        arc = go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, clockwise=False, aperture=aperture, unit=MM)
         if dasher.solid:
             yield arc
 
@@ -377,15 +394,23 @@ class Pad:
 
     def aperture(self, margin=None):
         rotation = -math.radians(self.at.rotation)
+        margin = margin or 0
 
         if self.shape == Atom.circle:
-            return ap.CircleAperture(self.size.x, unit=MM)
+            return ap.CircleAperture(self.size.x+2*margin, unit=MM)
 
         elif self.shape == Atom.rect:
-            return ap.RectangleAperture(self.size.x, self.size.y, unit=MM).rotated(rotation)
+            if margin:
+                return ap.ApertureMacroInstance(GenericMacros.rounded_rect,
+                        [x+2*margin, y+2*margin,
+                         margin,
+                         0, 0, # no hole
+                         rotation], unit=MM)
+            else:
+                return ap.RectangleAperture(self.size.x, self.size.y, unit=MM).rotated(rotation)
 
         elif self.shape == Atom.oval:
-            return ap.ObroundAperture(self.size.x, self.size.y, unit=MM).rotated(rotation)
+            return ap.ObroundAperture(self.size.x+2*margin, self.size.y+2*margin, unit=MM).rotated(rotation)
 
         elif self.shape == Atom.trapezoid:
             # KiCad's trapezoid aperture "rect_delta" param is just weird to the point that I think it's probably
@@ -398,19 +423,33 @@ class Pad:
             else: # RF_Antenna/Pulse_W3011 has trapezoid pads w/o rect_delta, which KiCad renders as plain rects.
                 dx, dy = 0, 0
 
-            # Note: KiCad already uses MM units, so no conversion needed here.
-            return ap.ApertureMacroInstance(GenericMacros.isosceles_trapezoid,
-                    [x+dx, y+dy,
-                     2*max(dx, dy),
-                     0, 0, # no hole
-                     rotation], unit=MM)
+            if dx != 0:
+                x, y = y, x
+                dy = dx
+                rotation -= math.pi/2
+
+            if not margin:
+                # Note: KiCad already uses MM units, so no conversion needed here.
+
+                return ap.ApertureMacroInstance(GenericMacros.isosceles_trapezoid,
+                        [x+dy, y,
+                         dy,
+                         0, 0, # no hole
+                         rotation], unit=MM)
+
+            else:
+                return ap.ApertureMacroInstance(GenericMacros.rounded_isosceles_trapezoid,
+                        [x+dy, y,
+                         dy, margin,
+                         0, 0, # no hole
+                         rotation], unit=MM)
 
         elif self.shape == Atom.roundrect:
             x, y = self.size.x, self.size.y
             r = min(x, y) * self.roundrect_rratio
             return ap.ApertureMacroInstance(GenericMacros.rounded_rect,
-                    [x, y,
-                     r,
+                    [x+2*margin, y+2*margin,
+                     r+margin,
                      0, 0, # no hole
                      rotation], unit=MM)
 
@@ -591,9 +630,33 @@ class Footprint:
                 layer_stack[layer].objects.append(fe)
 
         for obj in self.pads:
+            if obj.solder_mask_margin is not None:
+                solder_mask_margin = obj.solder_mask_margin
+            elif self.solder_mask_margin is not None:
+                solder_mask_margin = self.solder_mask_margin
+            else:
+                solder_mask_margin = None
+
+            if obj.solder_paste_margin is not None:
+                solder_paste_margin = obj.solder_paste_margin
+            elif obj.solder_paste_margin_ratio is not None:
+                solder_paste_margin = max(obj.size.x, obj.size.y) * obj.solder_paste_margin_ratio
+            elif self.solder_paste_margin is not None:
+                solder_paste_margin = self.solder_paste_margin
+            else:
+                solder_paste_margin = None
+
             for glob in obj.layers or []:
                 for layer in fnmatch.filter(layer_map, glob):
-                    for fe in obj.render():
+
+                    if layer.endswith('.Mask'):
+                        margin = solder_mask_margin
+                    elif layer.endswith('.Paste'):
+                        margin = solder_paste_margin
+                    else:
+                        margin = None
+
+                    for fe in obj.render(margin=margin):
                         fe.rotate(rotation)
                         fe.offset(x, y, MM)
                         if isinstance(fe, go.Flash) and fe.aperture:

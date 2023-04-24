@@ -98,10 +98,13 @@ def _parse_path_d(path):
         raise ValueError('Path contains cubic beziers')
 
     last_x, last_y = None, None
-    for match in re.finditer(r'([ML]) ?([0-9.]+) *,? *([0-9.]+)|(A) ?([0-9.]+) *,? *([0-9.]+) *,? *([0-9.]+) *,? * ([01]) *,? *([01]) *,? *([0-9.]+) *,? *([0-9.]+)', path_d):
+    # NOTE: kicad-cli exports oddly broken svgs. One of  the weirder issues is that in some paths, the "L" command is
+    # simply ommitted.
+    for match in re.finditer(r'([ML]?) ?([0-9.]+) *,? *([0-9.]+)|(A) ?([0-9.]+) *,? *([0-9.]+) *,? *([0-9.]+) *,? * ([01]) *,? *([01]) *,? *([0-9.]+) *,? *([0-9.]+)', path_d):
+        print('P:', match.group(0))
         ml, x, y, a, rx, ry, angle, large_arc, sweep, ax, ay = match.groups()
 
-        if ml:
+        if ml or not a:
             x, y = float(x), float(y)
             last_x, last_y = x, y
             yield x-sr, y-sr
@@ -109,7 +112,7 @@ def _parse_path_d(path):
             yield x+sr, y-sr
             yield x+sr, y+sr
 
-        elif a:
+        else: # a
             rx, ry = float(rx), float(ry)
             ax, ay = float(ax), float(ay)
             angle = float(angle)
@@ -247,8 +250,13 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
         root_h = root['height'] = f'{h:.6f}mm'
         root['viewBox'] = f'{min_x:.6f} {min_y:.6f} {w:.6f} {h:.6f}'
 
-        for group in soup.find_all('g', attrs={'class': 'stroked-text'}):
-            group.decompose()
+        # nuke text since kicad-cli's text positioning looks sligthly wonky and we failed to replicate that wonkyness
+        # exactly. 
+        for elem in soup.find_all('g', attrs={'class': 'stroked-text'}):
+            elem.decompose()
+
+        for elem in soup.find_all('text'):
+            elem.decompose()
 
     # Currently, there is a bug in resvg leading to mis-rendering. On the file below from the KiCad standard lib, resvg
     # renders all round pads in a wrong color (?). Interestingly, passing the file through usvg before rendering fixes
