@@ -101,7 +101,6 @@ def _parse_path_d(path):
     # NOTE: kicad-cli exports oddly broken svgs. One of  the weirder issues is that in some paths, the "L" command is
     # simply ommitted.
     for match in re.finditer(r'([ML]?) ?([0-9.]+) *,? *([0-9.]+)|(A) ?([0-9.]+) *,? *([0-9.]+) *,? *([0-9.]+) *,? * ([01]) *,? *([01]) *,? *([0-9.]+) *,? *([0-9.]+)', path_d):
-        print('P:', match.group(0))
         ml, x, y, a, rx, ry, angle, large_arc, sweep, ax, ay = match.groups()
 
         if ml or not a:
@@ -127,16 +126,21 @@ def _parse_path_d(path):
             dx = ax - last_x
             dy = ay - last_y
             l = math.hypot(dx, dy)
+
             # clockwise normal
             nx = -dy/l
             ny = dx/l
-            nl = math.sqrt(rx**2 - (l/2)**2)
-            if sweep != large_arc:
-                cx = mx + nx*nl
-                cy = my + ny*nl
+            arg = rx**2 - (l/2)**2
+            if arg < 0 or math.isclose(arg, 0, abs_tol=1e-6):
+                cx, cy = mx, my
             else:
-                cx = mx - nx*nl
-                cy = my - ny*nl
+                nl = math.sqrt(arg)
+                if sweep != large_arc:
+                    cx = mx + nx*nl
+                    cy = my + ny*nl
+                else:
+                    cx = mx - nx*nl
+                    cy = my - ny*nl
 
             (min_x, min_y), (max_x, max_y) = arc_bounds(last_x, last_y, ax, ay, cx-last_x, cy-last_y, clockwise=(not sweep))
             min_x -= sr
@@ -178,7 +182,7 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
     # actual content, and text that is slightly off from where it should be. The difference is only a few hundred
     # micrometers, but it's enough to really throw off our error calculation, so we just ignore text.
     fp = FootprintInstance(0, 0, sexp=Footprint.open_mod(kicad_mod_file), hide_text=True)
-    stack = LayerStack(courtyard=True, fabrication=True)
+    stack = LayerStack(courtyard=True, fabrication=True, adhesive=True)
     stack.add_layer('mechanical drawings')
     stack.add_layer('mechanical comments')
     fp.render(stack)
@@ -298,7 +302,10 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
     svg_to_png(ref_svg, tmpfile('Reference render', '.png'), bg=None, dpi=600)
     svg_to_png(out_svg, tmpfile('Output render', '.png'), bg=None, dpi=600)
     mean, _max, hist = svg_difference(ref_svg, out_svg, dpi=600, diff_out=tmpfile('Difference', '.png'))
-    assert mean < 1e-3
+
+    # compensate for circular pads aliasing badly
+    aliasing_artifacts =  1e-4 * len(fp.sexp.pads)/50
+    assert mean < 1e-3 + aliasing_artifacts
     assert hist[9] < 100
-    assert hist[3:].sum() < 1e-3*hist.size
+    assert hist[3:].sum() < (1e-3 + 10*aliasing_artifacts)*hist.size
     

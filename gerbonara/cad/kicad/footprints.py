@@ -400,14 +400,14 @@ class Pad:
             return ap.CircleAperture(self.size.x+2*margin, unit=MM)
 
         elif self.shape == Atom.rect:
-            if margin:
+            if margin > 0:
                 return ap.ApertureMacroInstance(GenericMacros.rounded_rect,
                         [self.size.x+2*margin, self.size.y+2*margin,
                          margin,
                          0, 0, # no hole
                          rotation], unit=MM)
             else:
-                return ap.RectangleAperture(self.size.x, self.size.y, unit=MM).rotated(rotation)
+                return ap.RectangleAperture(self.size.x+2*margin, self.size.y+2*margin, unit=MM).rotated(rotation)
 
         elif self.shape == Atom.oval:
             return ap.ObroundAperture(self.size.x+2*margin, self.size.y+2*margin, unit=MM).rotated(rotation)
@@ -428,11 +428,12 @@ class Pad:
                 dy = dx
                 rotation -= math.pi/2
 
-            if not margin:
+            if margin <= 0:
                 # Note: KiCad already uses MM units, so no conversion needed here.
 
+                alpha = math.atan(y / (dy/2))
                 return ap.ApertureMacroInstance(GenericMacros.isosceles_trapezoid,
-                        [x+dy, y,
+                        [x+dy+margin*math.cos(alpha), y+margin,
                          dy,
                          0, 0, # no hole
                          rotation], unit=MM)
@@ -447,26 +448,54 @@ class Pad:
         elif self.shape == Atom.roundrect:
             x, y = self.size.x, self.size.y
             r = min(x, y) * self.roundrect_rratio
-            return ap.ApertureMacroInstance(GenericMacros.rounded_rect,
-                    [x+2*margin, y+2*margin,
-                     r+margin,
-                     0, 0, # no hole
-                     rotation], unit=MM)
+            if margin > -r:
+                return ap.ApertureMacroInstance(GenericMacros.rounded_rect,
+                        [x+2*margin, y+2*margin,
+                         r+margin,
+                         0, 0, # no hole
+                         rotation], unit=MM)
+            else:
+                return ap.RectangleAperture(x+margin, y+margin, unit=MM).rotated(rotation)
 
         elif self.shape == Atom.custom:
             primitives = []
+
             # One round trip through the Gerbonara APIs, please!
             for obj in self.primitives.all():
                 for gn_obj in obj.render():
-                    primitives += gn_obj._aperture_macro_primitives() # todo: precision params
+                    if margin and isinstance(gn_obj, (go.Line, go.Arc)):
+                        gn_obj = gn_obj.dilated(margin)
+
+                    if isinstance(gn_obj, go.Region) and margin > 0:
+                        for line in gn_obj.outline_objects(ap.CircleAperture(2*margin, unit=MM)):
+                            primitives += line._aperture_macro_primitives()
+
+                    new_primitives = list(gn_obj._aperture_macro_primitives()) # todo: precision params
+                    primitives += new_primitives
+
+                    # inexact, only works with convex shapes. But whatever, the only other way to do this would require
+                    # an entire polygon clipping/offsetting library. Probably a bad choice to put something this complex
+                    # into a file format.
+                    if isinstance(gn_obj, go.Region) and margin < 0:
+                        for line in gn_obj.outline_objects(ap.CircleAperture(2*margin, unit=MM)):
+                            line.polarity_dark = False
+                            primitives += line._aperture_macro_primitives()
 
             if self.options:
                 if self.options.anchor == Atom.rect and self.size.x > 0 and self.size.y > 0:
-                    primitives.append(amp.CenterLine(MM, [1, self.size.x, self.size.y, 0, 0, 0]))
+                    if margin <= 0:
+                        primitives.append(amp.CenterLine(MM, [1, self.size.x+2*margin, self.size.y+2*margin, 0, 0, 0]))
+
+                    else: # margin > 0
+                        primitives.append(amp.CenterLine(MM, [1, self.size.x+2*margin, self.size.y, 0, 0, 0]))
+                        primitives.append(amp.CenterLine(MM, [1, self.size.x, self.size.y+2*margin, 0, 0, 0]))
+                        primitives.append(amp.Circle(MM, [1, 2*margin, -self.size.x/2, -self.size.y/2]))
+                        primitives.append(amp.Circle(MM, [1, 2*margin, -self.size.x/2, +self.size.y/2]))
+                        primitives.append(amp.Circle(MM, [1, 2*margin, +self.size.x/2, -self.size.y/2]))
+                        primitives.append(amp.Circle(MM, [1, 2*margin, +self.size.x/2, +self.size.y/2]))
 
                 elif self.options.anchor == Atom.circle and self.size.x > 0:
-                    primitives.append(amp.Circle(MM, [1, self.size.x, 0, 0, 0]))
-
+                    primitives.append(amp.Circle(MM, [1, self.size.x+2*margin, 0, 0, 0]))
 
             macro = ApertureMacro(primitives=primitives).rotated(rotation)
             return ap.ApertureMacroInstance(macro, unit=MM)
@@ -686,6 +715,8 @@ LAYER_MAP_K2G = {
         'F.CrtYd': ('top', 'courtyard'),
         'B.Fab': ('bottom', 'fabrication'),
         'F.Fab': ('top', 'fabrication'),
+        'B.Adhes': ('bottom', 'adhesive'),
+        'F.Adhes': ('top', 'adhesive'),
         'Dwgs.User': ('mechanical', 'drawings'),
         'Cmts.User': ('mechanical', 'comments'),
         'Edge.Cuts': ('mechanical', 'outline'),

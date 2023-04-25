@@ -295,6 +295,9 @@ class Region(GraphicObject):
     def __bool__(self):
         return bool(self.outline)
 
+    def __str__(self):
+        return f'<Region with {len(self.outline)} points and {sum(1 if c else 0 for c in self.arc_centers)} arc segments at {hex(id(self))}'
+
     def _offset(self, dx, dy):
         self.outline = [ (x+dx, y+dy) for x, y in self.outline ]
 
@@ -340,7 +343,7 @@ class Region(GraphicObject):
             self.outline.append(self.outline[0])
 
     def outline_objects(self, aperture=None):
-        for p1, p2, arc in zip_longest(self.outline[:-1], self.outline[1:], self.arc_centers):
+        for p1, p2, arc in zip_longest(self.outline, self.outline[1:] + self.outline[:1], self.arc_centers):
             if arc:
                 clockwise, pc  = arc
                 yield Arc(*p1, *p2, *pc, clockwise, aperture=aperture, unit=self.unit, polarity_dark=self.polarity_dark)
@@ -350,7 +353,7 @@ class Region(GraphicObject):
     def _aperture_macro_primitives(self, max_error=1e-2, unit=MM):
         # unit is only for max_error, the resulting primitives will always be in MM
         
-        if len(self.outline) < 3:
+        if len(self.outline) < 2:
             return
 
         points = [self.outline[0]]
@@ -361,7 +364,7 @@ class Region(GraphicObject):
                 #d = math.dist(p1, p2)
                 #err = r - math.sqrt(r**2 - (d/(2*n))**2)
                 #n = math.ceil(1/(2*math.sqrt(r**2 - (r - max_err)**2)/d))
-                arc = Arc(*p1, *p2, *pc, clockwise, unit=self.unit, polarity_dark=self.polarity_dark)
+                arc = Arc(*p1, *p2, *pc, clockwise, unit=self.unit, polarity_dark=self.polarity_dark, aperture=None)
                 for line in arc.approximate(max_error=max_error, unit=unit):
                     points.append(line.p2)
 
@@ -370,6 +373,7 @@ class Region(GraphicObject):
 
         if points[-1] != points[0]:
             points.append(points[0])
+
         yield amp.Outline(self.unit, [int(self.polarity_dark), len(points)-1, *(coord for p in points for coord in p)])
 
     def to_primitives(self, unit=None):

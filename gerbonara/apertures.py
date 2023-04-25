@@ -387,14 +387,14 @@ class ObroundAperture(Aperture):
         if self.w > self.h:
             inst = self
         else:
-            inst = replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=rotation+self.rotation-90)
+            inst = replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=self.rotation-math.pi/2)
 
         return ApertureMacroInstance(GenericMacros.obround,
                 [MM(inst.w, self.unit),
                  MM(inst.h, self.unit),
                  MM(inst.hole_dia, self.unit) or 0,
                  MM(inst.hole_rect_h, self.unit) or 0,
-                 inst.rotation])
+                 inst.rotation + rotation])
 
     def _params(self, unit=None):
         return _strip_right(

@@ -82,6 +82,8 @@ class NamingScheme:
     'other drawings':       '{board_name}-Dwgs.User.gbr',
     'top fabrication':      '{board_name}-F.Fab.gbr',
     'bottom fabrication':   '{board_name}-B.Fab.gbr',
+    'top adhesive':         '{board_name}-F.Adhes.gbr',
+    'bottom adhesive':      '{board_name}-B.Adhes.gbr',
     'top courtyard':        '{board_name}-F.CrtYd.gbr',
     'bottom courtyard':     '{board_name}-B.CrtYd.gbr',
     'other netlist':        '{board_name}.d356',
@@ -290,7 +292,9 @@ class LayerStack:
                      :py:obj:`"altium"`
     """
 
-    def __init__(self, graphic_layers=None, drill_pth=None, drill_npth=None, drill_layers=(), netlist=None, board_name=None, original_path=None, was_zipped=False, generator=None, courtyard=False, fabrication=False):
+    def __init__(self, graphic_layers=None, drill_pth=None, drill_npth=None, drill_layers=(), netlist=None,
+                 board_name=None, original_path=None, was_zipped=False, generator=None, courtyard=False,
+                 fabrication=False, adhesive=False):
         if not drill_layers and (graphic_layers, drill_pth, drill_npth) == (None, None, None):
             graphic_layers = {tuple(layer.split()): GerberFile()
                     for layer in ('top paste', 'top silk', 'top mask', 'top copper',
@@ -306,6 +310,11 @@ class LayerStack:
                 graphic_layers = {('top', 'fabrication'): GerberFile(),
                                   **graphic_layers,
                                   ('bottom', 'fabrication'): GerberFile()}
+
+            if adhesive:
+                graphic_layers = {('top', 'adhesive'): GerberFile(),
+                                  **graphic_layers,
+                                  ('bottom', 'adhesive'): GerberFile()}
 
             drill_pth = ExcellonFile()
             drill_npth = ExcellonFile()

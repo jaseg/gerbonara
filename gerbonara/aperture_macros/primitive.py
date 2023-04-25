@@ -242,7 +242,7 @@ class Outline(Primitive):
     code = 4
 
     def __init__(self, unit, args):
-        if len(args) < 11:
+        if len(args) < 10:
             raise ValueError(f'Invalid aperture macro outline primitive, not enough parameters ({len(args)}).')
         if len(args) > 5004:
             raise ValueError(f'Invalid aperture macro outline primitive, too many points ({len(args)//2-2}).')
