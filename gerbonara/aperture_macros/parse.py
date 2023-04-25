@@ -224,9 +224,9 @@ class GenericMacros:
     # w must be larger than h
     # params: width, height, *hole, rotation
     obround = ApertureMacro('GNO', [
-        ap.CenterLine('mm', [1, var(1), var(2), 0, 0, var(5) * -deg_per_rad]),
-        ap.Circle('mm', [1, var(2), +var(1)/2, 0, var(5) * -deg_per_rad]),
-        ap.Circle('mm', [1, var(2), -var(1)/2, 0, var(5) * -deg_per_rad]),
+        ap.CenterLine('mm', [1, var(1)-var(2), var(2), 0, 0, var(5) * -deg_per_rad]),
+        ap.Circle('mm', [1, var(2), +(var(1)-var(2))/2, 0, var(5) * -deg_per_rad]),
+        ap.Circle('mm', [1, var(2), -(var(1)-var(2))/2, 0, var(5) * -deg_per_rad]),
         *_generic_hole(3) ])
 
     polygon = ApertureMacro('GNP', [

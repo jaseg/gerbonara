@@ -402,7 +402,7 @@ class Pad:
         elif self.shape == Atom.rect:
             if margin:
                 return ap.ApertureMacroInstance(GenericMacros.rounded_rect,
-                        [x+2*margin, y+2*margin,
+                        [self.size.x+2*margin, self.size.y+2*margin,
                          margin,
                          0, 0, # no hole
                          rotation], unit=MM)
