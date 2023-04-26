@@ -291,21 +291,15 @@ class CamFile:
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit,
                 pagecolor=bg, tag=tag)
 
-    def svg_objects(self, svg_unit=MM, fg='black', bg='white', tag=Tag):
+    def svg_objects(self, svg_unit=MM, fg='black', bg='white', aperture_map={}, tag=Tag):
         pl = None
         for i, obj in enumerate(self.objects):
-            #if isinstance(obj, go.Flash):
-            #    if pl:
-            #        tags.append(pl.to_svg(tag, fg, bg))
-            #        pl = None
+            if isinstance(obj, go.Flash) and id(obj.aperture) in aperture_map:
+                yield tag('use', href='#'+aperture_map[id(obj.aperture)],
+                          x=f'{svg_unit(obj.x, obj.unit):.3f}',
+                          y=f'{svg_unit(obj.y, obj.unit):.3f}')
 
-            #    mask_tags = [ prim.to_svg(tag, 'white', 'black') for prim in obj.to_primitives(unit=svg_unit) ]
-            #    mask_tags.insert(0, tag('rect', width='100%', height='100%', fill='black'))
-            #    mask_id = f'mask{i}'
-            #    tag('mask', mask_tags, id=mask_id)
-            #    tag('rect', width='100%', height='100%', mask='url(#{mask_id})', fill=fg)
-
-            #else:
+            else:
                 for primitive in obj.to_primitives(unit=svg_unit):
                     if isinstance(primitive, gp.Line):
                         if not pl:

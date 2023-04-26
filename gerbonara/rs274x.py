@@ -228,6 +228,26 @@ class GerberFile(CamFile):
         parser.parse(data, filename=filename)
         return obj
 
+    def dedup_apertures(self, settings=None):
+        settings = settings or FileSettings.defaults()
+
+        defined_apertures = {}
+        ap_map = {}
+        for obj in self.objects:
+            if not hasattr(obj, 'aperture'):
+                continue
+
+            if id(obj.aperture) in ap_map:
+                obj.aperture = ap_map[id(obj.aperture)]
+
+            ap_def = obj.aperture.to_gerber(settings)
+            if ap_def in defined_apertures:
+                ap_map[id(obj.aperture)] = obj.aperture = defined_apertures[ap_def]
+            else:
+                ap_map[id(obj.aperture)] = defined_apertures[ap_def] = obj.aperture
+
+        self.apertures = list(ap_map.values())
+
     def _generate_statements(self, settings, drop_comments=True):
         """ Export this file as Gerber code, yields one str per line. """
         self.sync_apertures()
@@ -265,7 +285,6 @@ class GerberFile(CamFile):
         defined_apertures = {}
         number = 10
         for aperture in self.apertures:
-
             if isinstance(aperture, apertures.ApertureMacroInstance):
                 macro_def = am_stmt(aperture.rotated().macro)
                 if macro_def not in processed_macros:

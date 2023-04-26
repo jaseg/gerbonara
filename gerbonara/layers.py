@@ -753,7 +753,7 @@ class LayerStack:
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, tag=tag)
 
     def to_pretty_svg(self, side='top', margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, tag=Tag, inkscape=False,
-                      colors=None):
+                      colors=None, use=True):
         """ Convert this layer stack to a pretty SVG string that is suitable for display or for editing in tools such as
         Inkscape. If you want to process the resulting SVG in other tools, consider using
         :py:meth:`~layers.LayerStack.to_svg` instead, which produces output without color styling or blending based on
@@ -779,10 +779,12 @@ class LayerStack:
                        :py:obj:`"bottom"`, and :py:obj:`"mechanical"` as well as :py:obj:`"inner1"`, :py:obj:`"inner2"`
                        etc. for internal layers. Valid use values are :py:obj:`"mask"`, :py:obj:`"silk"`,
                        :py:obj:`"paste"`, and :py:obj:`"copper"`. For internal layers, only :py:obj:`"copper"` is valid.
+        :param use: Enable/disable ``<use>`` tags for aperture flashes. Defaults to :py:obj:`True` (enabled).
         :rtype: :py:obj:`str`
         """
         if colors is None:
             colors = DEFAULT_COLORS
+        use_use = use
 
         colors_alpha = {}
         for layer, color in colors.items():
@@ -818,6 +820,8 @@ class LayerStack:
         inkscape_attrs = lambda label: dict(inkscape__groupmode='layer', inkscape__label=label) if inkscape else {}
         stroke_attrs = {'stroke_linejoin': 'round', 'stroke_linecap': 'round'}
         
+        use_defs = []
+
         layers = []
         for use in ['copper', 'mask', 'silk', 'paste']:
             if (side, use) not in self:
@@ -825,13 +829,24 @@ class LayerStack:
                 continue
 
             layer = self[(side, use)]
-            fg, bg = ('white', 'black') if use != 'mask' else ('black', 'white')
 
+            fg, bg = ('white', 'black') if use != 'mask' else ('black', 'white')
             default_fill = {'copper': fg, 'mask': fg, 'silk': 'none', 'paste': fg}[use]
             default_stroke = {'copper': 'none', 'mask': 'none', 'silk': fg, 'paste': 'none'}[use]
 
+            use_map = {}
+            if use_use:
+                layer.dedup_apertures()
+                for obj in layer.objects:
+                    if hasattr(obj, 'aperture') and obj.polarity_dark and id(obj.aperture) not in use_map:
+                        children = [prim.to_svg(fg, bg, tag=tag)
+                                    for prim in obj.aperture.flash(0, 0, svg_unit, polarity_dark=True)]
+                        use_id = f'a{len(use_defs)}'
+                        use_defs.append(tag('g', children, id=use_id))
+                        use_map[id(obj.aperture)] = use_id
+
             objects = []
-            for obj in layer.instance.svg_objects(svg_unit=svg_unit, fg=fg, bg=bg, tag=Tag):
+            for obj in layer.instance.svg_objects(svg_unit=svg_unit, fg=fg, bg=bg, aperture_map=use_map, tag=Tag):
                 if obj.attrs.get('fill') == default_fill:
                     del obj.attrs['fill']
                 elif 'fill' not in obj.attrs:
@@ -858,7 +873,7 @@ class LayerStack:
                 id=f'l-mechanical-outline', **stroke_attrs, **inkscape_attrs(f'outline')))
 
         layer_group = tag('g', layers, transform=f'translate(0 {bounds[0][1] + bounds[1][1]}) scale(1 -1)')
-        tags = [tag('defs', filter_defs), layer_group]
+        tags = [tag('defs', filter_defs + use_defs), layer_group]
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor="white", tag=tag, inkscape=inkscape)
 
     def bounding_box(self, unit=MM, default=None):
