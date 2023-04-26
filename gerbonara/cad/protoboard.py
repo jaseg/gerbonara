@@ -477,14 +477,34 @@ class SpikyProto(ObjectGroup):
         res = importlib.resources.files(package_data)
 
         self.fp_center = kfp.Footprint.load(res.joinpath('center-pad-spikes.kicad_mod').read_text(encoding='utf-8'))
-        self.objects.append(kfp.FootprintInstance(1.27, 1.27, self.fp_center, unit=MM))
-
-        self.fp_between = kfp.Footprint.load(res.joinpath('pad-between-spiked.kicad_mod').read_text(encoding='utf-8'))
-        self.objects.append(kfp.FootprintInstance(1.27, 0, self.fp_between, unit=MM))
-        self.objects.append(kfp.FootprintInstance(0, 1.27, self.fp_between, rotation=math.pi/2, unit=MM))
+        self.corner_pad = kfp.FootprintInstance(1.27, 1.27, self.fp_center, unit=MM)
 
         self.pad = kfp.Footprint.load(res.joinpath('tht-0.8.kicad_mod').read_text(encoding='utf-8'))
-        self.objects.append(kfp.FootprintInstance(0, 0, self.pad, unit=MM))
+        self.center_pad = kfp.FootprintInstance(0, 0, self.pad, unit=MM)
+
+        self.fp_between = kfp.Footprint.load(res.joinpath('pad-between-spiked.kicad_mod').read_text(encoding='utf-8'))
+        self.right_pad = kfp.FootprintInstance(1.27, 0, self.fp_between, unit=MM)
+        self.top_pad = kfp.FootprintInstance(0, 1.27, self.fp_between, rotation=math.pi/2, unit=MM)
+
+    @property
+    def objects(self):
+        return [x for x in (self.center_pad, self.corner_pad, self.right_pad, self.top_pad) if x is not None]
+
+    @objects.setter
+    def objects(self, value):
+        pass
+
+    def inst(self, x, y, border_x, border_y):
+        inst = copy(self)
+
+        if border_x:
+            inst.corner_pad = inst.right_pad = None
+
+        if border_y:
+            inst.corner_pad = inst.top_pad = None
+
+        return inst
+
 
 def convert_to_mm(value, unit):
     unitl  = unit.lower()
