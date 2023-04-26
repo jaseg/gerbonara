@@ -95,7 +95,7 @@ class Circle(Primitive):
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
-            x, y = rotate_point(calc.x, calc.y, deg_to_rad(calc.rotation) + rotation, 0, 0)
+            x, y = rotate_point(calc.x, calc.y, -(deg_to_rad(calc.rotation) + rotation), 0, 0)
             x, y = x+offset[0], y+offset[1]
             return [ gp.Circle(x, y, calc.diameter/2, polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
 
@@ -126,7 +126,7 @@ class VectorLine(Primitive):
             delta_y = calc.end_y - calc.start_y
             length = point_distance((calc.start_x, calc.start_y), (calc.end_x, calc.end_y))
 
-            center_x, center_y = rotate_point(center_x, center_y, deg_to_rad(calc.rotation) + rotation, 0, 0)
+            center_x, center_y = rotate_point(center_x, center_y, -(deg_to_rad(calc.rotation) + rotation), 0, 0)
             center_x, center_y = center_x+offset[0], center_y+offset[1]
             rotation += deg_to_rad(calc.rotation) + math.atan2(delta_y, delta_x)
 
@@ -156,7 +156,7 @@ class CenterLine(Primitive):
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
             rotation += deg_to_rad(calc.rotation)
-            x, y = gp.rotate_point(calc.x, calc.y, rotation, 0, 0)
+            x, y = gp.rotate_point(calc.x, calc.y, -rotation, 0, 0)
             x, y = x+offset[0], y+offset[1]
             w, h = calc.width, calc.height
 
@@ -185,7 +185,7 @@ class Polygon(Primitive):
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
             rotation += deg_to_rad(calc.rotation)
-            x, y = rotate_point(calc.x, calc.y, rotation, 0, 0)
+            x, y = rotate_point(calc.x, calc.y, -rotation, 0, 0)
             x, y = x+offset[0], y+offset[1]
             return [ gp.ArcPoly.from_regular_polygon(calc.x, calc.y, calc.diameter/2, calc.n_vertices, rotation,
                         polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
@@ -213,7 +213,7 @@ class Thermal(Primitive):
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
             rotation += deg_to_rad(calc.rotation)
-            x, y = rotate_point(calc.x, calc.y, rotation, 0, 0)
+            x, y = rotate_point(calc.x, calc.y, -rotation, 0, 0)
             x, y = x+offset[0], y+offset[1]
 
             dark = (bool(calc.exposure) == polarity_dark)
@@ -275,7 +275,7 @@ class Outline(Primitive):
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
             rotation += deg_to_rad(calc.rotation)
-            bound_coords = [ rotate_point(calc(x), calc(y), rotation, 0, 0) for x, y in self.coords ]
+            bound_coords = [ rotate_point(calc(x), calc(y), -rotation, 0, 0) for x, y in self.coords ]
             bound_coords = [ (x+offset[0], y+offset[1]) for x, y in bound_coords ]
             bound_radii = [None] * len(bound_coords)
             return [gp.ArcPoly(bound_coords, bound_radii, polarity_dark=(bool(calc.exposure) == polarity_dark))]
