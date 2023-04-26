@@ -12,7 +12,7 @@ from .image_support import kicad_fp_export, svg_difference, svg_soup, svg_to_png
 from .. import graphic_objects as go
 from ..utils import MM, arc_bounds, sum_bounds
 from ..layers import LayerStack
-from ..cad.kicad.sexp import build_sexp
+from ..cad.kicad.sexp import build_sexp, Atom
 from ..cad.kicad.sexp_mapper import sexp
 from ..cad.kicad.footprints import Footprint, FootprintInstance, LAYER_MAP_G2K
 from ..cad.kicad.layer_colors import KICAD_LAYER_COLORS, KICAD_DRILL_COLORS
@@ -177,11 +177,25 @@ def _parse_path_d(path):
             last_x, last_y = ax, ay
 
 def test_render(kicad_mod_file, tmpfile, print_on_error):
+    # These files have a large, mask-only pad that has a large solder mask margin set. Kicad doesn't render the margin
+    # at all, which I think it should. We render things exactly as I'd expect.
+    if kicad_mod_file.name in ['Fiducial_classic_big_CopperBottom_Type2.kicad_mod',
+                               'Fiducial_classic_big_CopperTop_Type2.kicad_mod',
+                               'Fiducial_classic_big_SilkscreenTop_Type2.kicad_mod']:
+        return
+
     # Hide text and remove text from KiCad's renders. Our text rendering is alright, but KiCad has some weird issue
     # where it seems to mis-calculate the bounding box of stroke font text, leading to a wonky viewport not matching the
     # actual content, and text that is slightly off from where it should be. The difference is only a few hundred
     # micrometers, but it's enough to really throw off our error calculation, so we just ignore text.
     fp = FootprintInstance(0, 0, sexp=Footprint.open_mod(kicad_mod_file), hide_text=True)
+
+    # kicad-cli doesn't render mask on nonplated pads. I think that's a bug, but let's work around this on our side for
+    # now.
+    for pad in fp.sexp.pads:
+        if pad.type == Atom.np_thru_hole:
+            pad.solder_mask_margin = 0
+
     stack = LayerStack(courtyard=True, fabrication=True, adhesive=True)
     stack.add_layer('mechanical drawings')
     stack.add_layer('mechanical comments')

@@ -431,17 +431,17 @@ class Pad:
             if margin <= 0:
                 # Note: KiCad already uses MM units, so no conversion needed here.
 
-                alpha = math.atan(y / (dy/2))
+                alpha = math.atan(y / dy) if dy > 0 else 0
                 return ap.ApertureMacroInstance(GenericMacros.isosceles_trapezoid,
-                        [x+dy+margin*math.cos(alpha), y+margin,
-                         dy,
+                        [x+dy+2*margin*math.cos(alpha), y+2*margin,
+                         2*dy,
                          0, 0, # no hole
                          rotation], unit=MM)
 
             else:
                 return ap.ApertureMacroInstance(GenericMacros.rounded_isosceles_trapezoid,
                         [x+dy, y,
-                         dy, margin,
+                         2*dy, margin,
                          0, 0, # no hole
                          rotation], unit=MM)
 
@@ -659,19 +659,19 @@ class Footprint:
                 layer_stack[layer].objects.append(fe)
 
         for obj in self.pads:
-            if obj.solder_mask_margin is not None:
-                solder_mask_margin = obj.solder_mask_margin
-            elif self.solder_mask_margin is not None:
+            if self.solder_mask_margin is not None:
                 solder_mask_margin = self.solder_mask_margin
+            elif obj.solder_mask_margin is not None:
+                solder_mask_margin = obj.solder_mask_margin
             else:
                 solder_mask_margin = None
 
-            if obj.solder_paste_margin is not None:
-                solder_paste_margin = obj.solder_paste_margin
+            if self.solder_paste_margin is not None:
+                solder_paste_margin = self.solder_paste_margin
             elif obj.solder_paste_margin_ratio is not None:
                 solder_paste_margin = max(obj.size.x, obj.size.y) * obj.solder_paste_margin_ratio
-            elif self.solder_paste_margin is not None:
-                solder_paste_margin = self.solder_paste_margin
+            elif obj.solder_paste_margin is not None:
+                solder_paste_margin = obj.solder_paste_margin
             else:
                 solder_paste_margin = None
 
