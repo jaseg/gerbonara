@@ -106,6 +106,9 @@ def deserialize(obj, unit):
             pattern_dia = mil(float(obj['pattern_dia']))
             return pb.PatternProtoArea(2*pitch, 2*pitch, pb.THTFlowerProto(pitch, hole_dia, pattern_dia, unit=unit), unit=unit)
 
+        case 'spiky':
+            return pb.PatternProtoArea(2.54, 2.54, pb.SpikyProto(), unit=unit)
+
         case 'rf':
             pitch = float(obj.get('pitch', 2.54))
             hole_dia = float(obj['hole_dia'])

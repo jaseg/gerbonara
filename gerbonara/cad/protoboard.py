@@ -473,7 +473,7 @@ class PoweredProto(ObjectGroup):
 
 class SpikyProto(ObjectGroup):
     def __init__(self, pitch=None, drill=None, clearance=None, power_pad_dia=None, via_size=None, trace_width=None, unit=MM):
-        super().__init__(0, 0)
+        super().__init__(0, 0, unit=unit)
         res = importlib.resources.files(package_data)
 
         self.fp_center = kfp.Footprint.load(res.joinpath('center-pad-spikes.kicad_mod').read_text(encoding='utf-8'))

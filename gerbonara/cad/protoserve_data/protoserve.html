@@ -363,6 +363,7 @@ input {
                     <a href="#" data-placeholder="flower"class="double-sided-only">THT Flower area</a>
                     <a href="#" data-placeholder="powered"class="double-sided-only">Powered THT area</a>
                     <a href="#" data-placeholder="rf"class="double-sided-only">RF THT area</a>
+                    <a href="#" data-placeholder="spiky"class="double-sided-only">Spiky hybrid area</a>
                 </div>
             </div>
         </template>
@@ -594,6 +595,19 @@ input {
             </div>
         </template>
 
+        <template id="tpl-g-spiky">
+            <div data-type="spiky" class="group spiky">
+                <h4>Spiky hybrid area</h4>
+                Layout by <a href="https://social.treehouse.systems/@electronic_eel">electroniceel</a> (<a href="https://github.com/electroniceel/protoboard">github</a>)
+                <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
+                <label class="proportion">Proportion
+                    <input type="text" name="layout_prop" value="1">
+                </label>
+
+                <h5>Area Settings</h5>
+                This area has a fixed 100 mil / 2.54 mm pitch.
+            </div>
+        </template>
         <script>
             document.querySelectorAll('.expand').forEach((elem) => {
                 const checkbox = elem.querySelector(':first-child > input');
