@@ -20,7 +20,7 @@ import math
 from dataclasses import dataclass, replace, field, fields, InitVar
 
 from .aperture_macros.parse import GenericMacros
-from .utils import MM, Inch
+from .utils import MM, Inch, sum_bounds
 
 from . import graphic_primitives as gp
 
@@ -117,6 +117,9 @@ class Aperture:
         :rtype: list(:py:class:`.GraphicPrimitive`)
         """
         return self._primitives(x, y, unit, polarity_dark)
+
+    def bounding_box(self, unit=None):
+        return sum_bounds((prim.bounding_box() for prim in self.flash(0, 0, unit, True)))
 
     def equivalent_width(self, unit=None):
         """ Get the width of a line interpolated using this aperture in the given :py:class:`~.LengthUnit`.

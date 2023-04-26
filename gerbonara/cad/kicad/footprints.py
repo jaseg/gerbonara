@@ -23,8 +23,9 @@ from ..primitives import Positioned
 from ... import graphic_primitives as gp
 from ... import graphic_objects as go
 from ... import apertures as ap
+from ...layers import LayerStack
 from ...newstroke import Newstroke
-from ...utils import MM, rotate_point
+from ...utils import MM, rotate_point, offset_bounds, sum_bounds
 from ...aperture_macros.parse import GenericMacros, ApertureMacro
 from ...aperture_macros import primitive as amp
 
@@ -591,6 +592,7 @@ class Footprint:
     models: List(Model) = field(default_factory=list)
     _ : SEXP_END = None
     original_filename: str = None
+    _bounding_box: tuple = None
 
     @property
     def version(self):
@@ -701,6 +703,16 @@ class Footprint:
                     layer_stack.drill_npth.append(fe)
                 else:
                     layer_stack.drill_pth.append(fe)
+    
+    def bounding_box(self, unit=MM):
+        if not self._bounding_box:
+            stack = LayerStack()
+            layer_map = {kc_id: gn_id for kc_id, gn_id in LAYER_MAP_K2G.items() if gn_id in stack}
+            self.render(stack, layer_map, x=0, y=0, rotation=0, side='top', text=False, variables={})
+            self._bounding_box = stack.bounding_box(unit)
+        return self._bounding_box
+
+        
 
 LAYER_MAP_K2G = {
         'F.Cu': ('top', 'copper'),
@@ -752,6 +764,9 @@ class FootprintInstance(Positioned):
                          side=self.side,
                          text=(not self.hide_text),
                          variables=variables)
+    
+    def bounding_box(self, unit=MM):
+        return offset_bounds(self.sexp.bounding_box(unit), unit(self.x, self.unit), unit(self.y, self.unit))
 
 if __name__ == '__main__':
     import sys

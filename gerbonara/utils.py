@@ -264,6 +264,11 @@ def add_bounds(b1, b2):
     return sum_bounds((b1, b2))
 
 
+def offset_bounds(bounds, dx=0, dy=0):
+    (min_x, min_y), (max_x, max_y) = bounds
+    return (min_x+dx, min_y+dy), (max_x+dx, max_y+dy)
+
+
 def sum_bounds(bounds, *, default=None):
     """ Add/union multiple bounding boxes.
 

@@ -549,7 +549,7 @@ def _demo():
     #pattern = PatternProtoArea(2.54*1.5, obj=THTFlowerProto())
     #pattern = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
     #pattern = PatternProtoArea(2.54, obj=PoweredProto())
-    pb = ProtoBoard(30, 30, pattern1, mounting_hole_dia=3.2, mounting_hole_offset=5)
+    pb = ProtoBoard(50, 50, pattern1, mounting_hole_dia=3.2, mounting_hole_offset=5)
     print(pb.pretty_svg())
     pb.layer_stack().save_to_directory('/tmp/testdir')
 

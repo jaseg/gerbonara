@@ -21,7 +21,7 @@ import copy
 from dataclasses import dataclass, astuple, field, fields
 from itertools import zip_longest
 
-from .utils import MM, InterpMode, to_unit, rotate_point
+from .utils import MM, InterpMode, to_unit, rotate_point, sum_bounds
 from . import graphic_primitives as gp
 from .aperture_macros import primitive as amp
 
@@ -152,12 +152,7 @@ class GraphicObject:
         :returns: tuple of tuples of floats: ``(min_x, min_y), (max_x, max_y)``
         """
 
-        bboxes = [ p.bounding_box() for p in self.to_primitives(unit) ]
-        min_x = min(min_x for (min_x, _min_y), _ in bboxes)
-        min_y = min(min_y for (_min_x, min_y), _ in bboxes)
-        max_x = max(max_x for _, (max_x, _max_y) in bboxes)
-        max_y = max(max_y for _, (_max_x, max_y) in bboxes)
-        return ((min_x, min_y), (max_x, max_y))
+        return sum_bounds(p.bounding_box() for p in self.to_primitives(unit))
 
     def to_primitives(self, unit=None):
         """ Render this object into low-level graphical primitives (subclasses of :py:class:`.GraphicPrimitive`). This
@@ -218,6 +213,10 @@ class Flash(GraphicObject):
     @tool.setter
     def tool(self, value):
         self.aperture = value
+
+    def bounding_box(self, unit=None):
+        (min_x, min_y), (max_x, max_y) = self.aperture.bounding_box(unit)
+        return (min_x+self.x, min_y+self.y), (max_x+self.x, max_x+self.y)
 
     @property
     def plated(self):

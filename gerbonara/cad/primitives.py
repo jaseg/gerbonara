@@ -7,7 +7,7 @@ from itertools import zip_longest, chain
 from dataclasses import dataclass, field, KW_ONLY
 from collections import defaultdict
 
-from ..utils import LengthUnit, MM, rotate_point, svg_arc, sum_bounds, bbox_intersect, Tag
+from ..utils import LengthUnit, MM, rotate_point, svg_arc, sum_bounds, bbox_intersect, Tag, offset_bounds
 from ..layers import LayerStack
 from ..graphic_objects import Line, Arc, Flash
 from ..apertures import Aperture, CircleAperture, ObroundAperture, RectangleAperture, ExcellonTool
@@ -214,6 +214,24 @@ class ObjectGroup(Positioned):
                 fe.rotate(rotation)
                 fe.offset(x, y, self.unit)
                 target.objects.append(fe)
+
+    def bounding_box(self, unit=MM):
+        if math.isclose(self.rotation, 0, abs_tol=1e-3):
+            return offset_bounds(sum_bounds((obj.bounding_box(unit=unit) for obj in chain(
+                    self.top_copper,
+                    self.top_mask,
+                    self.top_silk,
+                    self.top_paste,
+                    self.bottom_copper,
+                    self.bottom_mask,
+                    self.bottom_silk,
+                    self.bottom_paste,
+                    self.drill_npth,
+                    self.drill_pth,
+                    self.objects,
+                ))), unit(self.x, self.unit), unit(self.y, self.unit))
+        else:
+            return super().bounding_box(unit)
 
     @property
     def single_sided(self):
