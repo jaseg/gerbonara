@@ -7,12 +7,13 @@
 import warnings
 import contextlib
 import math
+from dataclasses import dataclass, fields
 
 from .expression import Expression, UnitExpression, ConstantExpression, expr
 
 from .. import graphic_primitives as gp
 from .. import graphic_objects as go
-from ..utils import rotate_point
+from ..utils import rotate_point, LengthUnit
 
 
 def point_distance(a, b):
@@ -30,24 +31,20 @@ def rad_to_deg(a):
     return a * (180 / math.pi)
 
 
+@dataclass(frozen=True, slots=True)
 class Primitive:
-    def __init__(self, unit, args):
-        self.unit = unit
+    unit: LengthUnit
+    exposure : Expression
 
-        if len(args) > len(type(self).__annotations__):
-            raise ValueError(f'Too many arguments ({len(args)}) for aperture macro primitive {self.code} ({type(self)})')
-
-        for arg, (name, fieldtype) in zip(args, type(self).__annotations__.items()):
-            arg = expr(arg) # convert int/float to Expression object
-
-            if fieldtype == UnitExpression:
-                setattr(self, name, UnitExpression(arg, unit))
-            else:
-                setattr(self, name, arg)
-
-        for name in type(self).__annotations__:
-            if not hasattr(self, name):
-                raise ValueError(f'Too few arguments ({len(args)}) for aperture macro primitive {self.code} ({type(self)})')
+    def __post_init__(self):
+        for field in fields(self):
+            if field.type == UnitExpression:
+                value = getattr(self, field.name)
+                if not isinstance(value, UnitExpression):
+                    value = UnitExpression(expr(value), self.unit)
+                object.__setattr__(self, field.name, value)
+            elif field.type == Expression:
+                object.__setattr__(self, field.name, expr(getattr(self, field.name)))
 
     def to_gerber(self, unit=None):
         return f'{self.code},' + ','.join(
@@ -59,6 +56,10 @@ class Primitive:
 
     def __repr__(self):
         return str(self)
+
+    @classmethod
+    def from_arglist(kls, arglist):
+        return kls(*arglist)
 
     class Calculator:
         def __init__(self, instance, variable_binding={}, unit=None):
@@ -79,19 +80,14 @@ class Primitive:
             return expr.calculate(self.variable_binding, self.unit)
 
 
+@dataclass(frozen=True, slots=True)
 class Circle(Primitive):
     code = 1
-    exposure : Expression
     diameter : UnitExpression
     # center x/y
     x : UnitExpression
     y : UnitExpression
-    rotation : Expression = None
-
-    def __init__(self, unit, args):
-        super().__init__(unit, args)
-        if self.rotation is None:
-            self.rotation = ConstantExpression(0)
+    rotation : Expression = 0
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
@@ -99,24 +95,23 @@ class Circle(Primitive):
             x, y = x+offset[0], y+offset[1]
             return [ gp.Circle(x, y, calc.diameter/2, polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
 
-    def dilate(self, offset, unit):
-        self.diameter += UnitExpression(offset, unit)
+    def dilated(self, offset, unit):
+        return replace(self, diameter=self.diameter + UnitExpression(offset, unit))
 
-    def scale(self, scale):
-        self.x *= UnitExpression(scale)
-        self.y *= UnitExpression(scale)
-        self.diameter *= UnitExpression(scale)
+    def scaled(self, scale):
+        return replace(self, x=self.x * UnitExpression(scale), y=self.y * UnitExpression(scale),
+                       diameter=self.diameter * UnitExpression(scale))
 
 
+@dataclass(frozen=True, slots=True)
 class VectorLine(Primitive):
     code = 20
-    exposure : Expression
     width : UnitExpression
     start_x : UnitExpression
     start_y : UnitExpression
     end_x : UnitExpression
     end_y : UnitExpression
-    rotation : Expression = None
+    rotation : Expression = 0
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
@@ -133,25 +128,26 @@ class VectorLine(Primitive):
             return [ gp.Rectangle(center_x, center_y, length, calc.width, rotation=rotation,
                         polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
 
-    def dilate(self, offset, unit):
-        self.width += UnitExpression(2*offset, unit)
+    def dilated(self, offset, unit):
+        return replace(self, width=self.width + UnitExpression(2*offset, unit))
 
-    def scale(self, scale):
-        self.start_x *= UnitExpression(scale)
-        self.start_y *= UnitExpression(scale)
-        self.end_x *= UnitExpression(scale)
-        self.end_y *= UnitExpression(scale)
+    def scaled(self, scale):
+        return replace(self, 
+                       start_x=self.start_x * UnitExpression(scale),
+                       start_y=self.start_y * UnitExpression(scale),
+                       end_x=self.end_x * UnitExpression(scale),
+                       end_y=self.end_y * UnitExpression(scale))
 
 
+@dataclass(frozen=True, slots=True)
 class CenterLine(Primitive):
     code = 21
-    exposure : Expression
     width : UnitExpression
     height : UnitExpression
     # center x/y
-    x : UnitExpression
-    y : UnitExpression
-    rotation : Expression
+    x : UnitExpression = 0
+    y : UnitExpression = 0
+    rotation : Expression = 0
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
@@ -162,25 +158,26 @@ class CenterLine(Primitive):
 
             return [ gp.Rectangle(x, y, w, h, rotation, polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
 
-    def dilate(self, offset, unit):
-        self.width += UnitExpression(2*offset, unit)
+    def dilated(self, offset, unit):
+        return replace(self, width=self.width + UnitExpression(2*offset, unit))
 
-    def scale(self, scale):
-        self.width *= UnitExpression(scale)
-        self.height *= UnitExpression(scale)
-        self.x *= UnitExpression(scale)
-        self.y *= UnitExpression(scale)
+    def scaled(self, scale):
+        return replace(self, 
+                       width=self.width * UnitExpression(scale),
+                       height=self.height * UnitExpression(scale),
+                       x=self.x * UnitExpression(scale),
+                       y=self.y * UnitExpression(scale))
             
 
+@dataclass(frozen=True, slots=True)
 class Polygon(Primitive):
     code = 5
-    exposure : Expression
     n_vertices : Expression
     # center x/y
     x : UnitExpression
     y : UnitExpression
     diameter : UnitExpression
-    rotation : Expression
+    rotation : Expression = 0
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
@@ -190,25 +187,26 @@ class Polygon(Primitive):
             return [ gp.ArcPoly.from_regular_polygon(calc.x, calc.y, calc.diameter/2, calc.n_vertices, rotation,
                         polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
 
-    def dilate(self, offset, unit):
-        self.diameter += UnitExpression(2*offset, unit)
+    def dilated(self, offset, unit):
+        return replace(self, diameter=self.diameter + UnitExpression(2*offset, unit))
 
     def scale(self, scale):
-        self.diameter *= UnitExpression(scale)
-        self.x *= UnitExpression(scale)
-        self.y *= UnitExpression(scale)
+        return replace(self,
+                       diameter=self.diameter * UnitExpression(scale),
+                       x=self.x * UnitExpression(scale),
+                       y=self.y * UnitExpression(scale))
             
 
+@dataclass(frozen=True, slots=True)
 class Thermal(Primitive):
     code = 7
-    exposure : Expression
     # center x/y
     x : UnitExpression
     y : UnitExpression
     d_outer : UnitExpression
     d_inner : UnitExpression
     gap_w : UnitExpression
-    rotation : Expression
+    rotation : Expression = 0
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
@@ -231,74 +229,86 @@ class Thermal(Primitive):
         warnings.warn('Attempted dilation of macro aperture thermal primitive. This is not supported.')
 
     def scale(self, scale):
-        self.d_outer *= UnitExpression(scale)
-        self.d_inner *= UnitExpression(scale)
-        self.gap_w *= UnitExpression(scale)
-        self.x *= UnitExpression(scale)
-        self.y *= UnitExpression(scale)
+        return replace(self, 
+                       d_outer=self.d_outer * UnitExpression(scale),
+                       d_inner=self.d_inner * UnitExpression(scale),
+                       gap_w=self.gap_w * UnitExpression(scale),
+                       x=self.x * UnitExpression(scale),
+                       y=self.y * UnitExpression(scale))
 
 
+@dataclass(frozen=True, slots=True)
 class Outline(Primitive):
     code = 4
+    length: Expression
+    coords: tuple
+    rotation: Expression = 0
 
-    def __init__(self, unit, args):
-        if len(args) < 10:
-            raise ValueError(f'Invalid aperture macro outline primitive, not enough parameters ({len(args)}).')
-        if len(args) > 5004:
-            raise ValueError(f'Invalid aperture macro outline primitive, too many points ({len(args)//2-2}).')
-
-        self.exposure = expr(args.pop(0))
-
-        # length arg must not contain variables (that would not make sense)
-        length_arg = (args.pop(0) * ConstantExpression(1)).calculate()
-
-        if length_arg != len(args)//2-1:
-            raise ValueError(f'Invalid aperture macro outline primitive, given size {length_arg} does not match length of coordinate list({len(args)//2-1}).')
-
-        if len(args) % 2 == 1:
-            self.rotation = expr(args.pop())
+    def __post_init__(self):
+        if self.length is None:
+            object.__setattr__(self, 'length', expr(len(self.coords)//2-1))
         else:
-            self.rotation = ConstantExpression(0.0)
+            object.__setattr__(self, 'length', expr(self.length))
+        object.__setattr__(self, 'rotation', expr(self.rotation))
+        object.__setattr__(self, 'exposure', expr(self.exposure))
 
-        if args[0] != args[-2] or args[1] != args[-1]:
-            raise ValueError(f'Invalid aperture macro outline primitive, polygon is not closed {args[2:4], args[-3:-1]}')
+        if self.length.calculate() != len(self.coords)//2-1:
+            raise ValueError('length must exactly equal number of segments, which is the number of points minus one')
 
-        self.coords = [(UnitExpression(x, unit), UnitExpression(y, unit)) for x, y in zip(args[0::2], args[1::2])]
+        if self.coords[-2:] != self.coords[:2]:
+            raise ValueError('Last point must equal first point')
+
+        object.__setattr__(self, 'coords', tuple(
+            UnitExpression(coord, self.unit) for coord in self.coords))
+
+    @property
+    def points(self):
+        for x, y in zip(self.coords[0::2], self.coords[1::2]):
+            yield x, y
+
+    @classmethod
+    def from_arglist(kls, arglist):
+        if len(arglist[3:]) % 2 == 0:
+            return kls(unit=arglist[0], exposure=arglist[1], length=arglist[2], coords=arglist[3:], rotation=0)
+        else:
+            return kls(unit=arglist[0], exposure=arglist[1], length=arglist[2], coords=arglist[3:-1], rotation=arglist[-1])
 
     def __str__(self):
         return f'<Outline {len(self.coords)} points>'
 
     def to_gerber(self, unit=None):
-        coords = ','.join(coord.to_gerber(unit) for xy in self.coords for coord in xy)
+        coords = ','.join(coord.to_gerber(unit) for coord in self.coords)
         return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)-1},{coords},{self.rotation.to_gerber()}'
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
             rotation += deg_to_rad(calc.rotation)
-            bound_coords = [ rotate_point(calc(x), calc(y), -rotation, 0, 0) for x, y in self.coords ]
+            bound_coords = [ rotate_point(calc(x), calc(y), -rotation, 0, 0) for x, y in self.points ]
             bound_coords = [ (x+offset[0], y+offset[1]) for x, y in bound_coords ]
             bound_radii = [None] * len(bound_coords)
             return [gp.ArcPoly(bound_coords, bound_radii, polarity_dark=(bool(calc.exposure) == polarity_dark))]
 
-    def dilate(self, offset, unit):
+    def dilated(self, offset, unit):
         # we would need a whole polygon offset/clipping library here
         warnings.warn('Attempted dilation of macro aperture outline primitive. This is not supported.')
 
-    def scale(self, scale):
-        self.coords = [(x*UnitExpression(scale), y*UnitExpression(scale)) for x, y in self.coords]
+    def scaled(self, scale):
+        return replace(self, coords=tuple(x*scale for x in self.coords))
 
 
+@dataclass(frozen=True, slots=True)
 class Comment:
     code = 0
-
-    def __init__(self, comment):
-        self.comment = comment
+    comment: str
 
     def to_gerber(self, unit=None):
         return f'0 {self.comment}'
 
-    def scale(self, scale):
-        pass
+    def dilated(self, offset, unit):
+        return self
+
+    def scaled(self, scale):
+        return self
 
 
 PRIMITIVE_CLASSES = {

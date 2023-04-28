@@ -17,20 +17,17 @@
 #
 
 import math
-from dataclasses import dataclass, replace, field, fields, InitVar
+from dataclasses import dataclass, replace, field, fields, InitVar, KW_ONLY
+from functools import lru_cache
 
 from .aperture_macros.parse import GenericMacros
-from .utils import MM, Inch, sum_bounds
+from .utils import LengthUnit, MM, Inch, sum_bounds
 
 from . import graphic_primitives as gp
 
 
 def _flash_hole(self, x, y, unit=None, polarity_dark=True):
-    if getattr(self, 'hole_rect_h', None) is not None:
-        w, h = self.unit.convert_to(unit, self.hole_dia), self.unit.convert_to(unit, self.hole_rect_h)
-        return [*self._primitives(x, y, unit, polarity_dark),
-                gp.Rectangle(x, y, w, h, rotation=self.rotation, polarity_dark=(not polarity_dark))]
-    elif self.hole_dia is not None:
+    if self.hole_dia is not None:
         return [*self._primitives(x, y, unit, polarity_dark),
                 gp.Circle(x, y, self.unit.convert_to(unit, self.hole_dia/2), polarity_dark=(not polarity_dark))]
     else:
@@ -40,7 +37,7 @@ def _strip_right(*args):
     args = list(args)
     while args and args[-1] is None:
         args.pop()
-    return args
+    return tuple(args)
 
 def _none_close(a, b):
     if a is None and b is None:
@@ -57,39 +54,14 @@ class Length:
     def __init__(self, obj_type):
         self.type = obj_type
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Aperture:
     """ Base class for all apertures. """
-
-    # hackety hack: Work around python < 3.10 not having dataclasses.KW_ONLY.
-    # 
-    # For details, refer to graphic_objects.py
-    def __init_subclass__(cls):
-        #: :py:class:`gerbonara.utils.LengthUnit` used for all length fields of this aperture.
-        cls.unit = None
-        #: GerberX2 attributes of this aperture. Note that this will only contain aperture attributes, not file attributes.
-        #: File attributes are stored in the :py:attr:`~.GerberFile.attrs` of the :py:class:`.GerberFile`.
-        cls.attrs = field(default_factory=dict)
-        #: Aperture index this aperture had when it was read from the Gerber file. This field is purely informational since
-        #: apertures are de-duplicated and re-numbered when writing a Gerber file. For `D10`, this field would be `10`. When
-        #: you programmatically create a new aperture, you do not have to set this.
-        cls.original_number = None
-
-        d = {'unit': str, 'attrs': dict, 'original_number': int}
-        if hasattr(cls, '__annotations__'):
-            cls.__annotations__.update(d)
-        else:
-            cls.__annotations__ = d
-
-    @property
-    def hole_shape(self):
-        """ Get shape of hole based on :py:attr:`hole_dia` and :py:attr:`hole_rect_h`: "rect" or "circle" or None. """
-        if getattr(self, 'hole_rect_h') is not None:
-            return 'rect'
-        elif getattr(self, 'hole_dia') is not None:
-            return 'circle'
-        else:
-            return None
+    _ : KW_ONLY
+    unit: LengthUnit = None
+    attrs: tuple = None
+    original_number: int = None
+    _bounding_box: tuple = None
 
     def _params(self, unit=None):
         out = []
@@ -119,7 +91,10 @@ class Aperture:
         return self._primitives(x, y, unit, polarity_dark)
 
     def bounding_box(self, unit=None):
-        return sum_bounds((prim.bounding_box() for prim in self.flash(0, 0, unit, True)))
+        if self._bounding_box is None:
+            object.__setattr__(self, '_bounding_box',
+                               sum_bounds((prim.bounding_box() for prim in self.flash(0, 0, MM, True))))
+        return MM.convert_bounds_to(unit, self._bounding_box)
 
     def equivalent_width(self, unit=None):
         """ Get the width of a line interpolated using this aperture in the given :py:class:`~.LengthUnit`.
@@ -133,16 +108,12 @@ class Aperture:
 
         :rtype: str
         """
-        # Hack: The standard aperture shapes C, R, O do not have a rotation parameter. To make this API easier to use,
-        # we emulate this parameter. Our circle, rectangle and oblong classes below have a rotation parameter. Only at
-        # export time during to_gerber, this parameter is evaluated. 
         unit = settings.unit if settings else None
-        actual_inst = self.rotated()
-        params = 'X'.join(f'{float(par):.4}' for par in actual_inst._params(unit) if par is not None)
+        params = 'X'.join(f'{float(par):.4}' for par in self._params(unit) if par is not None)
         if params:
-            return f'{actual_inst._gerber_shape_code},{params}'
+            return f'{self._gerber_shape_code},{params}'
         else:
-            return actual_inst._gerber_shape_code
+            return self._gerber_shape_code
 
     def to_macro(self):
         """ Convert this :py:class:`.Aperture` into an :py:class:`.ApertureMacro` inside an
@@ -150,24 +121,10 @@ class Aperture:
         """
         raise NotImplementedError()
 
-    def __eq__(self, other):
-        """ Compare two apertures. Apertures are compared based on their Gerber representation. Two apertures are
-        considered equal if their Gerber aperture definitions are identical.
-        """
-        # We need to choose some unit here.
-        return hasattr(other, 'to_gerber') and self.to_gerber(MM) == other.to_gerber(MM)
-
-    def _rotate_hole_90(self):
-        if self.hole_rect_h is None:
-            return {'hole_dia': self.hole_dia, 'hole_rect_h': None}
-        else:
-            return {'hole_dia': self.hole_rect_h, 'hole_rect_h': self.hole_dia}
-
-@dataclass(unsafe_hash=True)
+@dataclass(frozen=True, slots=True)
 class ExcellonTool(Aperture):
     """ Special Aperture_ subclass for use in :py:class:`.ExcellonFile`. Similar to :py:class:`.CircleAperture`, but
-    does not have :py:attr:`.CircleAperture.hole_dia` or :py:attr:`.CircleAperture.hole_rect_h`, and has the additional
-    :py:attr:`plated` attribute.
+    does not have :py:attr:`.CircleAperture.hole_dia`, and has the additional :py:attr:`plated` attribute.
     """
     _gerber_shape_code = 'C'
     _human_readable_shape = 'drill'
@@ -183,18 +140,6 @@ class ExcellonTool(Aperture):
     def to_xnc(self, settings):
         return 'C' + settings.write_excellon_value(self.diameter, self.unit)
 
-    def __eq__(self, other):
-        """ Compare two :py:class:`.ExcellonTool` instances. They are considered equal if their diameter and plating
-        match.
-        """
-        if not isinstance(other, ExcellonTool):
-            return False
-
-        if not self.plated == other.plated:
-            return False
-
-        return _none_close(self.diameter, self.unit(other.diameter, other.unit))
-
     def __str__(self):
         plated = '' if self.plated is None else (' plated' if self.plated else ' non-plated')
         return f'<Excellon Tool d={self.diameter:.3f}{plated} [{self.unit}]>'
@@ -207,17 +152,18 @@ class ExcellonTool(Aperture):
         offset = unit(offset, self.unit)
         return replace(self, diameter=self.diameter+2*offset)
 
+    @lru_cache()
     def rotated(self, angle=0):
         return self
 
-    def to_macro(self):
+    def to_macro(self, rotation=0):
         return ApertureMacroInstance(GenericMacros.circle, self._params(unit=MM))
 
     def _params(self, unit=None):
-        return [self.unit.convert_to(unit, self.diameter)]
+        return (self.unit.convert_to(unit, self.diameter),)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CircleAperture(Aperture):
     """ Besides flashing circles or rings, CircleApertures are used to set the width of a
     :py:class:`~.graphic_objects.Line` or :py:class:`~.graphic_objects.Arc`.
@@ -228,10 +174,6 @@ class CircleAperture(Aperture):
     diameter : Length(float)
     #: float with the hole diameter of this aperture in :py:attr:`unit` units. ``0`` for no hole.
     hole_dia : Length(float) = None
-    #: float or None. If not None, specifies a rectangular hole of size `hole_dia * hole_rect_h` instead of a round hole.
-    hole_rect_h : Length(float) = None
-    # float with radians. This is only used for rectangular holes (as circles are rotationally symmetric).
-    rotation : float = 0
 
     def _primitives(self, x, y, unit=None, polarity_dark=True):
         return [ gp.Circle(x, y, self.unit.convert_to(unit, self.diameter/2), polarity_dark=polarity_dark) ]
@@ -246,31 +188,27 @@ class CircleAperture(Aperture):
 
     def dilated(self, offset, unit=MM):
         offset = self.unit(offset, unit)
-        return replace(self, diameter=self.diameter+2*offset, hole_dia=None, hole_rect_h=None)
+        return replace(self, diameter=self.diameter+2*offset, hole_dia=None)
 
+    @lru_cache()
     def rotated(self, angle=0):
-        if math.isclose((self.rotation+angle) % (2*math.pi), 0, abs_tol=1e-6) or self.hole_rect_h is None:
-            return self
-        else:
-            return self.to_macro(self.rotation+angle)
+        return self
 
     def scaled(self, scale):
         return replace(self, 
                        diameter=self.diameter*scale,
-                       hole_dia=None if self.hole_dia is None else self.hole_dia*scale,
-                       hole_rect_h=None if self.hole_rect_h is None else self.hole_rect_h*scale)
+                       hole_dia=None if self.hole_dia is None else self.hole_dia*scale)
 
-    def to_macro(self):
+    def to_macro(self, rotation=0):
         return ApertureMacroInstance(GenericMacros.circle, self._params(unit=MM))
 
     def _params(self, unit=None):
         return _strip_right(
                 self.unit.convert_to(unit, self.diameter),
-                self.unit.convert_to(unit, self.hole_dia),
-                self.unit.convert_to(unit, self.hole_rect_h))
+                self.unit.convert_to(unit, self.hole_dia))
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class RectangleAperture(Aperture):
     """ Gerber rectangle aperture. Can only be used for flashes, since the line width of an interpolation of a rectangle
     aperture is not well-defined and there is no tool that implements it in a geometrically correct way. """
@@ -282,14 +220,10 @@ class RectangleAperture(Aperture):
     h : Length(float)
     #: float with the hole diameter of this aperture in :py:attr:`unit` units. ``0`` for no hole.
     hole_dia : Length(float) = None
-    #: float or None. If not None, specifies a rectangular hole of size `hole_dia * hole_rect_h` instead of a round hole.
-    hole_rect_h : Length(float) = None
-    # Rotation in radians. This rotates both the aperture and the rectangular hole if it has one.
-    rotation : float = 0 # radians
 
     def _primitives(self, x, y, unit=None, polarity_dark=True):
         return [ gp.Rectangle(x, y, self.unit.convert_to(unit, self.w), self.unit.convert_to(unit, self.h),
-            rotation=self.rotation, polarity_dark=polarity_dark) ]
+            rotation=0, polarity_dark=polarity_dark) ]
 
     def __str__(self):
         return f'<rect aperture {self.w:.3}x{self.h:.3} [{self.unit}]>'
@@ -301,42 +235,39 @@ class RectangleAperture(Aperture):
 
     def dilated(self, offset, unit=MM):
         offset = self.unit(offset, unit)
-        return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None, hole_rect_h=None)
+        return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None)
 
+    @lru_cache()
     def rotated(self, angle=0):
-        self.rotation += angle
-        if math.isclose(self.rotation % math.pi, 0):
-            self.rotation = 0
+        if math.isclose(angle % math.pi, 0):
             return self
-        elif math.isclose(self.rotation % math.pi, math.pi/2):
-            return replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=0)
+        elif math.isclose(angle % math.pi, math.pi/2):
+            return replace(self, w=self.h, h=self.w, hole_dia=self.hole_dia)
         else: # odd angle
-            return self.to_macro()
+            return self.to_macro(angle)
 
     def scaled(self, scale):
         return replace(self, 
                        w=self.w*scale,
                        h=self.h*scale,
-                       hole_dia=None if self.hole_dia is None else self.hole_dia*scale,
-                       hole_rect_h=None if self.hole_rect_h is None else self.hole_rect_h*scale)
+                       hole_dia=None if self.hole_dia is None else self.hole_dia*scale)
 
     def to_macro(self, rotation=0):
         return ApertureMacroInstance(GenericMacros.rect,
                 [MM(self.w, self.unit),
                     MM(self.h, self.unit),
                     MM(self.hole_dia, self.unit) or 0,
-                    MM(self.hole_rect_h, self.unit) or 0,
-                    self.rotation + rotation])
+                    0,
+                    rotation])
 
     def _params(self, unit=None):
         return _strip_right(
                 self.unit.convert_to(unit, self.w),
                 self.unit.convert_to(unit, self.h),
-                self.unit.convert_to(unit, self.hole_dia),
-                self.unit.convert_to(unit, self.hole_rect_h))
+                self.unit.convert_to(unit, self.hole_dia))
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ObroundAperture(Aperture):
     """ Aperture whose shape is the convex hull of two circles of equal radii.
 
@@ -352,14 +283,10 @@ class ObroundAperture(Aperture):
     h : Length(float)
     #: float with the hole diameter of this aperture in :py:attr:`unit` units. ``0`` for no hole.
     hole_dia : Length(float) = None
-    #: float or None. If not None, specifies a rectangular hole of size `hole_dia * hole_rect_h` instead of a round hole.
-    hole_rect_h : Length(float) = None
-    #: Rotation in radians. This rotates both the aperture and the rectangular hole if it has one.
-    rotation : float = 0
 
     def _primitives(self, x, y, unit=None, polarity_dark=True):
         return [ gp.Line.from_obround(x, y, self.unit.convert_to(unit, self.w), self.unit.convert_to(unit, self.h),
-            rotation=self.rotation, polarity_dark=polarity_dark) ]
+            polarity_dark=polarity_dark) ]
 
     def __str__(self):
         return f'<obround aperture {self.w:.3}x{self.h:.3} [{self.unit}]>'
@@ -368,13 +295,14 @@ class ObroundAperture(Aperture):
 
     def dilated(self, offset, unit=MM):
         offset = self.unit(offset, unit)
-        return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None, hole_rect_h=None)
+        return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None)
 
+    @lru_cache()
     def rotated(self, angle=0):
-        if math.isclose((angle + self.rotation) % math.pi, 0, abs_tol=1e-6):
+        if math.isclose(angle % math.pi, 0, abs_tol=1e-6):
             return self
-        elif math.isclose((angle + self.rotation) % math.pi, math.pi/2, abs_tol=1e-6):
-            return replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=0)
+        elif math.isclose(angle % math.pi, math.pi/2, abs_tol=1e-6):
+            return replace(self, w=self.h, h=self.w, hole_dia=self.hole_dia)
         else:
             return self.to_macro(angle)
 
@@ -382,32 +310,31 @@ class ObroundAperture(Aperture):
         return replace(self, 
                        w=self.w*scale,
                        h=self.h*scale,
-                       hole_dia=None if self.hole_dia is None else self.hole_dia*scale,
-                       hole_rect_h=None if self.hole_rect_h is None else self.hole_rect_h*scale)
+                       hole_dia=None if self.hole_dia is None else self.hole_dia*scale)
 
     def to_macro(self, rotation=0):
         # generic macro only supports w > h so flip x/y if h > w
         if self.w > self.h:
             inst = self
         else:
-            inst = replace(self, w=self.h, h=self.w, **self._rotate_hole_90(), rotation=self.rotation-math.pi/2)
+            rotation -= -math.pi/2
+            inst = replace(self, w=self.h, h=self.w, hole_dia=self.hole_dia)
 
         return ApertureMacroInstance(GenericMacros.obround,
                 [MM(inst.w, self.unit),
                  MM(inst.h, self.unit),
                  MM(inst.hole_dia, self.unit) or 0,
-                 MM(inst.hole_rect_h, self.unit) or 0,
+                 0,
                  inst.rotation + rotation])
 
     def _params(self, unit=None):
         return _strip_right(
                 self.unit.convert_to(unit, self.w),
                 self.unit.convert_to(unit, self.h),
-                self.unit.convert_to(unit, self.hole_dia),
-                self.unit.convert_to(unit, self.hole_rect_h))
+                self.unit.convert_to(unit, self.hole_dia))
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class PolygonAperture(Aperture):
     """ Aperture whose shape is a regular n-sided polygon (e.g. pentagon, hexagon etc.). Note that this only supports
     round holes.
@@ -439,6 +366,7 @@ class PolygonAperture(Aperture):
 
     flash = _flash_hole
 
+    @lru_cache()
     def rotated(self, angle=0):
         if angle != 0:
             return replace(self, rotatio=self.rotation + angle)
@@ -465,7 +393,7 @@ class PolygonAperture(Aperture):
         else:
             return self.unit.convert_to(unit, self.diameter), self.n_vertices
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ApertureMacroInstance(Aperture):
     """ One instance of an aperture macro. An aperture macro defined with an ``AM`` statement can be instantiated by
     multiple ``AD`` aperture definition statements using different parameters. An :py:class:`.ApertureMacroInstance` is
@@ -477,10 +405,7 @@ class ApertureMacroInstance(Aperture):
     macro : object
     #: The parameters to the :py:class:`.ApertureMacro`. All elements should be floats or ints. The first item in the
     #: list is parameter ``$1``, the second is ``$2`` etc.
-    parameters : list = field(default_factory=list)
-    #: Aperture rotation in radians. When saving, a copy of the :py:class:`.ApertureMacro` is re-written with this
-    #: rotation.
-    rotation : float = 0
+    parameters : tuple = ()
 
     @property
     def _gerber_shape_code(self):
@@ -488,29 +413,25 @@ class ApertureMacroInstance(Aperture):
 
     def _primitives(self, x, y, unit=None, polarity_dark=True):
         out = list(self.macro.to_graphic_primitives(
-                offset=(x, y), rotation=self.rotation,
+                offset=(x, y), rotation=0,
                 parameters=self.parameters, unit=unit, polarity_dark=polarity_dark))
         return out
 
     def dilated(self, offset, unit=MM):
         return replace(self, macro=self.macro.dilated(offset, unit))
 
+    @lru_cache()
     def rotated(self, angle=0):
-        if math.isclose((self.rotation+angle) % (2*math.pi), 0):
+        if math.isclose(angle % (2*math.pi), 0):
             return self
         else:
             return self.to_macro(angle)
 
     def to_macro(self, rotation=0):
-        return replace(self, macro=self.macro.rotated(self.rotation+rotation), rotation=0)
+        return replace(self, macro=self.macro.rotated(rotation))
 
     def scaled(self, scale):
         return replace(self, macro=self.macro.scaled(scale))
-
-    def __eq__(self, other):
-        return hasattr(other, 'macro') and self.macro == other.macro and \
-                hasattr(other, 'parameters') and self.parameters == other.parameters and \
-                hasattr(other, 'rotation') and self.rotation == other.rotation
 
     def _params(self, unit=None):
         # We ignore "unit" here as we convert the actual macro, not this instantiation.

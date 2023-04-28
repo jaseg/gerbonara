@@ -3,17 +3,20 @@
 
 # Copyright 2021 Jan Sebastian Götte <gerbonara@jaseg.de>
 
+from dataclasses import dataclass
 import operator
 import re
 import ast
 
-from ..utils import MM, Inch, MILLIMETERS_PER_INCH
+from ..utils import LengthUnit, MM, Inch, MILLIMETERS_PER_INCH
 
 
 def expr(obj):
     return obj if isinstance(obj, Expression) else ConstantExpression(obj)
+_make_expr = expr
 
 
+@dataclass(frozen=True, slots=True)
 class Expression:
     def optimized(self, variable_binding={}):
         return self
@@ -63,13 +66,18 @@ class Expression:
     def __pos__(self):
         return self
 
+
+@dataclass(frozen=True, slots=True)
 class UnitExpression(Expression):
+    expr: Expression
+    unit: LengthUnit
+
     def __init__(self, expr, unit):
-        if isinstance(expr, Expression):
-            self._expr = expr
-        else:
-            self._expr = ConstantExpression(expr)
-        self.unit = unit
+        expr = _make_expr(expr)
+        if isinstance(expr, UnitExpression):
+            expr = expr.converted(unit)
+        object.__setattr__(self, 'expr', expr)
+        object.__setattr__(self, 'unit', unit)
 
     def to_gerber(self, unit=None):
         return self.converted(unit).optimized().to_gerber()
@@ -77,23 +85,23 @@ class UnitExpression(Expression):
     def __eq__(self, other):
         return type(other) == type(self) and \
             self.unit == other.unit and\
-            self._expr == other._expr
+            self.expr == other.expr
 
     def __str__(self):
-        return f'<{self._expr.to_gerber()} {self.unit}>'
+        return f'<{self.expr.to_gerber()} {self.unit}>'
 
     def __repr__(self):
-        return f'<UE {self._expr.to_gerber()} {self.unit}>'
+        return f'<UE {self.expr.to_gerber()} {self.unit}>'
 
     def converted(self, unit):
         if self.unit is None or unit is None or self.unit == unit:
-            return self._expr
+            return self.expr
 
         elif MM == unit:
-            return self._expr * MILLIMETERS_PER_INCH
+            return self.expr * MILLIMETERS_PER_INCH
 
         elif Inch == unit:
-            return self._expr / MILLIMETERS_PER_INCH
+            return self.expr / MILLIMETERS_PER_INCH
 
         else:
             raise ValueError(f'invalid unit {unit}, must be "inch" or "mm".')
@@ -103,12 +111,12 @@ class UnitExpression(Expression):
             raise ValueError('Unit mismatch: Can only add/subtract UnitExpression from UnitExpression, not scalar.')
 
         if self.unit == other.unit or self.unit is None or other.unit is None:
-            return UnitExpression(self._expr + other._expr, self.unit)
+            return UnitExpression(self.expr + other.expr, self.unit)
 
         if other.unit == 'mm': # -> and self.unit == 'inch'
-            return UnitExpression(self._expr + (other._expr / MILLIMETERS_PER_INCH), self.unit)
+            return UnitExpression(self.expr + (other.expr / MILLIMETERS_PER_INCH), self.unit)
         else: # other.unit == 'inch' and self.unit == 'mm'
-            return UnitExpression(self._expr + (other._expr * MILLIMETERS_PER_INCH), self.unit)
+            return UnitExpression(self.expr + (other.expr * MILLIMETERS_PER_INCH), self.unit)
 
     def __radd__(self, other):
         # left hand side cannot have been an UnitExpression or __radd__ would not have been called
@@ -122,27 +130,26 @@ class UnitExpression(Expression):
         raise ValueError('Unit mismatch: Can only add/subtract UnitExpression from UnitExpression, not scalar.')
 
     def __mul__(self, other):
-        return UnitExpression(self._expr * other, self.unit)
+        return UnitExpression(self.expr * other, self.unit)
 
     def __rmul__(self, other):
-        return UnitExpression(other * self._expr, self.unit)
+        return UnitExpression(other * self.expr, self.unit)
 
     def __truediv__(self, other):
-        return UnitExpression(self._expr / other, self.unit)
+        return UnitExpression(self.expr / other, self.unit)
 
     def __rtruediv__(self, other):
-        return UnitExpression(other / self._expr, self.unit)
+        return UnitExpression(other / self.expr, self.unit)
 
     def __neg__(self):
-        return UnitExpression(-self._expr, self.unit)
+        return UnitExpression(-self.expr, self.unit)
 
     def __pos__(self):
         return self
 
-
+@dataclass(frozen=True, slots=True)
 class ConstantExpression(Expression):
-    def __init__(self, value):
-        self.value = value
+    value: float
 
     def __float__(self):
         return float(self.value)
@@ -154,9 +161,9 @@ class ConstantExpression(Expression):
         return f'{self.value:.6f}'.rstrip('0').rstrip('.')
 
     
+@dataclass(frozen=True, slots=True)
 class VariableExpression(Expression):
-    def __init__(self, number):
-        self.number = number
+    number: int
 
     def optimized(self, variable_binding={}):
         if self.number in variable_binding:
@@ -171,11 +178,16 @@ class VariableExpression(Expression):
         return f'${self.number}'
 
 
+@dataclass(frozen=True, slots=True)
 class OperatorExpression(Expression):
+    op: str
+    l: Expression
+    r: Expression
+
     def __init__(self, op, l, r):
-        self.op = op
-        self.l = ConstantExpression(l) if isinstance(l, (int, float)) else l
-        self.r = ConstantExpression(r) if isinstance(r, (int, float)) else r
+        object.__setattr__(self, 'op', op)
+        object.__setattr__(self, 'l', expr(l))
+        object.__setattr__(self, 'r', expr(r))
 
     def __eq__(self, other):
         return type(self) == type(other) and \

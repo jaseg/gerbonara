@@ -55,7 +55,7 @@ class Text:
     effects: TextEffect = field(default_factory=TextEffect)
     tstamp: Timestamp = None
 
-    def render(self, variables={}):
+    def render(self, variables={}, cache=None):
         if self.hide: # why
             return
 
@@ -76,7 +76,7 @@ class TextBox:
     stroke: Stroke = field(default_factory=Stroke)
     render_cache: RenderCache = None
 
-    def render(self, variables={}):
+    def render(self, variables={}, cache=None):
         yield from gr.TextBox.render(self, variables=variables)
 
 
@@ -90,7 +90,7 @@ class Line:
     locked: Flag() = False
     tstamp: Timestamp = None
 
-    def render(self, variables=None):
+    def render(self, variables=None, cache=None):
         dasher = Dasher(self)
         dasher.move(self.start.x, self.start.y)
         dasher.line(self.end.x, self.end.y)
@@ -110,7 +110,7 @@ class Rectangle:
     locked: Flag() = False
     tstamp: Timestamp = None
 
-    def render(self, variables=None):
+    def render(self, variables=None, cache=None):
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
         x1, x2 = min(x1, x2), max(x1, x2)
@@ -143,7 +143,7 @@ class Circle:
     locked: Flag() = False
     tstamp: Timestamp = None
 
-    def render(self, variables=None):
+    def render(self, variables=None, cache=None):
         x, y = self.center.x, self.center.y
         r = math.dist((x, y), (self.end.x, self.end.y)) # insane
 
@@ -178,7 +178,7 @@ class Arc:
     tstamp: Timestamp = None
 
 
-    def render(self, variables=None):
+    def render(self, variables=None, cache=None):
         mx, my = self.mid.x, self.mid.y
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
@@ -230,7 +230,7 @@ class Polygon:
     locked: Flag() = False
     tstamp: Timestamp = None
 
-    def render(self, variables=None):
+    def render(self, variables=None, cache=None):
         if len(self.pts.xy) < 2:
             return
 
@@ -257,7 +257,7 @@ class Curve:
     locked: Flag() = False
     tstamp: Timestamp = None
 
-    def render(self, variables=None):
+    def render(self, variables=None, cache=None):
         raise NotImplementedError('Bezier rendering is not yet supported. Please raise an issue and provide an example file.')
 
 
@@ -297,7 +297,7 @@ class Dimension:
     format: DimensionFormat = field(default_factory=DimensionFormat)
     style: DimensionStyle = field(default_factory=DimensionStyle)
 
-    def render(self, variables=None):
+    def render(self, variables=None, cache=None):
         raise NotImplementedError()
 
 
@@ -383,7 +383,7 @@ class Pad:
     options: OmitDefault(CustomPadOptions) = None
     primitives: OmitDefault(CustomPadPrimitives) = None
 
-    def render(self, variables=None, margin=None):
+    def render(self, variables=None, margin=None, cache=None):
         #if self.type in (Atom.connect, Atom.np_thru_hole):
         #    return
         if self.drill and self.drill.offset:
@@ -391,7 +391,17 @@ class Pad:
         else:
             ox, oy = 0, 0
 
-        yield go.Flash(self.at.x+ox, self.at.y+oy, self.aperture(margin), unit=MM)
+        cache_key = id(self), margin
+        if cache and cache_key in cache:
+            aperture = cache[cache_key]
+
+        elif cache is not None:
+            aperture = cache[cache_key] = self.aperture(margin)
+
+        else:
+            aperture = self.aperture(margin)
+
+        yield go.Flash(self.at.x+ox, self.at.y+oy, aperture, unit=MM)
 
     def aperture(self, margin=None):
         rotation = -math.radians(self.at.rotation)
@@ -403,10 +413,10 @@ class Pad:
         elif self.shape == Atom.rect:
             if margin > 0:
                 return ap.ApertureMacroInstance(GenericMacros.rounded_rect,
-                        [self.size.x+2*margin, self.size.y+2*margin,
+                        (self.size.x+2*margin, self.size.y+2*margin,
                          margin,
                          0, 0, # no hole
-                         rotation], unit=MM)
+                         rotation), unit=MM)
             else:
                 return ap.RectangleAperture(self.size.x+2*margin, self.size.y+2*margin, unit=MM).rotated(rotation)
 
@@ -434,27 +444,27 @@ class Pad:
 
                 alpha = math.atan(y / dy) if dy > 0 else 0
                 return ap.ApertureMacroInstance(GenericMacros.isosceles_trapezoid,
-                        [x+dy+2*margin*math.cos(alpha), y+2*margin,
+                        (x+dy+2*margin*math.cos(alpha), y+2*margin,
                          2*dy,
                          0, 0, # no hole
-                         rotation], unit=MM)
+                         rotation), unit=MM)
 
             else:
                 return ap.ApertureMacroInstance(GenericMacros.rounded_isosceles_trapezoid,
-                        [x+dy, y,
+                        (x+dy, y,
                          2*dy, margin,
                          0, 0, # no hole
-                         rotation], unit=MM)
+                         rotation), unit=MM)
 
         elif self.shape == Atom.roundrect:
             x, y = self.size.x, self.size.y
             r = min(x, y) * self.roundrect_rratio
             if margin > -r:
                 return ap.ApertureMacroInstance(GenericMacros.rounded_rect,
-                        [x+2*margin, y+2*margin,
+                        (x+2*margin, y+2*margin,
                          r+margin,
                          0, 0, # no hole
-                         rotation], unit=MM)
+                         rotation), unit=MM)
             else:
                 return ap.RectangleAperture(x+margin, y+margin, unit=MM).rotated(rotation)
 
@@ -485,20 +495,20 @@ class Pad:
             if self.options:
                 if self.options.anchor == Atom.rect and self.size.x > 0 and self.size.y > 0:
                     if margin <= 0:
-                        primitives.append(amp.CenterLine(MM, [1, self.size.x+2*margin, self.size.y+2*margin, 0, 0, 0]))
+                        primitives.append(amp.CenterLine(MM, 1, self.size.x+2*margin, self.size.y+2*margin, 0, 0, 0))
 
                     else: # margin > 0
-                        primitives.append(amp.CenterLine(MM, [1, self.size.x+2*margin, self.size.y, 0, 0, 0]))
-                        primitives.append(amp.CenterLine(MM, [1, self.size.x, self.size.y+2*margin, 0, 0, 0]))
-                        primitives.append(amp.Circle(MM, [1, 2*margin, -self.size.x/2, -self.size.y/2]))
-                        primitives.append(amp.Circle(MM, [1, 2*margin, -self.size.x/2, +self.size.y/2]))
-                        primitives.append(amp.Circle(MM, [1, 2*margin, +self.size.x/2, -self.size.y/2]))
-                        primitives.append(amp.Circle(MM, [1, 2*margin, +self.size.x/2, +self.size.y/2]))
+                        primitives.append(amp.CenterLine(MM, 1, self.size.x+2*margin, self.size.y, 0, 0, 0))
+                        primitives.append(amp.CenterLine(MM, 1, self.size.x, self.size.y+2*margin, 0, 0, 0))
+                        primitives.append(amp.Circle(MM, 1, 2*margin, -self.size.x/2, -self.size.y/2))
+                        primitives.append(amp.Circle(MM, 1, 2*margin, -self.size.x/2, +self.size.y/2))
+                        primitives.append(amp.Circle(MM, 1, 2*margin, +self.size.x/2, -self.size.y/2))
+                        primitives.append(amp.Circle(MM, 1, 2*margin, +self.size.x/2, +self.size.y/2))
 
                 elif self.options.anchor == Atom.circle and self.size.x > 0:
-                    primitives.append(amp.Circle(MM, [1, self.size.x+2*margin, 0, 0, 0]))
+                    primitives.append(amp.Circle(MM, 1, self.size.x+2*margin, 0, 0, 0))
 
-            macro = ApertureMacro(primitives=primitives).rotated(rotation)
+            macro = ApertureMacro(primitives=tuple(primitives)).rotated(rotation)
             return ap.ApertureMacroInstance(macro, unit=MM)
 
     def render_drill(self):
@@ -645,7 +655,7 @@ class Footprint:
                 (self.dimensions if text else []),
                 (self.pads if pads else []))
 
-    def render(self, layer_stack, layer_map, x=0, y=0, rotation=0, text=False, side=None, variables={}):
+    def render(self, layer_stack, layer_map, x=0, y=0, rotation=0, text=False, side=None, variables={}, cache=None):
         x += self.at.x
         y += self.at.y
         rotation += math.radians(self.at.rotation)
@@ -687,7 +697,7 @@ class Footprint:
                     else:
                         margin = None
 
-                    for fe in obj.render(margin=margin):
+                    for fe in obj.render(margin=margin, cache=cache):
                         fe.rotate(rotation)
                         fe.offset(x, y, MM)
                         if isinstance(fe, go.Flash) and fe.aperture:
@@ -745,7 +755,7 @@ class FootprintInstance(Positioned):
     value: str = None
     variables: dict = field(default_factory=lambda: {})
 
-    def render(self, layer_stack):
+    def render(self, layer_stack, cache=None):
         x, y, rotation = self.abs_pos
         x, y = MM(x, self.unit), MM(y, self.unit)
 
@@ -763,7 +773,7 @@ class FootprintInstance(Positioned):
                          x=x, y=y, rotation=rotation,
                          side=self.side,
                          text=(not self.hide_text),
-                         variables=variables)
+                         variables=variables, cache=cache)
     
     def bounding_box(self, unit=MM):
         return offset_bounds(self.sexp.bounding_box(unit), unit(self.x, self.unit), unit(self.y, self.unit))

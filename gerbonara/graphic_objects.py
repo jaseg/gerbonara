@@ -373,7 +373,7 @@ class Region(GraphicObject):
         if points[-1] != points[0]:
             points.append(points[0])
 
-        yield amp.Outline(self.unit, [int(self.polarity_dark), len(points)-1, *(coord for p in points for coord in p)])
+        yield amp.Outline(self.unit, int(self.polarity_dark), len(points)-1, tuple(coord for p in points for coord in p))
 
     def to_primitives(self, unit=None):
         if unit == self.unit:
@@ -503,9 +503,9 @@ class Line(GraphicObject):
     def _aperture_macro_primitives(self):
         obj = self.converted(MM) # Gerbonara aperture macros use MM units.
         width = obj.aperture.equivalent_width(MM)
-        yield amp.VectorLine(MM, [int(self.polarity_dark), width, obj.x1, obj.y1, obj.x2, obj.y2, 0])
-        yield amp.Circle(MM, [int(self.polarity_dark), width, obj.x1, obj.y1])
-        yield amp.Circle(MM, [int(self.polarity_dark), width, obj.x2, obj.y2])
+        yield amp.VectorLine(MM, int(self.polarity_dark), width, obj.x1, obj.y1, obj.x2, obj.y2, 0)
+        yield amp.Circle(MM, int(self.polarity_dark), width, obj.x1, obj.y1)
+        yield amp.Circle(MM, int(self.polarity_dark), width, obj.x2, obj.y2)
 
     def to_statements(self, gs):
         yield from gs.set_polarity(self.polarity_dark)

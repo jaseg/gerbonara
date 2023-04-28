@@ -117,8 +117,9 @@ class Board:
         if layer_stack is None:
             layer_stack = LayerStack()
 
+        cache = {}
         for obj in chain(self.objects):
-            obj.render(layer_stack)
+            obj.render(layer_stack, cache)
 
         layer_stack['mechanical', 'outline'].objects.extend(self.outline)
         layer_stack['top', 'silk'].objects.extend(self.extra_silk_top)
@@ -189,13 +190,13 @@ class ObjectGroup(Positioned):
     drill_pth: list = field(default_factory=list)
     objects: list = field(default_factory=list)
 
-    def render(self, layer_stack):
+    def render(self, layer_stack, cache=None):
         x, y, rotation = self.abs_pos
         top, bottom = ('bottom', 'top') if self.side == 'bottom' else ('top', 'bottom')
 
         for obj in self.objects:
             obj.parent = self
-            obj.render(layer_stack)
+            obj.render(layer_stack, cache=cache)
 
         for target, source in [
                 (layer_stack[top, 'copper'],    self.top_copper),
@@ -251,7 +252,7 @@ class Text(Positioned):
     layer: str = 'silk'
     polarity_dark: bool = True
 
-    def render(self, layer_stack):
+    def render(self, layer_stack, cache=None):
         obj_x, obj_y, rotation = self.abs_pos
         global newstroke_font
 
@@ -299,6 +300,26 @@ class Text(Positioned):
                 obj.offset(obj_x, obj_y)
                 layer_stack[self.side, self.layer].objects.append(obj)
 
+    def bounding_box(self, unit=MM):
+        approx_w = len(self.text)*self.font_size*0.75 + self.stroke_width
+        approx_h = self.font_size + self.stroke_width
+
+        if self.h_align == 'left':
+            x0 = 0
+        elif self.h_align == 'center':
+            x0 = -approx_w/2
+        elif self.h_align == 'right':
+            x0 = -approx_w
+
+        if self.v_align == 'top':
+            y0 = -approx_h
+        elif self.v_align == 'middle':
+            y0 = -approx_h/2
+        elif self.v_align == 'bottom':
+            y0 = 0
+
+        return (self.x+x0, self.y+y0), (self.x+x0+approx_w, self.y+y0+approx_h)
+
 
 @dataclass
 class Pad(Positioned):
@@ -312,7 +333,7 @@ class SMDPad(Pad):
     paste_aperture: Aperture
     silk_features: list = field(default_factory=list)
 
-    def render(self, layer_stack):
+    def render(self, layer_stack, cache=None):
         x, y, rotation = self.abs_pos
         layer_stack[self.side, 'copper'].objects.append(Flash(x, y, self.copper_aperture.rotated(rotation), unit=self.unit))
         layer_stack[self.side, 'mask'  ].objects.append(Flash(x, y, self.mask_aperture.rotated(rotation), unit=self.unit))
@@ -356,7 +377,7 @@ class THTPad(Pad):
         if (self.pad_top.side, self.pad_bottom.side) != ('top', 'bottom'):
             raise ValueError(f'The top and bottom pads must have side set to top and bottom, respectively. Currently, the top pad side is set to "{self.pad_top.side}" and the bottom pad side to "{self.pad_bottom.side}".')
 
-    def render(self, layer_stack):
+    def render(self, layer_stack, cache=None):
         x, y, rotation = self.abs_pos
         self.pad_top.parent = self
         self.pad_top.render(layer_stack)
@@ -415,7 +436,7 @@ class Hole(Positioned):
     diameter: float
     mask_copper_margin: float = 0.2
 
-    def render(self, layer_stack):
+    def render(self, layer_stack, cache=None):
         x, y, rotation = self.abs_pos
 
         hole = Flash(x, y, ExcellonTool(self.diameter, plated=False, unit=self.unit), unit=self.unit)
@@ -436,7 +457,7 @@ class Via(Positioned):
     diameter: float
     hole: float
 
-    def render(self, layer_stack):
+    def render(self, layer_stack, cache=None):
         x, y, rotation = self.abs_pos
 
         aperture = CircleAperture(diameter=self.diameter, unit=self.unit)
@@ -627,7 +648,7 @@ class Trace:
 
         return self._round_over(points, aperture)
 
-    def render(self, layer_stack):
+    def render(self, layer_stack, cache=None):
         layer_stack[self.side, 'copper'].objects.extend(self._to_graphic_objects())
 
 def _route_demo():

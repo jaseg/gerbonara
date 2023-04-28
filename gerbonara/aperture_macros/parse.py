@@ -3,6 +3,7 @@
 
 # Copyright 2021 Jan Sebastian Götte <gerbonara@jaseg.de>
 
+from dataclasses import dataclass, field, replace
 import operator
 import re
 import ast
@@ -46,16 +47,23 @@ def _parse_expression(expr):
         raise SyntaxError('Invalid aperture macro expression') from e
     return _map_expression(parsed)
 
+@dataclass(frozen=True, slots=True)
 class ApertureMacro:
-    def __init__(self, name=None, primitives=None, variables=None):
-        self._name = name
-        self.comments = []
-        self.variables = variables or {}
-        self.primitives = primitives or []
+    name: str = None
+    primitives: tuple = ()
+    variables: tuple = ()
+    comments: tuple = ()
+
+    def __post_init__(self):
+        if self.name is None:
+            # We can't use field(default_factory=...) here because that factory doesn't get a reference to the instance.
+            object.__setattr__(self, 'name', f'gn_{hash(self):x}')
 
     @classmethod
     def parse_macro(cls, name, body, unit):
-        macro = cls(name)
+        comments = []
+        variables = {}
+        primitives = []
 
         blocks = body.split('*')
         for block in blocks:
@@ -63,7 +71,7 @@ class ApertureMacro:
                 continue
 
             if block.startswith('0 '): # comment
-                macro.comments.append(block[2:])
+                comments.append(block[2:])
                 continue
             
             block = re.sub(r'\s', '', block)
@@ -71,28 +79,18 @@ class ApertureMacro:
             if block[0] == '$': # variable definition
                 name, expr = block.partition('=')
                 number = int(name[1:])
-                if number in macro.variables:
+                if number in variables:
                     raise SyntaxError(f'Re-definition of aperture macro variable {number} inside macro')
-                macro.variables[number] = _parse_expression(expr)
+                variables[number] = _parse_expression(expr)
 
             else: # primitive
                 primitive, *args = block.split(',')
                 args = [ _parse_expression(arg) for arg in args ]
                 primitive = ap.PRIMITIVE_CLASSES[int(primitive)](unit=unit, args=args)
-                macro.primitives.append(primitive)
+                primitives.append(primitive)
 
-        return macro
-
-    @property
-    def name(self):
-        if self._name is not None:
-            return self._name
-        else:
-            return f'gn_{hash(self)}'
-
-    @name.setter
-    def name(self, name):
-        self._name = name
+        variables = [variables.get(i+1) for i in range(max(variables.keys()))]
+        return kls(name, tuple(primitives), tuple(variables), tuple(primitives))
 
     def __str__(self):
         return f'<Aperture macro {self.name}, variables {str(self.variables)}, primitives {self.primitives}>'
@@ -100,54 +98,41 @@ class ApertureMacro:
     def __repr__(self):
         return str(self)
 
-    def __eq__(self, other):
-        return hasattr(other, 'to_gerber') and self.to_gerber() == other.to_gerber()
-
-    def __hash__(self):
-        return hash(self.to_gerber())
-
     def dilated(self, offset, unit=MM):
-        dup = copy.deepcopy(self)
         new_primitives = []
-        for primitive in dup.primitives:
+        for primitive in self.primitives:
             try:
                 if primitive.exposure.calculate():
-                    primitive.dilate(offset, unit)
-                    new_primitives.append(primitive)
+                    new_primitives += primitive.dilated(offset, unit)
             except IndexError:
                 warnings.warn('Cannot dilate aperture macro primitive with exposure value computed from macro variable.')
                 pass
-        dup.primitives = new_primitives
-        return dup
+        return replace(self, primitives=tuple(new_primitives))
 
     def to_gerber(self, unit=None):
         comments = [ str(c) for c in self.comments ]
-        variable_defs = [ f'${var.to_gerber(unit)}={expr}' for var, expr in self.variables.items() ]
+        variable_defs = [ f'${var.to_gerber(unit)}={expr}' for var, expr in enumerate(self.variables, start=1) ]
         primitive_defs = [ prim.to_gerber(unit) for prim in self.primitives ]
         return '*\n'.join(comments + variable_defs + primitive_defs)
 
     def to_graphic_primitives(self, offset, rotation, parameters : [float], unit=None, polarity_dark=True):
-        variables = dict(self.variables)
+        variables = {i: v for i, v in enumerate(self.variables, start=1)}
         for number, value in enumerate(parameters, start=1):
             if number in variables:
-                raise SyntaxError(f'Re-definition of aperture macro variable {i} through parameter {value}')
+                raise SyntaxError(f'Re-definition of aperture macro variable {number} through parameter {value}')
             variables[number] = value
 
         for primitive in self.primitives:
             yield from primitive.to_graphic_primitives(offset, rotation, variables, unit, polarity_dark)
 
     def rotated(self, angle):
-        dup = copy.deepcopy(self)
-        for primitive in dup.primitives:
-            # aperture macro primitives use degree counter-clockwise, our API uses radians clockwise
-            primitive.rotation -= rad_to_deg(angle)
-        return dup
+        # aperture macro primitives use degree counter-clockwise, our API uses radians clockwise
+        return replace(self, primitives=tuple(
+            replace(primitive, rotation=primitive.rotation - rad_to_deg(angle)) for primitive in self.primitives))
 
     def scaled(self, scale):
-        dup = copy.deepcopy(self)
-        for primitive in dup.primitives:
-            primitive.scale(scale)
-        return dup
+        return replace(self, primitives=tuple(
+            primitive.scaled(scale) for primitive in self.primitives))
 
 
 var = VariableExpression
@@ -155,83 +140,81 @@ deg_per_rad = 180 / math.pi
 
 class GenericMacros:
 
-    _generic_hole = lambda n: [
-            ap.Circle('mm', [0, var(n), 0, 0]),
-            ap.CenterLine('mm', [0, var(n), var(n+1), 0, 0, var(n+2) * -deg_per_rad])]
+    _generic_hole = lambda n: (ap.Circle('mm', 0, var(n), 0, 0),)
 
     # NOTE: All generic macros have rotation values specified in **clockwise radians** like the rest of the user-facing
     # API.
-    circle = ApertureMacro('GNC', [
-        ap.Circle('mm', [1, var(1), 0, 0, var(4) * -deg_per_rad]),
-        *_generic_hole(2)])
+    circle = ApertureMacro('GNC', (
+        ap.Circle('mm', 1, var(1), 0, 0, var(4) * -deg_per_rad),
+        *_generic_hole(2)))
 
-    rect = ApertureMacro('GNR', [
-        ap.CenterLine('mm', [1, var(1), var(2), 0, 0, var(5) * -deg_per_rad]),
-        *_generic_hole(3)])
+    rect = ApertureMacro('GNR', (
+        ap.CenterLine('mm', 1, var(1), var(2), 0, 0, var(5) * -deg_per_rad),
+        *_generic_hole(3)))
 
     # params: width, height, corner radius, *hole, rotation
-    rounded_rect = ApertureMacro('GRR', [
-        ap.CenterLine('mm', [1, var(1)-2*var(3), var(2), 0, 0, var(6) * -deg_per_rad]),
-        ap.CenterLine('mm', [1, var(1), var(2)-2*var(3), 0, 0, var(6) * -deg_per_rad]),
-        ap.Circle('mm', [1, var(3)*2, +(var(1)/2-var(3)), +(var(2)/2-var(3)), var(6) * -deg_per_rad]),
-        ap.Circle('mm', [1, var(3)*2, +(var(1)/2-var(3)), -(var(2)/2-var(3)), var(6) * -deg_per_rad]),
-        ap.Circle('mm', [1, var(3)*2, -(var(1)/2-var(3)), +(var(2)/2-var(3)), var(6) * -deg_per_rad]),
-        ap.Circle('mm', [1, var(3)*2, -(var(1)/2-var(3)), -(var(2)/2-var(3)), var(6) * -deg_per_rad]),
-        *_generic_hole(4)])
+    rounded_rect = ApertureMacro('GRR', (
+        ap.CenterLine('mm', 1, var(1)-2*var(3), var(2), 0, 0, var(6) * -deg_per_rad),
+        ap.CenterLine('mm', 1, var(1), var(2)-2*var(3), 0, 0, var(6) * -deg_per_rad),
+        ap.Circle('mm', 1, var(3)*2, +(var(1)/2-var(3)), +(var(2)/2-var(3)), var(6) * -deg_per_rad),
+        ap.Circle('mm', 1, var(3)*2, +(var(1)/2-var(3)), -(var(2)/2-var(3)), var(6) * -deg_per_rad),
+        ap.Circle('mm', 1, var(3)*2, -(var(1)/2-var(3)), +(var(2)/2-var(3)), var(6) * -deg_per_rad),
+        ap.Circle('mm', 1, var(3)*2, -(var(1)/2-var(3)), -(var(2)/2-var(3)), var(6) * -deg_per_rad),
+        *_generic_hole(4)))
 
     # params: width, height, length difference between narrow side (top) and wide side (bottom), *hole, rotation
-    isosceles_trapezoid = ApertureMacro('GTR', [
-        ap.Outline('mm', [1, 4,
-                          var(1)/-2,            var(2)/-2,
+    isosceles_trapezoid = ApertureMacro('GTR', (
+        ap.Outline('mm', 1, 4,
+                          (var(1)/-2,            var(2)/-2,
                           var(1)/-2+var(3)/2,   var(2)/2,
                           var(1)/2-var(3)/2,    var(2)/2,
                           var(1)/2,             var(2)/-2,
-                          var(1)/-2,            var(2)/-2,
-                          var(6) * -deg_per_rad]),
-        *_generic_hole(4)])
+                          var(1)/-2,            var(2)/-2,),
+                          var(6) * -deg_per_rad),
+        *_generic_hole(4)))
 
     # params: width, height, length difference between narrow side (top) and wide side (bottom), margin, *hole, rotation
-    rounded_isosceles_trapezoid = ApertureMacro('GRTR', [
-        ap.Outline('mm', [1, 4,
-                          var(1)/-2,            var(2)/-2,
+    rounded_isosceles_trapezoid = ApertureMacro('GRTR', (
+        ap.Outline('mm', 1, 4,
+                          (var(1)/-2,            var(2)/-2,
                           var(1)/-2+var(3)/2,   var(2)/2,
                           var(1)/2-var(3)/2,    var(2)/2,
                           var(1)/2,             var(2)/-2,
+                          var(1)/-2,            var(2)/-2,),
+                          var(6) * -deg_per_rad),
+        ap.VectorLine('mm', 1, var(4)*2, 
                           var(1)/-2,            var(2)/-2,
-                          var(6) * -deg_per_rad]),
-        ap.VectorLine('mm', [1, var(4)*2, 
-                          var(1)/-2,            var(2)/-2,
-                          var(1)/-2+var(3)/2,   var(2)/2,]),
-        ap.VectorLine('mm', [1, var(4)*2, 
+                          var(1)/-2+var(3)/2,   var(2)/2,),
+        ap.VectorLine('mm', 1, var(4)*2, 
                           var(1)/-2+var(3)/2,   var(2)/2,
-                          var(1)/2-var(3)/2,    var(2)/2,]),
-        ap.VectorLine('mm', [1, var(4)*2, 
+                          var(1)/2-var(3)/2,    var(2)/2,),
+        ap.VectorLine('mm', 1, var(4)*2, 
                           var(1)/2-var(3)/2,    var(2)/2,
-                          var(1)/2,             var(2)/-2,]),
-        ap.VectorLine('mm', [1, var(4)*2, 
+                          var(1)/2,             var(2)/-2,),
+        ap.VectorLine('mm', 1, var(4)*2, 
                           var(1)/2,             var(2)/-2,
-                          var(1)/-2,            var(2)/-2,]),
-        ap.Circle('mm', [1, var(4)*2, 
-                          var(1)/-2,            var(2)/-2,]),
-        ap.Circle('mm', [1, var(4)*2, 
-                          var(1)/-2+var(3)/2,   var(2)/2,]),
-        ap.Circle('mm', [1, var(4)*2, 
-                          var(1)/2-var(3)/2,    var(2)/2,]),
-        ap.Circle('mm', [1, var(4)*2, 
-                          var(1)/2,             var(2)/-2,]),
-        *_generic_hole(5)])
+                          var(1)/-2,            var(2)/-2,),
+        ap.Circle('mm', 1, var(4)*2, 
+                          var(1)/-2,            var(2)/-2,),
+        ap.Circle('mm', 1, var(4)*2, 
+                          var(1)/-2+var(3)/2,   var(2)/2,),
+        ap.Circle('mm', 1, var(4)*2, 
+                          var(1)/2-var(3)/2,    var(2)/2,),
+        ap.Circle('mm', 1, var(4)*2, 
+                          var(1)/2,             var(2)/-2,),
+        *_generic_hole(5)))
 
     # w must be larger than h
     # params: width, height, *hole, rotation
-    obround = ApertureMacro('GNO', [
-        ap.CenterLine('mm', [1, var(1)-var(2), var(2), 0, 0, var(5) * -deg_per_rad]),
-        ap.Circle('mm', [1, var(2), +(var(1)-var(2))/2, 0, var(5) * -deg_per_rad]),
-        ap.Circle('mm', [1, var(2), -(var(1)-var(2))/2, 0, var(5) * -deg_per_rad]),
-        *_generic_hole(3) ])
+    obround = ApertureMacro('GNO', (
+        ap.CenterLine('mm', 1, var(1)-var(2), var(2), 0, 0, var(5) * -deg_per_rad),
+        ap.Circle('mm', 1, var(2), +(var(1)-var(2))/2, 0, var(5) * -deg_per_rad),
+        ap.Circle('mm', 1, var(2), -(var(1)-var(2))/2, 0, var(5) * -deg_per_rad),
+        *_generic_hole(3) ))
 
-    polygon = ApertureMacro('GNP', [
-        ap.Polygon('mm', [1, var(2), 0, 0, var(1), var(3) * -deg_per_rad]),
-        ap.Circle('mm', [0, var(4), 0, 0])])
+    polygon = ApertureMacro('GNP', (
+        ap.Polygon('mm', 1, var(2), 0, 0, var(1), var(3) * -deg_per_rad),
+        ap.Circle('mm', 0, var(4), 0, 0)))
 
 
 if __name__ == '__main__':

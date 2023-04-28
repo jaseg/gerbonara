@@ -25,6 +25,7 @@ gerber.utils
 This module provides utility functions for working with Gerber and Excellon files.
 """
 
+from dataclasses import dataclass
 import os
 import re
 import textwrap
@@ -57,6 +58,7 @@ class RegexMatcher:
             return False
 
 
+@dataclass(frozen=True, slots=True)
 class LengthUnit:
     """ Convenience length unit class. Used in :py:class:`.GraphicObject` and :py:class:`.Aperture` to store lenght
     information. Provides a number of useful unit conversion functions.
@@ -64,13 +66,9 @@ class LengthUnit:
     Singleton, use only global instances ``utils.MM`` and ``utils.Inch``.
     """
 
-    def __init__(self, name, shorthand, this_in_mm):
-        self.name = name
-        self.shorthand = shorthand
-        self.factor = this_in_mm
-
-    def __hash__(self):
-        return hash((self.name, self.shorthand, self.factor))
+    name: str
+    shorthand: str
+    this_in_mm: float
 
     def convert_from(self, unit, value):
         """ Convert ``value`` from ``unit`` into this unit.
@@ -110,6 +108,19 @@ class LengthUnit:
         min_y = self.convert_from(unit, min_y)
         max_x = self.convert_from(unit, max_x)
         max_y = self.convert_from(unit, max_y)
+        return (min_x, min_y), (max_x, max_y)
+
+    def convert_bounds_to(self, unit, value):
+        """ :py:meth:`.LengthUnit.convert_to` but for ((min_x, min_y), (max_x, max_y)) bounding box tuples. """
+
+        if value is None:
+            return None
+
+        (min_x, min_y), (max_x, max_y) = value
+        min_x = self.convert_to(unit, min_x)
+        min_y = self.convert_to(unit, min_y)
+        max_x = self.convert_to(unit, max_x)
+        max_y = self.convert_to(unit, max_y)
         return (min_x, min_y), (max_x, max_y)
 
     def format(self, value):
