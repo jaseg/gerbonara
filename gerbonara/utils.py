@@ -84,7 +84,7 @@ class LengthUnit:
         if unit == self or unit is None or value is None:
             return value
 
-        return value * unit.factor / self.factor
+        return value * unit.this_in_mm / self.this_in_mm
 
     def convert_to(self, unit, value):
         """ :py:meth:`.LengthUnit.convert_from` but in reverse. """

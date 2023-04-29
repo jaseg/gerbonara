@@ -254,11 +254,11 @@ class RectangleAperture(Aperture):
 
     def to_macro(self, rotation=0):
         return ApertureMacroInstance(GenericMacros.rect,
-                [MM(self.w, self.unit),
+                (MM(self.w, self.unit),
                     MM(self.h, self.unit),
                     MM(self.hole_dia, self.unit) or 0,
                     0,
-                    rotation])
+                    rotation))
 
     def _params(self, unit=None):
         return _strip_right(
@@ -321,11 +321,11 @@ class ObroundAperture(Aperture):
             inst = replace(self, w=self.h, h=self.w, hole_dia=self.hole_dia)
 
         return ApertureMacroInstance(GenericMacros.obround,
-                [MM(inst.w, self.unit),
+                (MM(inst.w, self.unit),
                  MM(inst.h, self.unit),
                  MM(inst.hole_dia, self.unit) or 0,
                  0,
-                 inst.rotation + rotation])
+                 rotation))
 
     def _params(self, unit=None):
         return _strip_right(
@@ -369,7 +369,7 @@ class PolygonAperture(Aperture):
     @lru_cache()
     def rotated(self, angle=0):
         if angle != 0:
-            return replace(self, rotatio=self.rotation + angle)
+            return replace(self, rotation=self.rotation + angle)
         else:
             return self
 

@@ -404,7 +404,7 @@ class Pad:
         yield go.Flash(self.at.x+ox, self.at.y+oy, aperture, unit=MM)
 
     def aperture(self, margin=None):
-        rotation = -math.radians(self.at.rotation)
+        rotation = math.radians(self.at.rotation)
         margin = margin or 0
 
         if self.shape == Atom.circle:
@@ -437,7 +437,7 @@ class Pad:
             if dx != 0:
                 x, y = y, x
                 dy = dx
-                rotation -= math.pi/2
+                rotation += math.pi/2
 
             if margin <= 0:
                 # Note: KiCad already uses MM units, so no conversion needed here.
