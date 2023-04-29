@@ -313,8 +313,8 @@ class ManhattanPads(ObjectGroup):
         small_ap = RectangleAperture(p, q, unit=unit)
 
         s = min(w, h) / 2 / math.sqrt(2)
-        large_ap = RectangleAperture(s, s, rotation=math.pi/4, unit=unit)
-        large_ap_neg = RectangleAperture(s+2*gap, s+2*gap, rotation=math.pi/4, unit=unit)
+        large_ap = RectangleAperture(s, s, unit=unit).rotated(math.pi/4)
+        large_ap_neg = RectangleAperture(s+2*gap, s+2*gap, unit=unit).rotated(math.pi/4)
 
         a = gap/2 + p/2
         b = gap/2 + q/2
@@ -345,7 +345,7 @@ class RFGroundProto(ObjectGroup):
             trace_width = pitch - pad_dia - 2*clearance
         self.pad_dia = pad_dia
 
-        via_ap = RectangleAperture(via_dia, via_dia, rotation=math.pi/4, unit=unit)
+        via_ap = RectangleAperture(via_dia, via_dia, unit=unit).rotated(math.pi/4)
         pad_ap = CircleAperture(pad_dia, unit=unit)
         pad_neg_ap = CircleAperture(pad_dia+2*clearance, unit=unit)
         ground_ap = RectangleAperture(pitch + unit(0.01, MM), pitch + unit(0.01, MM), unit=unit)
@@ -405,6 +405,21 @@ class THTFlowerProto(ObjectGroup):
         return unit.convert_bounds_from(self.unit, ((x-p, y-p), (x+p, y+p)))
 
 class PoweredProto(ObjectGroup):
+    """ Cell primitive for "powered" THT breadboards. This cell type is based on regular THT pads in a 100 mil grid, but
+    adds small SMD pads diagonally between the THT pads. These SMD pads are interconnected with traces and vias in such
+    a way that every second one is inter-linked, forming two fully connected grids. Next to every THT pad you have one
+    pad of each grid, so this layout is awesome for distributing power throughout the board.
+
+    This design is based on one that Yajima Manufacturing Akizuki Denshi, Akihabara's finest electronics store sells for
+    next to nothing. Sadly, they don't ship internationally and they don't even have an English website, but if you ever
+    are in Akihabara, Tokyo, Japan I can *highly* recommend a visit. The ones Yajima make are better than what this will
+    produce since the Yajima ones use a two-colored silkscreen to visually distinguish the two power pad grids.
+
+    Links:
+    Akizuki Denshi product page: https://akizukidenshi.com/catalog/g/gP-07214/
+    Yajima Manufacturing Corporation website: http://www.yajima-works.co.jp/index.html
+    """
+
     def __init__(self, pitch=None, drill=None, clearance=None, power_pad_dia=None, via_size=None, trace_width=None, unit=MM):
         super().__init__(0, 0)
         self.unit = unit
@@ -472,6 +487,13 @@ class PoweredProto(ObjectGroup):
 
 
 class SpikyProto(ObjectGroup):
+    """ Cell primitive for the "spiky" protoboard designed by @electroniceel and published on github at the URL below.
+    This layout has small-ish standard THT pads, but in between these pads it puts a grid of SMD pads that are designed
+    for easy solder bridging to allow for the construction of traces from solder bridging.
+
+    Github URL: https://github.com/electroniceel/protoboard
+    """
+
     def __init__(self, pitch=None, drill=None, clearance=None, power_pad_dia=None, via_size=None, trace_width=None, unit=MM):
         super().__init__(0, 0, unit=unit)
         res = importlib.resources.files(package_data)

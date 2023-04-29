@@ -97,8 +97,9 @@ def deserialize(obj, unit):
             pitch = mil(float(obj.get('pitch', 2.54)))
             hole_dia = mil(float(obj['hole_dia']))
             via_drill = mil(float(obj['via_hole_dia']))
+            via_dia = mil(float(obj['via_dia']))
             trace_width = mil(float(obj['trace_width']))
-            return pb.PatternProtoArea(pitch, pitch, pb.PoweredProto(pitch, hole_dia, clearance, via_size=via_drill, trace_width=trace_width, unit=unit), unit=unit)
+            return pb.PatternProtoArea(pitch, pitch, pb.PoweredProto(pitch, hole_dia, clearance, via_size=via_drill, power_pad_dia=via_dia, trace_width=trace_width, unit=unit), unit=unit)
 
         case 'flower':
             pitch = mil(float(obj.get('pitch', 2.54)))
