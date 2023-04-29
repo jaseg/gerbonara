@@ -8,9 +8,12 @@ from copy import copy, deepcopy
 import warnings
 import importlib.resources
 
+from ..utils import MM, rotate_point
 from .primitives import *
 from ..graphic_objects import Region
-from ..apertures import RectangleAperture, CircleAperture
+from ..apertures import RectangleAperture, CircleAperture, ApertureMacroInstance
+from ..aperture_macros.parse import ApertureMacro, VariableExpression
+from ..aperture_macros import primitive as amp
 from .kicad import footprints as kfp
 from . import data as package_data
 
@@ -530,6 +533,100 @@ class SpikyProto(ObjectGroup):
         return inst
 
 
+class AlioCell(ObjectGroup):
+    """ Cell primitive for the ALio protoboard designed by arief ibrahim adha and published on hackaday.io at the URL
+    below. Similar to electroniceel's spiky protoboard, this layout has small-ish standard THT pads, but in between
+    these pads it puts a grid of SMD pads that are designed for easy solder bridging to allow for the construction of
+    traces from solder bridging.
+
+    Hackaday.io URL: https://hackaday.io/project/28570/
+    """
+
+    def __init__(self, pitch=None, drill=None, clearance=None, link_pad_width=None, link_trace_width=None, via_size=None, unit=MM):
+        super().__init__(0, 0, unit=unit)
+        self.pitch = pitch or unit(2.54, MM)
+        self.drill = drill or unit(0.9, MM)
+        self.clearance = clearance or unit(0.3, MM)
+        self.link_pad_width = link_pad_width or unit(1.1, MM)
+        self.link_trace_width = link_trace_width or unit(0.5, MM)
+        self.via_size = via_size or unit(0.4, MM)
+        self.border_x, self.border_y = False, False
+
+    @property
+    def single_sided(self):
+        return False
+
+    def inst(self, x, y, border_x, border_y):
+        inst = copy(self)
+        inst.border_x, inst.border_y = border_x, border_y
+        return inst
+
+    def bounding_box(self, unit):
+        x, y, rotation = self.abs_pos
+        # FIXME hack
+        return self.unit.convert_bounds_to(unit, ((x-self.pitch/2, y-self.pitch/2), (x+self.pitch/2, y+self.pitch/2)))
+
+    def render(self, layer_stack, cache=None):
+        x, y, rotation = self.abs_pos
+        def xf(fe):
+            fe = copy(fe)
+            fe.rotate(rotation)
+            fe.offset(x, y, self.unit)
+            return fe
+
+        main_ap = RectangleAperture(self.pitch - self.clearance, self.pitch - self.clearance, unit=self.unit).rotated(rotation)
+        main_drill = ExcellonTool(self.drill, plated=True, unit=self.unit)
+        via_drill = ExcellonTool(self.via_size, plated=True, unit=self.unit)
+
+        var = VariableExpression
+        # parameters: [1: total height = pad width, 2: total width, 3: trace width, 4: corner radius, 5: rotation]
+        alio_macro = ApertureMacro('ALIO', (
+            amp.CenterLine(MM, 1, var(1)-2*var(4), var(1), 0, 0, var(5)),
+            amp.CenterLine(MM, 1, var(1), var(1)-2*var(4), 0, 0, var(5)),
+            amp.Circle(MM, 1, 2*var(4), -var(1)/2+var(4), -var(1)/2+var(4), var(5)),
+            amp.Circle(MM, 1, 2*var(4), -var(1)/2+var(4),  var(1)/2-var(4), var(5)),
+            amp.Circle(MM, 1, 2*var(4),  var(1)/2-var(4), -var(1)/2+var(4), var(5)),
+            amp.Circle(MM, 1, 2*var(4),  var(1)/2-var(4),  var(1)/2-var(4), var(5)),
+            amp.CenterLine(MM, 1, var(2), var(3), -var(2)/2 + var(1)/2, 0, var(5)),
+            ))
+        corner_radius = (self.link_pad_width - self.link_trace_width)/3
+        alio_clear = ApertureMacroInstance(alio_macro, (self.link_pad_width + 2*self.clearance,     # 1
+                                                        self.pitch+self.clearance,                  # 2
+                                                        self.link_trace_width + 2*self.clearance,   # 3
+                                                        corner_radius+self.clearance,               # 4
+                                                        rotation), unit=MM)                         # 5
+        alio_dark = ApertureMacroInstance(alio_macro, (self.link_pad_width,         # 1
+                                                       self.pitch-self.clearance,   # 2
+                                                       self.link_trace_width,       # 3
+                                                       corner_radius,               # 4
+                                                       rotation), unit=MM)          # 5
+        alio_clear_90 = ApertureMacroInstance(alio_macro, (self.link_pad_width + 2*self.clearance,  # 1
+                                                           self.pitch+self.clearance,               # 2
+                                                           self.link_trace_width + 2*self.clearance,# 3
+                                                           corner_radius+self.clearance,            # 4
+                                                           rotation+90), unit=MM)                   # 5
+        alio_dark_90 = ApertureMacroInstance(alio_macro, (self.link_pad_width,          # 1
+                                                          self.pitch-self.clearance,    # 2
+                                                          self.link_trace_width,        # 3
+                                                          corner_radius,                # 4
+                                                          rotation+90), unit=MM)        # 5
+
+        # all layers are identical here
+        for side, use in (('top', 'copper'), ('top', 'mask'), ('bottom', 'copper'), ('bottom', 'mask')):
+            layer_stack[side, use].objects.insert(0, xf(Flash(0, 0, aperture=main_ap, unit=self.unit)))
+            if not (self.border_x or self.border_y):
+                if side == 'top':
+                    layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_clear, polarity_dark=False, unit=self.unit)))
+                    layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_dark, unit=self.unit)))
+                else:
+                    layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_clear_90, polarity_dark=False, unit=self.unit)))
+                    layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_dark_90, unit=self.unit)))
+
+        layer_stack.drill_pth.append(Flash(x, y, aperture=main_drill, unit=self.unit))
+        if not (self.border_x or self.border_y):
+            layer_stack.drill_pth.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=via_drill, unit=self.unit)))
+
+
 def convert_to_mm(value, unit):
     unitl  = unit.lower()
     if unitl == 'mm':
@@ -565,15 +662,16 @@ def _demo():
     #pattern3 = PatternProtoArea(2.54, 1.27, obj=SMDPad.rect(0, 0, 2.3, 1.0, paste=False))
     #pattern3 = EmptyProtoArea(copper_fill=True)
     #stack = TwoSideLayout(pattern2, pattern3)
-    pattern2 = PatternProtoArea(2.54, obj=PoweredProto(), margin=1)
-    pattern3 = PatternProtoArea(2.54, obj=RFGroundProto())
-    stack = PropLayout([pattern2, pattern3], 'h', [0.5, 0.5])
+    #pattern2 = PatternProtoArea(2.54, obj=PoweredProto(), margin=1)
+    #pattern3 = PatternProtoArea(2.54, obj=RFGroundProto())
+    #stack = PropLayout([pattern2, pattern3], 'h', [0.5, 0.5])
     #pattern = PropLayout([pattern1, stack], 'h', [0.5, 0.5])
     #pattern = PatternProtoArea(2.54, obj=ManhattanPads(2.54))
     #pattern = PatternProtoArea(2.54*1.5, obj=THTFlowerProto())
     #pattern = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
     #pattern = PatternProtoArea(2.54, obj=PoweredProto())
-    pb = ProtoBoard(50, 47, stack, mounting_hole_dia=3.2, mounting_hole_offset=5)
+    pattern = PatternProtoArea(2.54, obj=AlioCell(), margin=2)
+    pb = ProtoBoard(50, 47, pattern, mounting_hole_dia=3.2, mounting_hole_offset=5)
     #pb = ProtoBoard(10, 10, pattern1)
     print(pb.pretty_svg())
     pb.layer_stack().save_to_directory('/tmp/testdir')

@@ -77,7 +77,7 @@ class Board:
             for ko in self.keepouts:
                 if obj.overlaps(ko, unit=MM):
                     if keepout_errors == 'warn':
-                        warnings.warn(msg)
+                        warnings.warn(f'Object with bounds {obj.bounding_box(MM)} [mm] hits one or more keepout areas')
                     elif keepout_errors == 'raise':
                         raise KeepoutError(obj, ko, msg)
                     return
