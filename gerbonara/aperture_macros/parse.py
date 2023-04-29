@@ -111,12 +111,12 @@ class ApertureMacro:
 
     def to_gerber(self, unit=None):
         comments = [ str(c) for c in self.comments ]
-        variable_defs = [ f'${var.to_gerber(unit)}={expr}' for var, expr in enumerate(self.variables, start=1) ]
+        variable_defs = [ f'${var}={expr}' for var, expr in enumerate(self.variables, start=1) if expr is not None ]
         primitive_defs = [ prim.to_gerber(unit) for prim in self.primitives ]
         return '*\n'.join(comments + variable_defs + primitive_defs)
 
     def to_graphic_primitives(self, offset, rotation, parameters : [float], unit=None, polarity_dark=True):
-        variables = {i: v for i, v in enumerate(self.variables, start=1)}
+        variables = {i: v for i, v in enumerate(self.variables, start=1) if v is not None}
         for number, value in enumerate(parameters, start=1):
             if number in variables:
                 raise SyntaxError(f'Re-definition of aperture macro variable {number} through parameter {value}')

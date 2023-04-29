@@ -551,6 +551,7 @@ class AlioCell(ObjectGroup):
         self.link_trace_width = link_trace_width or unit(0.5, MM)
         self.via_size = via_size or unit(0.4, MM)
         self.border_x, self.border_y = False, False
+        self.inst_x, self.inst_y = None, None
 
     @property
     def single_sided(self):
@@ -559,6 +560,7 @@ class AlioCell(ObjectGroup):
     def inst(self, x, y, border_x, border_y):
         inst = copy(self)
         inst.border_x, inst.border_y = border_x, border_y
+        inst.inst_x, inst.inst_y = x, y
         return inst
 
     def bounding_box(self, unit):
@@ -574,13 +576,68 @@ class AlioCell(ObjectGroup):
             fe.offset(x, y, self.unit)
             return fe
 
-        main_ap = RectangleAperture(self.pitch - self.clearance, self.pitch - self.clearance, unit=self.unit).rotated(rotation)
+        var = VariableExpression
+        # parameters: [1: total height = pad width, 2: pitch, 3: trace width, 4: corner radius, 5: rotation, 6: clearance]
+        alio_main_macro = ApertureMacro('ALIOM', (
+            amp.CenterLine(MM, 1, var(2)-var(6), var(2)-var(3)-2*var(6), 0, 0, var(5)),
+            amp.Outline(MM, 0, 5, (
+                -var(2)/2,          -var(2)/2,
+                -var(2)/2,          -(var(7)-var(8)),
+                -var(7),            -(var(7)-var(8)),
+                -(var(7)-var(8)),   -var(7),
+                -(var(7)-var(8)),   -var(2)/2, 
+                -var(2)/2,          -var(2)/2,
+                ), var(5)),
+            amp.Outline(MM, 0, 5, (
+                -var(2)/2,           var(2)/2,
+                -var(2)/2,           (var(7)-var(8)),
+                -var(7),             (var(7)-var(8)),
+                -(var(7)-var(8)),    var(7),
+                -(var(7)-var(8)),    var(2)/2, 
+                -var(2)/2,           var(2)/2,
+                ), var(5)),
+            amp.Outline(MM, 0, 5, (
+                 var(2)/2,          -var(2)/2,
+                 var(2)/2,          -(var(7)-var(8)),
+                 var(7),            -(var(7)-var(8)),
+                 (var(7)-var(8)),   -var(7),
+                 (var(7)-var(8)),   -var(2)/2, 
+                 var(2)/2,          -var(2)/2,
+                ), var(5)),
+            amp.Outline(MM, 0, 5, (
+                 var(2)/2,           var(2)/2,
+                 var(2)/2,           (var(7)-var(8)),
+                 var(7),             (var(7)-var(8)),
+                 (var(7)-var(8)),    var(7),
+                 (var(7)-var(8)),    var(2)/2, 
+                 var(2)/2,           var(2)/2,
+                ), var(5)),
+            amp.Circle(MM, 0, 2*var(8), -var(7), -var(7), var(5)),
+            amp.Circle(MM, 0, 2*var(8), -var(7),  var(7), var(5)),
+            amp.Circle(MM, 0, 2*var(8),  var(7), -var(7), var(5)),
+            amp.Circle(MM, 0, 2*var(8),  var(7),  var(7), var(5)),
+            ), (
+                None, # 1
+                None, # 2
+                None, # 3
+                None, # 4
+                None, # 5
+                None, # 6
+                var(2)/2 - var(1)/2 + var(4),   # 7
+                var(4)+var(6),                  # 8
+                ))
+        corner_radius = (self.link_pad_width - self.link_trace_width)/3
+        main_ap = ApertureMacroInstance(alio_main_macro, (self.link_pad_width,         # 1
+                                                          self.pitch,                  # 2
+                                                          self.link_trace_width,       # 3
+                                                          corner_radius,               # 4
+                                                          rotation,                    # 5
+                                                          self.clearance), unit=MM)    # 6
         main_drill = ExcellonTool(self.drill, plated=True, unit=self.unit)
         via_drill = ExcellonTool(self.via_size, plated=True, unit=self.unit)
 
-        var = VariableExpression
         # parameters: [1: total height = pad width, 2: total width, 3: trace width, 4: corner radius, 5: rotation]
-        alio_macro = ApertureMacro('ALIO', (
+        alio_macro = ApertureMacro('ALIOP', (
             amp.CenterLine(MM, 1, var(1)-2*var(4), var(1), 0, 0, var(5)),
             amp.CenterLine(MM, 1, var(1), var(1)-2*var(4), 0, 0, var(5)),
             amp.Circle(MM, 1, 2*var(4), -var(1)/2+var(4), -var(1)/2+var(4), var(5)),
@@ -589,22 +646,21 @@ class AlioCell(ObjectGroup):
             amp.Circle(MM, 1, 2*var(4),  var(1)/2-var(4),  var(1)/2-var(4), var(5)),
             amp.CenterLine(MM, 1, var(2), var(3), -var(2)/2 + var(1)/2, 0, var(5)),
             ))
-        corner_radius = (self.link_pad_width - self.link_trace_width)/3
-        alio_clear = ApertureMacroInstance(alio_macro, (self.link_pad_width + 2*self.clearance,     # 1
-                                                        self.pitch+self.clearance,                  # 2
-                                                        self.link_trace_width + 2*self.clearance,   # 3
-                                                        corner_radius+self.clearance,               # 4
-                                                        rotation), unit=MM)                         # 5
+        #alio_clear = ApertureMacroInstance(alio_macro, (self.link_pad_width + 2*self.clearance,     # 1
+        #                                                self.pitch+self.clearance,                  # 2
+        #                                                self.link_trace_width + 2*self.clearance,   # 3
+        #                                                corner_radius+self.clearance,               # 4
+        #                                                rotation), unit=MM)                         # 5
         alio_dark = ApertureMacroInstance(alio_macro, (self.link_pad_width,         # 1
                                                        self.pitch-self.clearance,   # 2
                                                        self.link_trace_width,       # 3
                                                        corner_radius,               # 4
                                                        rotation), unit=MM)          # 5
-        alio_clear_90 = ApertureMacroInstance(alio_macro, (self.link_pad_width + 2*self.clearance,  # 1
-                                                           self.pitch+self.clearance,               # 2
-                                                           self.link_trace_width + 2*self.clearance,# 3
-                                                           corner_radius+self.clearance,            # 4
-                                                           rotation+90), unit=MM)                   # 5
+        #alio_clear_90 = ApertureMacroInstance(alio_macro, (self.link_pad_width + 2*self.clearance,  # 1
+        #                                                   self.pitch+self.clearance,               # 2
+        #                                                   self.link_trace_width + 2*self.clearance,# 3
+        #                                                   corner_radius+self.clearance,            # 4
+        #                                                   rotation+90), unit=MM)                   # 5
         alio_dark_90 = ApertureMacroInstance(alio_macro, (self.link_pad_width,          # 1
                                                           self.pitch-self.clearance,    # 2
                                                           self.link_trace_width,        # 3
@@ -614,12 +670,17 @@ class AlioCell(ObjectGroup):
         # all layers are identical here
         for side, use in (('top', 'copper'), ('top', 'mask'), ('bottom', 'copper'), ('bottom', 'mask')):
             layer_stack[side, use].objects.insert(0, xf(Flash(0, 0, aperture=main_ap, unit=self.unit)))
-            if not (self.border_x or self.border_y):
-                if side == 'top':
-                    layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_clear, polarity_dark=False, unit=self.unit)))
+            if side == 'top':
+                #layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_clear, polarity_dark=False, unit=self.unit)))
+                #if self.inst_y == 0:
+                #    layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, -self.pitch/2, aperture=alio_clear, polarity_dark=False, unit=self.unit)))
+                if not (self.border_x or self.border_y):
                     layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_dark, unit=self.unit)))
-                else:
-                    layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_clear_90, polarity_dark=False, unit=self.unit)))
+            else:
+                #layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_clear_90, polarity_dark=False, unit=self.unit)))
+                #if self.inst_x == 0:
+                #    layer_stack[side, use].objects.append(xf(Flash(-self.pitch/2, self.pitch/2, aperture=alio_clear, polarity_dark=False, unit=self.unit)))
+                if not (self.border_x or self.border_y):
                     layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_dark_90, unit=self.unit)))
 
         layer_stack.drill_pth.append(Flash(x, y, aperture=main_drill, unit=self.unit))
