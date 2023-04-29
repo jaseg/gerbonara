@@ -13,7 +13,7 @@ from .expression import Expression, UnitExpression, ConstantExpression, expr
 
 from .. import graphic_primitives as gp
 from .. import graphic_objects as go
-from ..utils import rotate_point, LengthUnit
+from ..utils import rotate_point, LengthUnit, MM
 
 
 def point_distance(a, b):
@@ -277,8 +277,20 @@ class Outline(Primitive):
         return f'<Outline {len(self.coords)} points>'
 
     def to_gerber(self, unit=None):
-        coords = ','.join(coord.to_gerber(unit) for coord in self.coords)
-        return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)-1},{coords},{self.rotation.to_gerber()}'
+        # Calculate out rotation since at least gerbv mis-renders Outlines with rotation other than zero.
+        rotation = self.rotation.optimized()
+        coords = self.coords
+        if isinstance(rotation, ConstantExpression):
+            rotation = math.radians(rotation.value)
+            # This will work even with variables in x and y, we just need to pass in cx and cy as UnitExpressions
+            unit_zero = UnitExpression(expr(0), MM)
+            coords = [ rotate_point(x, y, -rotation, cx=unit_zero, cy=unit_zero) for x, y in self.points ]
+            coords = [ e for point in coords for e in point ]
+
+            rotation = ConstantExpression(0)
+
+        coords = ','.join(coord.to_gerber(unit) for coord in coords)
+        return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)-1},{coords},{rotation.to_gerber()}'
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:

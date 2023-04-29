@@ -421,13 +421,13 @@ class ApertureMacroInstance(Aperture):
         return replace(self, macro=self.macro.dilated(offset, unit))
 
     @lru_cache()
-    def rotated(self, angle=0):
+    def rotated(self, angle=0.0):
         if math.isclose(angle % (2*math.pi), 0):
             return self
         else:
             return self.to_macro(angle)
 
-    def to_macro(self, rotation=0):
+    def to_macro(self, rotation=0.0):
         return replace(self, macro=self.macro.rotated(rotation))
 
     def scaled(self, scale):

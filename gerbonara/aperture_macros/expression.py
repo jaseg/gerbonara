@@ -123,7 +123,7 @@ class UnitExpression(Expression):
         raise ValueError('Unit mismatch: Can only add/subtract UnitExpression from UnitExpression, not scalar.')
 
     def __sub__(self, other):
-        return (self + (-other)).optimize()
+        return (self + (-other)).optimized()
 
     def __rsub__(self, other):
         # see __radd__ above

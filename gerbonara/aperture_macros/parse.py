@@ -55,9 +55,9 @@ class ApertureMacro:
     comments: tuple = ()
 
     def __post_init__(self):
-        if self.name is None:
+        if self.name is None or re.match(r'GNX[0-9A-F]{16}', self.name):
             # We can't use field(default_factory=...) here because that factory doesn't get a reference to the instance.
-            object.__setattr__(self, 'name', f'gn_{hash(self):x}')
+            object.__setattr__(self, 'name', f'GNX{hash(self)&0xffffffffffffffff:016X}')
 
     @classmethod
     def parse_macro(cls, name, body, unit):
