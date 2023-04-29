@@ -290,7 +290,7 @@ class Outline(Primitive):
             rotation = ConstantExpression(0)
 
         coords = ','.join(coord.to_gerber(unit) for coord in coords)
-        return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)-1},{coords},{rotation.to_gerber()}'
+        return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)//2-1},{coords},{rotation.to_gerber()}'
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
