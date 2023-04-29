@@ -100,7 +100,7 @@ def deserialize(obj, unit):
             via_dia = mil(float(obj['via_dia']))
             trace_width = mil(float(obj['trace_width']))
             # Force 1mm margin to avoid shorts when adjacent to planes such as that one in the RF THT proto.
-            return pb.PatternProtoArea(pitch, pitch, pb.PoweredProto(pitch, hole_dia, clearance, via_size=via_drill, power_pad_dia=via_dia, trace_width=trace_width, unit=unit), margin=1.0, unit=unit)
+            return pb.PatternProtoArea(pitch, pitch, pb.PoweredProto(pitch, hole_dia, clearance, via_size=via_drill, power_pad_dia=via_dia, trace_width=trace_width, unit=unit), margin=unit(1.0, MM), unit=unit)
 
         case 'flower':
             pitch = mil(float(obj.get('pitch', 2.54)))
@@ -110,6 +110,22 @@ def deserialize(obj, unit):
 
         case 'spiky':
             return pb.PatternProtoArea(2.54, 2.54, pb.SpikyProto(), unit=unit)
+
+        case 'alio':
+            pitch = mil(float(obj.get('pitch', 2.54)))
+            drill = mil(float(obj.get('hole_dia', 0.9)))
+            clearance = mil(float(obj.get('clearance', 0.3)))
+            link_pad_width = mil(float(obj.get('link_pad_width', 1.1)))
+            link_trace_width = mil(float(obj.get('link_trace_width', 0.5)))
+            via_size = mil(float(obj.get('via_hole_dia', 0.4)))
+            return pb.PatternProtoArea(pitch, pitch, pb.AlioCell(
+                    pitch=pitch,
+                    drill=drill,
+                    clearance=clearance,
+                    link_pad_width=link_pad_width,
+                    link_trace_width=link_trace_width,
+                    via_size=via_size
+                ), margin=unit(1.5, MM), unit=unit)
 
         case 'rf':
             pitch = float(obj.get('pitch', 2.54))
