@@ -192,9 +192,10 @@ def alphabetic(case='upper'):
 
 
 class PatternProtoArea:
-    def __init__(self, pitch_x, pitch_y=None, obj=None, numbers=True, font_size=None, font_stroke=None, number_x_gen=alphabetic(), number_y_gen=numeric(), interval_x=5, interval_y=None, unit=MM):
+    def __init__(self, pitch_x, pitch_y=None, obj=None, numbers=True, font_size=None, font_stroke=None, number_x_gen=alphabetic(), number_y_gen=numeric(), interval_x=5, interval_y=None, margin=0, unit=MM):
         self.pitch_x = pitch_x
         self.pitch_y = pitch_y or pitch_x
+        self.margin = margin
         self.obj = obj
         self.unit = unit
         self.numbers = numbers
@@ -205,12 +206,13 @@ class PatternProtoArea:
         self.number_x_gen, self.number_y_gen = number_x_gen, number_y_gen
 
     def fit_size(self, w, h, unit=MM):
-        (min_x, min_y), (max_x, max_y) = self.fit_rect(((0, 0), (w, h)))
-        return max_x-min_x, max_y-min_y
+        (min_x, min_y), (max_x, max_y) = self.fit_rect(((0, 0), (max(0, w-2*self.margin), max(0, h-2*self.margin))))
+        return max_x-min_x + 2*self.margin, max_y-min_y + 2*self.margin
 
     def fit_rect(self, bbox, unit=MM):
         (x, y), (w, h) = bbox
-        w, h = w-x, h-y
+        x, y = x+self.margin, y+self.margin
+        w, h = w-x-self.margin, h-y-self.margin
 
         w_mod = round((w + 5e-7) % unit(self.pitch_x, self.unit), 6)
         h_mod = round((h + 5e-7) % unit(self.pitch_y, self.unit), 6)
@@ -558,20 +560,20 @@ def eval_value(value, total_length=None):
 
 def _demo():
     #pattern1 = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
-    pattern1 = PatternProtoArea(2.54, 2.54, obj=SpikyProto())
-    pattern2 = PatternProtoArea(1.2, 2.0, obj=SMDPad.rect(0, 0, 1.0, 1.8, paste=False))
-    pattern3 = PatternProtoArea(2.54, 1.27, obj=SMDPad.rect(0, 0, 2.3, 1.0, paste=False))
+    #pattern1 = PatternProtoArea(2.54, 2.54, obj=SpikyProto())
+    #pattern2 = PatternProtoArea(1.2, 2.0, obj=SMDPad.rect(0, 0, 1.0, 1.8, paste=False))
+    #pattern3 = PatternProtoArea(2.54, 1.27, obj=SMDPad.rect(0, 0, 2.3, 1.0, paste=False))
     #pattern3 = EmptyProtoArea(copper_fill=True)
     #stack = TwoSideLayout(pattern2, pattern3)
-    stack = PropLayout([pattern2, pattern3], 'v', [0.5, 0.5])
-    pattern = PropLayout([pattern1, stack], 'h', [0.5, 0.5])
+    pattern2 = PatternProtoArea(2.54, obj=PoweredProto(), margin=1)
+    pattern3 = PatternProtoArea(2.54, obj=RFGroundProto())
+    stack = PropLayout([pattern2, pattern3], 'h', [0.5, 0.5])
+    #pattern = PropLayout([pattern1, stack], 'h', [0.5, 0.5])
     #pattern = PatternProtoArea(2.54, obj=ManhattanPads(2.54))
-    #pattern = PatternProtoArea(2.54, obj=PoweredProto())
-    #pattern = PatternProtoArea(2.54, obj=RFGroundProto())
     #pattern = PatternProtoArea(2.54*1.5, obj=THTFlowerProto())
     #pattern = PatternProtoArea(2.54, obj=THTPad.circle(0, 0, 0.9, 1.8, paste=False))
     #pattern = PatternProtoArea(2.54, obj=PoweredProto())
-    pb = ProtoBoard(50, 50, pattern1, mounting_hole_dia=3.2, mounting_hole_offset=5)
+    pb = ProtoBoard(50, 47, stack, mounting_hole_dia=3.2, mounting_hole_offset=5)
     #pb = ProtoBoard(10, 10, pattern1)
     print(pb.pretty_svg())
     pb.layer_stack().save_to_directory('/tmp/testdir')

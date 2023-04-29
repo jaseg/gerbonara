@@ -99,7 +99,8 @@ def deserialize(obj, unit):
             via_drill = mil(float(obj['via_hole_dia']))
             via_dia = mil(float(obj['via_dia']))
             trace_width = mil(float(obj['trace_width']))
-            return pb.PatternProtoArea(pitch, pitch, pb.PoweredProto(pitch, hole_dia, clearance, via_size=via_drill, power_pad_dia=via_dia, trace_width=trace_width, unit=unit), unit=unit)
+            # Force 1mm margin to avoid shorts when adjacent to planes such as that one in the RF THT proto.
+            return pb.PatternProtoArea(pitch, pitch, pb.PoweredProto(pitch, hole_dia, clearance, via_size=via_drill, power_pad_dia=via_dia, trace_width=trace_width, unit=unit), margin=1.0, unit=unit)
 
         case 'flower':
             pitch = mil(float(obj.get('pitch', 2.54)))

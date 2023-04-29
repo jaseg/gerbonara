@@ -286,7 +286,7 @@ class GerberFile(CamFile):
         number = 10
         for aperture in self.apertures:
             if isinstance(aperture, apertures.ApertureMacroInstance):
-                macro_def = am_stmt(aperture.rotated().macro)
+                macro_def = am_stmt(aperture.macro)
                 if macro_def not in processed_macros:
                     processed_macros.add(macro_def)
                     yield macro_def
