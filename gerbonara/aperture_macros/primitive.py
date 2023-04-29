@@ -48,7 +48,7 @@ class Primitive:
 
     def to_gerber(self, unit=None):
         return f'{self.code},' + ','.join(
-                getattr(self, name).to_gerber(unit) for name in type(self).__annotations__)
+                getattr(self, field.name).to_gerber(unit) for field in fields(self) if field.name != 'unit')
 
     def __str__(self):
         attrs = ','.join(str(getattr(self, name)).strip('<>') for name in type(self).__annotations__)
