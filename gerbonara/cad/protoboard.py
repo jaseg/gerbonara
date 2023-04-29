@@ -74,9 +74,9 @@ class PropLayout:
                 widths.append(x_max - x_min)
                 heights.append(y_max - y_min)
         if self.direction == 'h':
-            return sum(widths), max(heights)
+            return sum(widths), max(heights, default=0)
         else:
-            return max(widths), sum(heights)
+            return max(widths, default=0), sum(heights)
 
     def layout_2d(self, bbox, unit=MM):
         (x, y), (w, h) = bbox
