@@ -49,18 +49,21 @@ def _parse_expression(expr):
 
 @dataclass(frozen=True, slots=True)
 class ApertureMacro:
-    name: str = None
+    name: str = field(default=None, hash=False, compare=False)
     primitives: tuple = ()
     variables: tuple = ()
-    comments: tuple = ()
+    comments: tuple = field(default=(), hash=False, compare=False)
 
     def __post_init__(self):
         if self.name is None or re.match(r'GNX[0-9A-F]{16}', self.name):
             # We can't use field(default_factory=...) here because that factory doesn't get a reference to the instance.
-            object.__setattr__(self, 'name', f'GNX{hash(self)&0xffffffffffffffff:016X}')
+            self._reset_name()
+
+    def _reset_name(self):
+        object.__setattr__(self, 'name', f'GNX{hash(self)&0xffffffffffffffff:016X}')
 
     @classmethod
-    def parse_macro(cls, name, body, unit):
+    def parse_macro(kls, name, body, unit):
         comments = []
         variables = {}
         primitives = []
@@ -86,11 +89,10 @@ class ApertureMacro:
             else: # primitive
                 primitive, *args = block.split(',')
                 args = [ _parse_expression(arg) for arg in args ]
-                primitive = ap.PRIMITIVE_CLASSES[int(primitive)](unit=unit, args=args)
-                primitives.append(primitive)
+                primitives.append(ap.PRIMITIVE_CLASSES[int(primitive)].from_arglist(unit, args))
 
-        variables = [variables.get(i+1) for i in range(max(variables.keys()))]
-        return kls(name, tuple(primitives), tuple(variables), tuple(primitives))
+        variables = [variables.get(i+1) for i in range(max(variables.keys(), default=0))]
+        return kls(name, tuple(primitives), tuple(variables), tuple(comments))
 
     def __str__(self):
         return f'<Aperture macro {self.name}, variables {str(self.variables)}, primitives {self.primitives}>'
@@ -110,6 +112,7 @@ class ApertureMacro:
         return replace(self, primitives=tuple(new_primitives))
 
     def to_gerber(self, unit=None):
+        """ Serialize this macro's content (without the name) into Gerber using the given file unit """
         comments = [ str(c) for c in self.comments ]
         variable_defs = [ f'${var}={str(expr)[1:-1]}' for var, expr in enumerate(self.variables, start=1) if expr is not None ]
         primitive_defs = [ prim.to_gerber(unit) for prim in self.primitives ]

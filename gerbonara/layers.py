@@ -838,12 +838,12 @@ class LayerStack:
             if use_use:
                 layer.dedup_apertures()
                 for obj in layer.objects:
-                    if hasattr(obj, 'aperture') and obj.polarity_dark and id(obj.aperture) not in use_map:
+                    if hasattr(obj, 'aperture') and obj.polarity_dark and obj.aperture not in use_map:
                         children = [prim.to_svg(fg, bg, tag=tag)
                                     for prim in obj.aperture.flash(0, 0, svg_unit, polarity_dark=True)]
                         use_id = f'a{len(use_defs)}'
                         use_defs.append(tag('g', children, id=use_id))
-                        use_map[id(obj.aperture)] = use_id
+                        use_map[obj.aperture] = use_id
 
             objects = []
             for obj in layer.instance.svg_objects(svg_unit=svg_unit, fg=fg, bg=bg, aperture_map=use_map, tag=Tag):

@@ -60,8 +60,8 @@ class Aperture:
     _ : KW_ONLY
     unit: LengthUnit = None
     attrs: tuple = None
-    original_number: int = None
-    _bounding_box: tuple = None
+    original_number: int = field(default=None, hash=False, compare=False)
+    _bounding_box: tuple = field(default=None, hash=False, compare=False)
 
     def _params(self, unit=None):
         out = []
@@ -351,7 +351,7 @@ class PolygonAperture(Aperture):
     hole_dia : Length(float) = None
 
     def __post_init__(self):
-        self.n_vertices = int(self.n_vertices)
+        object.__setattr__(self, 'n_vertices', int(self.n_vertices))
 
     def _primitives(self, x, y, unit=None, polarity_dark=True):
         return [ gp.ArcPoly.from_regular_polygon(x, y, self.unit.convert_to(unit, self.diameter)/2, self.n_vertices,

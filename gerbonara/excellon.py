@@ -46,8 +46,8 @@ class ExcellonContext:
 
     def select_tool(self, tool):
         """ Select the current tool. Retract drill first if necessary. """
-        current_id = self.tools.get(id(self.current_tool))
-        new_id = self.tools[id(tool)]
+        current_id = self.tools.get(self.current_tool)
+        new_id = self.tools[tool]
         if new_id != current_id:
             if self.drill_down:
                 yield 'M16' # drill up
@@ -270,17 +270,15 @@ class ExcellonFile(CamFile):
 
     def to_gerber(self, errros='raise'):
         """ Convert this excellon file into a :py:class:`~.rs274x.GerberFile`. """
-        apertures = {}
         out = GerberFile()
         out.comments = self.comments
 
+        apertures = {}
         for obj in self.objects:
-            if id(obj.tool) not in apertures:
-                apertures[id(obj.tool)] = CircleAperture(obj.tool.diameter)
+            if not (ap := apertures[obj.tool]):
+                ap = apertures[obj.tool] = CircleAperture(obj.tool.diameter)
 
-            out.objects.append(dataclasses.replace(obj, aperture=apertures[id(obj.tool)]))
-
-        out.apertures = list(apertures.values())
+            out.objects.append(dataclasses.replace(obj, aperture=ap))
 
     @property
     def generator(self):
@@ -373,7 +371,7 @@ class ExcellonFile(CamFile):
         yield 'METRIC' if settings.unit == MM else 'INCH'
 
         # Build tool index
-        tool_map = { id(obj.tool): obj.tool for obj in self.objects }
+        tool_map = { obj.tool: obj.tool for obj in self.objects }
         tools = sorted(tool_map.items(), key=lambda id_tool: (id_tool[1].plated, id_tool[1].diameter))
 
         mixed_plating = (len({ tool.plated for tool in tool_map.values() }) > 1)

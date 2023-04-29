@@ -494,7 +494,7 @@ def meta(path, force_zip, format_warnings):
         d[function] = {
                 'format': 'Gerber',
                 'path': str(layer.original_path),
-                'apertures': len(layer.apertures),
+                'apertures': len(list(layer.apertures())),
                 'objects': len(layer.objects),
                 'bounding_box': {'min_x': min_x, 'min_y': min_y, 'max_x': max_x, 'max_y': max_y},
                 'format_settings': format_settings,

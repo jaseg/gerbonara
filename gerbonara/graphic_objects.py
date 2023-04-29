@@ -216,7 +216,8 @@ class Flash(GraphicObject):
 
     def bounding_box(self, unit=None):
         (min_x, min_y), (max_x, max_y) = self.aperture.bounding_box(unit)
-        return (min_x+self.x, min_y+self.y), (max_x+self.x, max_x+self.y)
+        x, y = self.unit.convert_to(unit, self.x), self.unit.convert_to(unit, self.y)
+        return (min_x+x, min_y+y), (max_x+x, max_y+y)
 
     @property
     def plated(self):
@@ -398,6 +399,9 @@ class Region(GraphicObject):
         yield from gs.set_current_point(self.outline[0], unit=self.unit)
 
         for point, arc_center in zip_longest(self.outline[1:], self.arc_centers):
+            if point is None and arc_center is None:
+                break
+
             if arc_center is None:
                 yield from gs.set_interpolation_mode(InterpMode.LINEAR)
 

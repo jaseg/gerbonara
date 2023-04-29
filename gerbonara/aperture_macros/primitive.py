@@ -58,8 +58,8 @@ class Primitive:
         return str(self)
 
     @classmethod
-    def from_arglist(kls, arglist):
-        return kls(*arglist)
+    def from_arglist(kls, unit, arglist):
+        return kls(unit, *arglist)
 
     class Calculator:
         def __init__(self, instance, variable_binding={}, unit=None):
@@ -267,11 +267,11 @@ class Outline(Primitive):
             yield x, y
 
     @classmethod
-    def from_arglist(kls, arglist):
-        if len(arglist[3:]) % 2 == 0:
-            return kls(unit=arglist[0], exposure=arglist[1], length=arglist[2], coords=arglist[3:], rotation=0)
+    def from_arglist(kls, unit, arglist):
+        if len(arglist[2:]) % 2 == 0:
+            return kls(unit=unit, exposure=arglist[0], length=arglist[1], coords=arglist[2:], rotation=0)
         else:
-            return kls(unit=arglist[0], exposure=arglist[1], length=arglist[2], coords=arglist[3:-1], rotation=arglist[-1])
+            return kls(unit=unit, exposure=arglist[0], length=arglist[1], coords=arglist[2:-1], rotation=arglist[-1])
 
     def __str__(self):
         return f'<Outline {len(self.coords)} points>'

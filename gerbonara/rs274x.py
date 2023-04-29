@@ -24,6 +24,7 @@ import math
 import warnings
 from pathlib import Path
 import dataclasses
+import functools
 
 from .cam import CamFile, FileSettings
 from .utils import MM, Inch, units, InterpMode, UnknownStatementWarning
@@ -58,7 +59,6 @@ class GerberFile(CamFile):
     :ivar layer_hints: Similar to ``generator_hints``, this is a list containing hints which layer type this file could
                        belong to. Usually, this will be empty, but some EDA tools automatically include layer
                        information inside tool-specific comments in the Gerber files they generate.
-    :ivar apertures: List of apertures used in this file. Make sure you keep this in sync when adding new objects.
     :ivar file_attrs: List of strings with Gerber X3 file attributes. Each list item corresponds to one file attribute.
     """
 
@@ -70,11 +70,87 @@ class GerberFile(CamFile):
         self.generator_hints = generator_hints or []
         self.layer_hints = layer_hints or []
         self.import_settings = import_settings
-        self.apertures = [] # FIXME get rid of this? apertures are already in the objects.
         self.file_attrs = file_attrs or {}
 
-    def sync_apertures(self):
-        self.apertures = list({id(obj.aperture): obj.aperture for obj in self.objects if hasattr(obj, 'aperture')}.values())
+    def apertures(self):
+        """ Iterate through all apertures in this layer. """
+        found = set()
+        for obj in self.objects:
+            if hasattr(obj, 'aperture'):
+                ap = obj.aperture
+                if ap not in found:
+                    found.add(ap)
+                    yield ap
+
+    def aperture_macros(self):
+        found = set()
+        for aperture in self.apertures():
+            if isinstance(aperture, apertures.ApertureMacroInstance):
+                macro = aperture.macro
+                if (macro.name, macro) not in found:
+                    found.add((macro.name, macro))
+                    yield macro
+
+    def map_apertures(self, map_or_callable, cache=True):
+        """ Replace all apertures in all objects in this layer according to the given map or callable.
+
+        When a map is passed, apertures that are not in the map are left alone. When a callable is given, it is called
+        with the old aperture as its argument.
+
+        :param map_or_callable: A dict-like object, or a callable mapping old to new apertures
+        :param cache: When True (default) and a callable is passed, caches the output of callable, only calling it once
+            for each old aperture.
+        """
+
+        if callable(map_or_callable):
+            if cache:
+                map_or_callable = functools.cache(map_or_callable)
+        else:
+            d = map_or_callable
+            map_or_callable = lambda ap: d.get(ap, ap)
+
+        for obj in self.objects:
+            if (aperture := getattr(obj, 'aperture', None)):
+                obj.aperture = map_or_callable(aperture)
+
+    def dedup_apertures(self, settings=None):
+        """ Merge all apertures and aperture macros in this layer that result in the same Gerber definition under the
+        given :py:class:~.FileSettings:.
+
+        When no explicit settings are given, uses Gerbonara's default settings.
+
+        :param settings: settings under which to de-duplicate the apertures.
+        """
+
+        if settings is None:
+            settings = FileSettings.defaults()
+
+        cache = {}
+        macro_cache = {}
+        macro_names = set()
+        def lookup(aperture):
+            nonlocal cache, settings
+            if isinstance(aperture, apertures.ApertureMacroInstance):
+                macro = aperture.macro
+                macro_def = macro.to_gerber(unit=settings.unit)
+                if macro_def not in cache:
+                    cache[macro_def] = macro
+
+                    if macro.name in macro_names:
+                        macro._reset_name()
+                    macro_names.add(macro.name)
+
+                else:
+                    macro = cache[macro_def]
+                    aperture = dataclasses.replace(aperture, macro=macro)
+
+            code = aperture.to_gerber(settings)
+            if code not in cache:
+                cache[code] = aperture
+
+            return cache[code]
+
+        self.map_apertures(lookup)
 
     def to_excellon(self, plated=None, errors='raise'):
         """ Convert this excellon file into a :py:class:`~.excellon.ExcellonFile`. This will convert interpolated lines
@@ -85,7 +161,7 @@ class GerberFile(CamFile):
         new_tools = {}
         for obj in self.objects:
             if not (isinstance(obj, go.Line) or isinstance(obj, go.Arc) or isinstance(obj, go.Flash)) or \
-                not isinstance(obj.aperture, apertures.CircleAperture):
+                not isinstance(getattr(obj, 'aperture', None), apertures.CircleAperture):
                     if errors == 'raise':
                         raise ValueError(f'Cannot convert {obj} to excellon.')
                     elif errors == 'warn':
@@ -96,9 +172,9 @@ class GerberFile(CamFile):
                     else:
                         raise ValueError('Invalid "errors" parameter. Allowed values: "raise", "warn" or "ignore".')
 
-            if not (new_tool := new_tools.get(id(obj.aperture))):
+            if not (new_tool := new_tools.get(obj.aperture)):
                 # TODO plating?
-                new_tool = new_tools[id(obj.aperture)] = apertures.ExcellonTool(obj.aperture.diameter, plated=plated, unit=obj.aperture.unit)
+                new_tool = new_tools[obj.aperture] = apertures.ExcellonTool(obj.aperture.diameter, plated=plated, unit=obj.aperture.unit)
             new_objs.append(dataclasses.replace(obj, aperture=new_tool))
             
         return ExcellonFile(objects=new_objs, comments=self.comments)
@@ -127,18 +203,6 @@ class GerberFile(CamFile):
             self.import_settings = None
         self.comments += other.comments
 
-        # dedup apertures
-        new_apertures = {}
-        replace_apertures = {}
-        mock_settings = FileSettings.defaults()
-        for ap in self.apertures + other.apertures:
-            gbr = ap.to_gerber(mock_settings)
-            if gbr not in new_apertures:
-                new_apertures[gbr] = ap
-            else:
-                replace_apertures[id(ap)] = new_apertures[gbr]
-        self.apertures = list(new_apertures.values())
-
         # Join objects
         if mode == 'below':
             self.objects = other.objects + self.objects
@@ -147,57 +211,23 @@ class GerberFile(CamFile):
         else:
             raise ValueError(f'Invalid mode "{mode}", must be one of "above" or "below".')
 
-        for obj in self.objects:
-            # If object has an aperture attribute, replace that aperture.
-            if (ap := replace_apertures.get(id(getattr(obj, 'aperture', None)))):
-                obj.aperture = ap
-
-        # dedup aperture macros
-        macros = { m.to_gerber(): m
-                for m in [ GenericMacros.circle, GenericMacros.rect, GenericMacros.obround, GenericMacros.polygon] }
-        for ap in new_apertures.values():
-            if isinstance(ap, apertures.ApertureMacroInstance):
-                macro_grb = ap.macro.to_gerber() # use native unit to compare macros
-                if macro_grb in macros:
-                    ap.macro = macros[macro_grb]
-                else:
-                    macros[macro_grb] = ap.macro
-
-        # make macro names unique
-        seen_macro_names = set()
-        for macro in macros.values():
-            i = 2
-            while (new_name := f'{macro.name}{i}') in seen_macro_names:
-                i += 1
-            macro.name = new_name
-            seen_macro_names.add(new_name)
+        self.dedup_apertures()
 
     def dilate(self, offset, unit=MM, polarity_dark=True):
         # TODO add tests for this
-        self.apertures = [ aperture.dilated(offset, unit) for aperture in self.apertures ]
+        self.map_apertures(lambda ap: ap.dilated(offset, unit))
 
         offset_circle = apertures.CircleAperture(offset, unit=unit)
-        self.apertures.append(offset_circle)
-
-        new_primitives = []
-        for p in self.primitives:
-
-            p.polarity_dark = polarity_dark
+        new_objects = []
+        for obj in self.objects:
+            obj.polarity_dark = polarity_dark
 
             # Ignore Line, Arc, Flash. Their actual dilation has already been done by dilating the apertures above.
-            if isinstance(p, Region):
-                ol = p.poly.outline
-                for start, end, arc_center in zip(ol, ol[1:] + ol[0], p.poly.arc_centers):
-                    if arc_center is not None:
-                        new_primitives.append(Arc(*start, *end, *arc_center,
-                            polarity_dark=polarity_dark, unit=p.unit, aperture=offset_circle))
-
-                    else:
-                        new_primitives.append(Line(*start, *end,
-                            polarity_dark=polarity_dark, unit=p.unit, aperture=offset_circle))
+            if isinstance(obj, Region):
+                new_objects.extend(obj.outline_objects(offset_circle))
 
         # it's safe to append these at the end since we compute a logical OR of opaque areas anyway.
-        self.primitives.extend(new_primitives)
+        self.objects.extend(new_objects)
 
     @classmethod
     def open(kls, filename, enable_includes=False, enable_include_dir=None, override_settings=None):
@@ -228,29 +258,8 @@ class GerberFile(CamFile):
         parser.parse(data, filename=filename)
         return obj
 
-    def dedup_apertures(self, settings=None):
-        settings = settings or FileSettings.defaults()
-
-        defined_apertures = {}
-        ap_map = {}
-        for obj in self.objects:
-            if not hasattr(obj, 'aperture'):
-                continue
-
-            if id(obj.aperture) in ap_map:
-                obj.aperture = ap_map[id(obj.aperture)]
-
-            ap_def = obj.aperture.to_gerber(settings)
-            if ap_def in defined_apertures:
-                ap_map[id(obj.aperture)] = obj.aperture = defined_apertures[ap_def]
-            else:
-                ap_map[id(obj.aperture)] = defined_apertures[ap_def] = obj.aperture
-
-        self.apertures = list(ap_map.values())
-
     def _generate_statements(self, settings, drop_comments=True):
         """ Export this file as Gerber code, yields one str per line. """
-        self.sync_apertures()
 
         yield 'G04 Gerber file generated by Gerbonara*'
         for name, value in self.file_attrs.items():
@@ -273,33 +282,15 @@ class GerberFile(CamFile):
             for cmt in self.comments:
                 yield f'G04{cmt}*'
 
-        # Always emit gerbonara's generic, rotation-capable aperture macro replacements for the standard C/R/O/P shapes.
-        # Unconditionally emitting these here is easier than first trying to figure out if we need them later,
-        # and they are only a few bytes anyway.
+        self.dedup_apertures()
+
         am_stmt = lambda macro: f'%AM{macro.name}*\n{macro.to_gerber(unit=settings.unit)}*\n%'
-        for macro in [ GenericMacros.circle, GenericMacros.rect, GenericMacros.obround, GenericMacros.polygon ]:
+        for macro in self.aperture_macros():
             yield am_stmt(macro)
 
-        processed_macros = set()
-        aperture_map = {}
-        defined_apertures = {}
-        number = 10
-        for aperture in self.apertures:
-            if isinstance(aperture, apertures.ApertureMacroInstance):
-                macro_def = am_stmt(aperture.macro)
-                if macro_def not in processed_macros:
-                    processed_macros.add(macro_def)
-                    yield macro_def
-
-            ap_def = aperture.to_gerber(settings)
-            if ap_def in defined_apertures:
-                aperture_map[id(aperture)] = defined_apertures[ap_def]
-
-            else:
-                yield f'%ADD{number}{ap_def}*%'
-                defined_apertures[ap_def] = number
-                aperture_map[id(aperture)] = number
-                number += 1
+        aperture_map = {ap: num for num, ap in enumerate(self.apertures(), start=10)}
+        for aperture, number in aperture_map.items():
+            yield f'%ADD{number}{aperture.to_gerber(settings)}*%'
 
         def warn(msg, kls=SyntaxWarning):
             warnings.warn(msg, kls)
@@ -312,7 +303,7 @@ class GerberFile(CamFile):
 
     def __str__(self):
         name = f'{self.original_path.name} ' if self.original_path else ''
-        return f'<GerberFile {name}with {len(self.apertures)} apertures, {len(self.objects)} objects>'
+        return f'<GerberFile {name}with {len(list(self.apertures()))} apertures, {len(self.objects)} objects>'
 
     def __repr__(self):
         return str(self)
@@ -348,16 +339,10 @@ class GerberFile(CamFile):
     def scale(self, factor, unit=MM):
         scaled_apertures = {}
 
-        for ap in self.apertures:
-            scaled_apertures[id(ap)] = ap.scaled(factor)
+        self.map_apertures(lambda ap: ap.scaled(factor))
 
         for obj in self.objects:
             obj.scale(factor)
-
-            if (obj_ap := getattr(obj, 'aperture', None)):
-                obj.aperture = scaled_apertures[id(obj_ap)]
-
-        self.apertures = list(scaled_apertures.values())
 
     def offset(self, dx=0,  dy=0, unit=MM):
         # TODO round offset to file resolution
@@ -368,10 +353,7 @@ class GerberFile(CamFile):
         if math.isclose(angle % (2*math.pi), 0):
             return
 
-        # First, rotate apertures. We do this separately from rotating the individual objects below to rotate each
-        # aperture exactly once.
-        for ap in self.apertures:
-            ap.rotation += angle
+        self.map_apertures(lambda ap: ap.rotated(angle))
 
         for obj in self.objects:
             obj.rotate(angle, cx, cy, unit)
@@ -568,8 +550,8 @@ class GraphicsState:
             yield '%LPD*%' if polarity_dark else '%LPC*%'
 
     def set_aperture(self, aperture):
-        ap_id = self.aperture_map[id(aperture)]
-        old_ap_id = self.aperture_map.get(id(self.aperture), None)
+        ap_id = self.aperture_map[aperture]
+        old_ap_id = self.aperture_map.get(self.aperture, None)
         if ap_id != old_ap_id:
             self.aperture = aperture
             yield f'D{ap_id}*'
@@ -711,7 +693,6 @@ class GerberParser:
                 self.warn(f'Unknown statement found: "{self._shorten_line()}", ignoring.', UnknownStatementWarning)
                 self.target.comments.append(f'Unknown statement found: "{self._shorten_line()}", ignoring.')
         
-        self.target.apertures = list(self.aperture_map.values())
         self.target.import_settings = self.file_settings
         self.target.unit = self.file_settings.unit
         self.target.file_attrs = self.file_attrs
@@ -852,12 +833,12 @@ class GerberParser:
             if match['shape'] in 'RO' and (math.isclose(modifiers[0], 0) or math.isclose(modifiers[1], 0)):
                 self.warn('Definition of zero-width and/or zero-height rectangle or obround aperture. This is invalid according to spec.' )
 
-            new_aperture = kls(*modifiers, unit=self.file_settings.unit, attrs=self.aperture_attrs.copy(),
+            new_aperture = kls(*modifiers, unit=self.file_settings.unit, attrs=tuple(self.aperture_attrs.items()),
                     original_number=number)
 
         elif (macro := self.aperture_macros.get(match['shape'])):
-            new_aperture = apertures.ApertureMacroInstance(macro, modifiers, unit=self.file_settings.unit,
-                    attrs=self.aperture_attrs.copy(), original_number=number)
+            new_aperture = apertures.ApertureMacroInstance(macro, tuple(modifiers), unit=self.file_settings.unit,
+                    attrs=tuple(self.aperture_attrs.items()), original_number=number)
 
         else:
             raise ValueError(f'Aperture shape "{match["shape"]}" is unknown')
