@@ -199,9 +199,9 @@ class OperatorExpression(Expression):
         l = self.l.optimized(variable_binding)
         r = self.r.optimized(variable_binding)
         
-        if self.op in (operator.add, operator.mul):
-            if id(r) < id(l):
-                l, r = r, l
+        #if self.op in (operator.add, operator.mul):
+        #    if id(r) < id(l):
+        #        l, r = r, l
 
         if isinstance(l, ConstantExpression) and isinstance(r, ConstantExpression):
             return ConstantExpression(self.op(float(l), float(r)))
