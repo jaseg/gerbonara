@@ -126,7 +126,6 @@ class GerberFile(CamFile):
             settings = FileSettings.defaults()
 
         cache = {}
-        macro_cache = {}
         macro_names = set()
         def lookup(aperture):
             nonlocal cache, settings

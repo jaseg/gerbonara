@@ -63,7 +63,7 @@ class ApertureMacro:
         object.__setattr__(self, 'name', f'GNX{hash(self)&0xffffffffffffffff:016X}')
 
     @classmethod
-    def parse_macro(kls, name, body, unit):
+    def parse_macro(kls, macro_name, body, unit):
         comments = []
         variables = {}
         primitives = []
@@ -92,7 +92,7 @@ class ApertureMacro:
                 primitives.append(ap.PRIMITIVE_CLASSES[int(primitive)].from_arglist(unit, args))
 
         variables = [variables.get(i+1) for i in range(max(variables.keys(), default=0))]
-        return kls(name, tuple(primitives), tuple(variables), tuple(comments))
+        return kls(macro_name, tuple(primitives), tuple(variables), tuple(comments))
 
     def __str__(self):
         return f'<Aperture macro {self.name}, variables {str(self.variables)}, primitives {self.primitives}>'
