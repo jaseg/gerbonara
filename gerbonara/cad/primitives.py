@@ -480,8 +480,9 @@ class Trace:
     end: object = None
     waypoints: [(float, float)] = field(default_factory=list)
     style: str = 'oblique'
-    orientation: [str] = tuple() # 'top' or 'bottom'
+    orientation: [str] = tuple() # 'cw' or 'ccw'
     roundover: float = 0
+    side: str = 'top'
     unit: LengthUnit = MM
     parent: object = None
 
