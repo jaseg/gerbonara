@@ -97,6 +97,11 @@ input {
     text-align: center;
 }
 
+.group > .attribution, .group > .usage {
+    grid-column-start: 1;
+    grid-column-end: span 3;
+}
+
 .group > div > .proportion {
     display: none;
 }
@@ -140,6 +145,14 @@ input {
     margin: 0 5px 0 5px;
 }
 
+input[type="text"]:invalid {
+    background: rgba(255 0 0 / 30%);
+}
+
+input[type="text"]:focus:valid {
+    background: rgba(0 192 64 / 30%);
+}
+
 .group.expand {
     border-radius: 0;
 }
@@ -161,6 +174,7 @@ input {
 }
 
 #preview {
+    position: relative;
     grid-area: main;
     padding: 20px;
 }
@@ -169,6 +183,25 @@ input {
     width: 100%;
     height: 100%;
     object-fit: contain;
+}
+
+#preview-message {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: hsla(0 0% 50% / 30%);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    font-size: 18pt;
+    font-weight: bold;
+    color: white;
+}
+
+#preview-message.loading {
+    display: flex;
 }
 
 #links {
@@ -225,63 +258,66 @@ input {
     </head>
     <body>
         <div id="controls">
-            <div class="group board">
-                <h4>Board settings</h4>
-                <label>Units
-                    <select name='units' value="metric">
-                        <option value="metric">Metric</option>
-                        <option value="us">US Customary</option>
-                    </select>
-                </label>
-
-                <label>Board width
-                    <input name="width" type="text" placeholder="width" value="100">
-                    <span class="unit metric">mm</span>
-                    <span class="unit us">inch</span>
-                </label>
-
-                <label>Board height
-                    <input name="height" type="text" placeholder="height" value="80">
-                    <span class="unit metric">mm</span>
-                    <span class="unit us">inch</span>
-                </label>
-
-                <div class="group expand" data-group="round_corners">
-                    <label>Round corners
-                        <input name="enabled" type="checkbox" checked>
+            <form>
+                <div class="group board">
+                    <h4>Board settings</h4>
+                    <label>Units
+                        <select name='units' value="metric">
+                            <option value="metric">Metric</option>
+                            <option value="us">US Customary</option>
+                        </select>
                     </label>
 
-                    <label>Radius
-                        <input name="radius" type="text" placeholder="radius" value="1.5">
-                        <span class="unit metric">mm</span> 
-                        <span class="unit us">inch</span> 
+                    <label>Board width
+                        <input name="width" type="text" placeholder="width" value="100" pattern="[0-9]+\.?[0-9]*"/>
+                        <span class="unit metric">mm</span>
+                        <span class="unit us">inch</span>
                     </label>
+
+                    <label>Board height
+                        <input name="height" type="text" placeholder="height" value="80" pattern="[0-9]+\.?[0-9]*"/>
+                        <span class="unit metric">mm</span>
+                        <span class="unit us">inch</span>
+                    </label>
+
+                    <div class="group expand" data-group="round_corners">
+                        <label>Round corners
+                            <input name="enabled" type="checkbox" checked/>
+                        </label>
+
+                        <label>Radius
+                            <input name="radius" type="text" placeholder="radius" value="1.5" pattern="[0-9]+\.?[0-9]*"/>
+                            <span class="unit metric">mm</span> 
+                            <span class="unit us">inch</span> 
+                        </label>
+                    </div>
+
+                    <div class="group expand" data-group="mounting_holes">
+                        <label>Mounting holes
+                            <input name="enabled" type="checkbox" name="has_holes" checked/>
+                        </label>
+
+                        <label>Diameter
+                            <input type="text" placeholder="diameter" name="diameter" value="3.2" pattern="[0-9]+\.?[0-9]*"/>
+                            <span class="unit metric">mm</span> 
+                            <span class="unit us">inch</span> 
+                        </label>
+
+                        <label>Board edge to hole center
+                            <input type="text" placeholder="distance" name="offset" value="5" pattern="[0-9]+\.?[0-9]*"/>
+                            <span class="unit metric">mm</span> 
+                            <span class="unit us">inch</span> 
+                        </label>
+                    </div>
+
+                    <h4>Content</h4>
+                    <div class="group placeholder"></div>
                 </div>
-
-                <div class="group expand" data-group="mounting_holes">
-                    <label>Mounting holes
-                        <input name="enabled" type="checkbox" name="has_holes" checked>
-                    </label>
-
-                    <label>Diameter
-                        <input type="text" placeholder="diameter" name="diameter" value="3.2"></input>
-                        <span class="unit metric">mm</span> 
-                        <span class="unit us">inch</span> 
-                    </label>
-
-                    <label>Board edge to hole center
-                        <input type="text" placeholder="distance" name="offset" value="5"></input>
-                        <span class="unit metric">mm</span> 
-                        <span class="unit us">inch</span> 
-                    </label>
-                </div>
-
-                <h4>Content</h4>
-                <div class="group placeholder"></div>
-            </div>
+            </form>
         </div>
         <div id="preview">
             <img id="preview-image" alt="Automatically generated preview image"/>
+            <div id="preview-message"></div>
         </div>
         <div id="links">
             <a class="narrow-only" href="#controls">Settings</a>
@@ -309,7 +345,7 @@ input {
                 <h4>Proportional Layout</h4>
                 <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
                 <label class="proportion">Proportion
-                    <input type="text" name="layout_prop" value="1">
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
                 </label>
 
                 <h5>Layout settings</h4>
@@ -335,7 +371,7 @@ input {
                 <h4>Split front and back</h4>
                 <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
                 <label class="proportion">Proportion
-                    <input type="text" name="layout_prop" value="1">
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
                 </label>
 
                 <h5>Front</h5>
@@ -350,7 +386,7 @@ input {
                 <h4>Empty area</h4>
                 <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
                 <label class="proportion">Proportion
-                    <input type="text" name="layout_prop" value="1">
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
                 </label>
 
                 <div class="content">
@@ -374,22 +410,22 @@ input {
                 <h4>SMD area</h4>
                 <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
                 <label class="proportion">Proportion
-                    <input type="text" name="layout_prop" value="1">
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
                 </label>
 
                 <h5>Area Settings</h5>
                 <label>Pitch X
-                    <input type="text" name="pitch_x" placeholder="length" value="1.27">
+                    <input type="text" name="pitch_x" placeholder="length" value="1.27" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Pitch Y
-                    <input type="text" name="pitch_y" placeholder="length" value="2.54">
+                    <input type="text" name="pitch_y" placeholder="length" value="2.54" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Clearance
-                    <input type="text" name="clearance" placeholder="length" value="0.3">
+                    <input type="text" name="clearance" placeholder="length" value="0.3" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
@@ -400,7 +436,7 @@ input {
                     </select>
                 </label>
                 <label class="only-shape rect">Corner radius
-                    <input type="text" name="pad_h" placeholder="length" value="0">
+                    <input type="text" name="pad_h" placeholder="length" value="0" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
@@ -412,22 +448,22 @@ input {
                 <h4>THT area</h4>
                 <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
                 <label class="proportion">Proportion
-                    <input type="text" name="layout_prop" value="1">
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
                 </label>
 
                 <h5>Area Settings</h5>
                 <label>Pitch X
-                    <input type="text" name="pitch_x" placeholder="length" value="2.54">
+                    <input type="text" name="pitch_x" placeholder="length" value="2.54" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Pitch Y
-                    <input type="text" name="pitch_y" placeholder="length" value="2.54">
+                    <input type="text" name="pitch_y" placeholder="length" value="2.54" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Clearance
-                    <input type="text" name="clearance" placeholder="length" value="0.5">
+                    <input type="text" name="clearance" placeholder="length" value="0.5" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
@@ -439,7 +475,7 @@ input {
                     </select>
                 </label>
                 <label>Hole diameter
-                    <input type="text" name="hole_dia" placeholder="length" value="0.9">
+                    <input type="text" name="hole_dia" placeholder="length" value="0.9" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
@@ -451,7 +487,7 @@ input {
                     </select>
                 </label>
                 <label class="only-shape rect">Corner radius
-                    <input type="text" name="pad_h" placeholder="length" value="0">
+                    <input type="text" name="pad_h" placeholder="length" value="0" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
@@ -463,22 +499,22 @@ input {
                 <h4>Manhattan area</h4>
                 <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
                 <label class="proportion">Proportion
-                    <input type="text" name="layout_prop" value="1">
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
                 </label>
 
                 <h5>Area Settings</h5>
                 <label>Pitch X
-                    <input type="text" name="pitch_x" placeholder="length" value="5.08">
+                    <input type="text" name="pitch_x" placeholder="length" value="5.08" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Pitch Y
-                    <input type="text" name="pitch_y" placeholder="length" value="5.08">
+                    <input type="text" name="pitch_y" placeholder="length" value="5.08" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Clearance
-                    <input type="text" name="clearance" placeholder="length" value="0.5">
+                    <input type="text" name="clearance" placeholder="length" value="0.5" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
@@ -490,27 +526,27 @@ input {
                 <h4>THT flower area</h4>
                 <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
                 <label class="proportion">Proportion
-                    <input type="text" name="layout_prop" value="1">
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
                 </label>
 
                 <h5>Area Settings</h5>
                 <label>Pitch
-                    <input type="text" name="pitch" placeholder="length" value="2.54">
+                    <input type="text" name="pitch" placeholder="length" value="2.54" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Pattern diameter
-                    <input type="text" name="pattern_dia" placeholder="length" value="2.0">
+                    <input type="text" name="pattern_dia" placeholder="length" value="2.0" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Hole diameter
-                    <input type="text" name="hole_dia" placeholder="length" value="0.9">
+                    <input type="text" name="hole_dia" placeholder="length" value="0.9" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Clearance
-                    <input type="text" name="clearance" placeholder="length" value="0.5">
+                    <input type="text" name="clearance" placeholder="length" value="0.5" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
@@ -522,37 +558,37 @@ input {
                 <h4>Powered THT area</h4>
                 <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
                 <label class="proportion">Proportion
-                    <input type="text" name="layout_prop" value="1">
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
                 </label>
 
                 <h5>Area Settings</h5>
                 <label>Pitch
-                    <input type="text" name="pitch" placeholder="length" value="2.54">
+                    <input type="text" name="pitch" placeholder="length" value="2.54" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Hole diameter
-                    <input type="text" name="hole_dia" placeholder="length" value="0.9">
+                    <input type="text" name="hole_dia" placeholder="length" value="0.9" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Via drill
-                    <input type="text" name="via_hole_dia" placeholder="length" value="0.4">
+                    <input type="text" name="via_hole_dia" placeholder="length" value="0.4" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Via diameter
-                    <input type="text" name="via_dia" placeholder="length" value="1.1">
+                    <input type="text" name="via_dia" placeholder="length" value="1.1" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Trace width
-                    <input type="text" name="trace_width" placeholder="length" value="0.4">
+                    <input type="text" name="trace_width" placeholder="length" value="0.4" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Clearance
-                    <input type="text" name="clearance" placeholder="length" value="0.2">
+                    <input type="text" name="clearance" placeholder="length" value="0.2" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
@@ -564,37 +600,37 @@ input {
                 <h4>THT area with RF ground</h4>
                 <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
                 <label class="proportion">Proportion
-                    <input type="text" name="layout_prop" value="1">
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
                 </label>
 
                 <h5>Area Settings</h5>
                 <label>Pitch
-                    <input type="text" name="pitch" placeholder="length" value="2.54">
+                    <input type="text" name="pitch" placeholder="length" value="2.54" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Hole diameter
-                    <input type="text" name="hole_dia" placeholder="length" value="0.9">
+                    <input type="text" name="hole_dia" placeholder="length" value="0.9" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Trace width
-                    <input type="text" name="trace_width" placeholder="length" value="0.5">
+                    <input type="text" name="trace_width" placeholder="length" value="0.5" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Via diameter
-                    <input type="text" name="via_dia" placeholder="length" value="0.8">
+                    <input type="text" name="via_dia" placeholder="length" value="0.8" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Via drill
-                    <input type="text" name="via_hole_dia" placeholder="length" value="0.4">
+                    <input type="text" name="via_hole_dia" placeholder="length" value="0.4" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Clearance
-                    <input type="text" name="clearance" placeholder="length" value="0.3">
+                    <input type="text" name="clearance" placeholder="length" value="0.3" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
@@ -604,59 +640,59 @@ input {
         <template id="tpl-g-spiky">
             <div data-type="spiky" class="group spiky">
                 <h4>Spiky hybrid area</h4>
-                <div>
+                <div class="attribution">
                     Layout by <a href="https://social.treehouse.systems/@electronic_eel">electroniceel</a> (<a href="https://github.com/electroniceel/protoboard">github</a>)
                 </div>
                 <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
                 <label class="proportion">Proportion
-                    <input type="text" name="layout_prop" value="1">
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
                 </label>
 
                 <h5>Area Settings</h5>
-                This area has a fixed 100 mil / 2.54 mm pitch.
+                <div class="usage">This area has a fixed 100 mil / 2.54 mm pitch.</div>
             </div>
         </template>
 
         <template id="tpl-g-alio">
             <div data-type="alio" class="group alio">
                 <h4>ALio hybrid area</h4>
-                <div>
+                <div class="attribution">
                     Layout by arief ibrahim adha (<a href="https://hackaday.io/project/28570-alio-new-hardware-prototyping-platform">hackaday.io</a>).
                     Top and bottom have opposed orientation of the SMD pads. 
                 </div>
                 <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
                 <label class="proportion">Proportion
-                    <input type="text" name="layout_prop" value="1">
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
                 </label>
 
                 <h5>Area Settings</h5>
                 <label>Pitch
-                    <input type="text" name="pitch" placeholder="length" value="2.54">
+                    <input type="text" name="pitch" placeholder="length" value="2.54" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Hole diameter
-                    <input type="text" name="hole_dia" placeholder="length" value="0.9">
+                    <input type="text" name="hole_dia" placeholder="length" value="0.9" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Link trace width
-                    <input type="text" name="link_trace_width" placeholder="length" value="0.5">
+                    <input type="text" name="link_trace_width" placeholder="length" value="0.5" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Via pad width
-                    <input type="text" name="link_pad_width" placeholder="length" value="0.8">
+                    <input type="text" name="link_pad_width" placeholder="length" value="0.8" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Via drill
-                    <input type="text" name="via_hole_dia" placeholder="length" value="0.4">
+                    <input type="text" name="via_hole_dia" placeholder="length" value="0.4" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
                 <label>Clearance
-                    <input type="text" name="clearance" placeholder="length" value="0.3">
+                    <input type="text" name="clearance" placeholder="length" value="0.3" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
@@ -951,19 +987,28 @@ input {
 
             let previewBlobURL = null;
             previewReloader = new RateLimiter(async () => {
-                const response = await fetch('preview.svg', {
-                    method: 'POST',
-                    mode: 'same-origin',
-                    cache: 'no-cache',
-                    headers: {'Content-Type': 'application/json'},
-                    body: serialize(),
-                });
-                const data = await response.blob();
-                if (previewBlobURL) {
-                    URL.revokeObjectURL(previewBlobURL);
+                if (document.querySelector('form').checkValidity()) {
+                    document.querySelector('#preview-message').textContent = 'Reloading...';
+                    document.querySelector('#preview-message').classList.add('loading');
+                    const response = await fetch('preview.svg', {
+                        method: 'POST',
+                        mode: 'same-origin',
+                        cache: 'no-cache',
+                        headers: {'Content-Type': 'application/json'},
+                        body: serialize(),
+                    });
+                    const data = await response.blob();
+                    if (previewBlobURL) {
+                        URL.revokeObjectURL(previewBlobURL);
+                    }
+                    previewBlobURL = URL.createObjectURL(data);
+                    document.querySelector('#preview-image').src = previewBlobURL;
+                    document.querySelector('#preview-message').textContent = '';
+                    document.querySelector('#preview-message').classList.remove('loading');
+                } else {
+                    document.querySelector('#preview-message').classList.add('loading');
+                    document.querySelector('#preview-message').textContent = 'Please correct any invalid fields.';
                 }
-                previewBlobURL = URL.createObjectURL(data);
-                document.querySelector('#preview-image').src = previewBlobURL;
             }, 1000);
 
             document.querySelector('div.placeholder').replaceWith(createPlaceholder());

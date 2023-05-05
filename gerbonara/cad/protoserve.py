@@ -4,7 +4,7 @@ import importlib.resources
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from pathlib import Path
 
-from quart import Quart, request, Response, send_file
+from quart import Quart, request, Response, send_file, abort
 
 from . import protoboard as pb
 from . import protoserve_data
@@ -144,7 +144,10 @@ def to_board(obj):
     mounting_hole_offset = float(holes.get('offset', unit(5, MM)))
 
     if obj.get('children'):
-        content = deserialize(obj['children'][0], unit)
+        try:
+            content = deserialize(obj['children'][0], unit)
+        except ValueError:
+            return abort(400)
     else:
         content = [pb.EmptyProtoArea()]
 
