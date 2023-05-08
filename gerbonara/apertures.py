@@ -150,6 +150,8 @@ class ExcellonTool(Aperture):
     # Internal use, for layer dilation.
     def dilated(self, offset, unit=MM):
         offset = unit(offset, self.unit)
+        if math.isclose(offset, 0, abs_tol=1e-6):
+            return self
         return replace(self, diameter=self.diameter+2*offset)
 
     @lru_cache()
@@ -188,6 +190,8 @@ class CircleAperture(Aperture):
 
     def dilated(self, offset, unit=MM):
         offset = self.unit(offset, unit)
+        if math.isclose(offset, 0, abs_tol=1e-6):
+            return self
         return replace(self, diameter=self.diameter+2*offset, hole_dia=None)
 
     @lru_cache()
@@ -235,13 +239,15 @@ class RectangleAperture(Aperture):
 
     def dilated(self, offset, unit=MM):
         offset = self.unit(offset, unit)
+        if math.isclose(offset, 0, abs_tol=1e-6):
+            return self
         return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None)
 
     @lru_cache()
     def rotated(self, angle=0):
-        if math.isclose(angle % math.pi, 0):
+        if math.isclose(angle % math.pi, 0, abs_tol=1e-6):
             return self
-        elif math.isclose(angle % math.pi, math.pi/2):
+        elif math.isclose(angle % math.pi, math.pi/2, abs_tol=1e-6):
             return replace(self, w=self.h, h=self.w, hole_dia=self.hole_dia)
         else: # odd angle
             return self.to_macro(angle)
@@ -295,6 +301,8 @@ class ObroundAperture(Aperture):
 
     def dilated(self, offset, unit=MM):
         offset = self.unit(offset, unit)
+        if math.isclose(offset, 0, abs_tol=1e-6):
+            return self
         return replace(self, w=self.w+2*offset, h=self.h+2*offset, hole_dia=None)
 
     @lru_cache()
@@ -362,6 +370,8 @@ class PolygonAperture(Aperture):
 
     def dilated(self, offset, unit=MM):
         offset = self.unit(offset, unit)
+        if math.isclose(offset, 0, abs_tol=1e-6):
+            return self
         return replace(self, diameter=self.diameter+2*offset, hole_dia=None)
 
     flash = _flash_hole
@@ -388,7 +398,7 @@ class PolygonAperture(Aperture):
 
         if self.hole_dia is not None:
             return self.unit.convert_to(unit, self.diameter), self.n_vertices, rotation, self.unit.convert_to(unit, self.hole_dia)
-        elif rotation is not None and not math.isclose(rotation, 0):
+        elif rotation is not None and not math.isclose(rotation, 0, abs_tol=1e-6):
             return self.unit.convert_to(unit, self.diameter), self.n_vertices, rotation
         else:
             return self.unit.convert_to(unit, self.diameter), self.n_vertices
@@ -418,11 +428,13 @@ class ApertureMacroInstance(Aperture):
         return out
 
     def dilated(self, offset, unit=MM):
+        if math.isclose(offset, 0, abs_tol=1e-6):
+            return self
         return replace(self, macro=self.macro.dilated(offset, unit))
 
     @lru_cache()
     def rotated(self, angle=0.0):
-        if math.isclose(angle % (2*math.pi), 0):
+        if math.isclose(angle % (2*math.pi), 0, abs_tol=1e-6):
             return self
         else:
             return self.to_macro(angle)
