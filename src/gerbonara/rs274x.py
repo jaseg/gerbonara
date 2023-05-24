@@ -375,7 +375,7 @@ class GerberFile(CamFile):
     def invert_polarity(self):
         """ Invert the polarity (color) of each object in this file. """
         for obj in self.objects:
-            obj.polarity_dark = not p.polarity_dark
+            obj.polarity_dark = not obj.polarity_dark
 
     def convex_hull(self, tol=0.01, unit=None):
         unit = unit or self.unit
