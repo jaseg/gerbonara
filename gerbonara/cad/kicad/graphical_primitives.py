@@ -115,12 +115,13 @@ class Line:
         if self.angle:
             raise NotImplementedError('Angles on lines are not implemented. Please raise an issue and provide an example file.')
 
-        if self.width:
-            aperture = ap.CircleAperture(self.width, unit=MM)
-        else:
-            aperture = ap.CircleAperture(self.stroke.width, unit=MM)
+        dasher = Dasher(self)
+        dasher.move(self.start.x, self.start.y)
+        dasher.line(self.end.x, self.end.y)
 
-        yield go.Line(self.start.x, self.start.y, self.end.x, self.end.y, aperture=aperture, unit=MM)
+        for x1, y1, x2, y2 in dasher:
+            yield go.Line(x1, y1, x2, y2, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
+        # FIXME render all primitives using dasher, maybe share code w/ fp_ prefix primitives
 
 
 @sexp_type('fill')
@@ -204,13 +205,14 @@ class Polygon:
     pts: PointList = field(default_factory=PointList)
     layer: Named(str) = None
     width: Named(float) = None
+    stroke: Stroke = field(default_factory=Stroke)
     fill: FillMode = True
     tstamp: Timestamp = None
 
     def render(self, variables=None):
         reg = go.Region([(pt.x, pt.y) for pt in self.pts.xy], unit=MM)
         
-        if self.width and self.width >= 0.005:
+        if self.width and self.width >= 0.005 or self.stroke.width and self.stroke.width > 0.005:
             yield from reg.outline_objects(aperture=ap.CircleAperture(self.width, unit=MM))
 
         if self.fill:
