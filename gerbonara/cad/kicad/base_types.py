@@ -9,6 +9,42 @@ from contextlib import contextmanager
 from itertools import cycle
 
 
+LAYER_MAP_K2G = {
+        'F.Cu': ('top', 'copper'),
+        'B.Cu': ('bottom', 'copper'),
+        'F.SilkS': ('top', 'silk'),
+        'B.SilkS': ('bottom', 'silk'),
+        'F.Paste': ('top', 'paste'),
+        'B.Paste': ('bottom', 'paste'),
+        'F.Mask': ('top', 'mask'),
+        'B.Mask': ('bottom', 'mask'),
+        'B.CrtYd': ('bottom', 'courtyard'),
+        'F.CrtYd': ('top', 'courtyard'),
+        'B.Fab': ('bottom', 'fabrication'),
+        'F.Fab': ('top', 'fabrication'),
+        'B.Adhes': ('bottom', 'adhesive'),
+        'F.Adhes': ('top', 'adhesive'),
+        'Dwgs.User': ('mechanical', 'drawings'),
+        'Cmts.User': ('mechanical', 'comments'),
+        'Edge.Cuts': ('mechanical', 'outline'),
+        }
+
+LAYER_MAP_G2K = {v: k for k, v in LAYER_MAP_K2G.items()}
+
+
+@sexp_type('group')
+class Group:
+    name: str = ""
+    id: Named(str) = ""
+    members: Named(List(str)) = field(default_factory=list)
+
+
+@sexp_type('property')
+class Property:
+    key: str = ''
+    value: str = ''
+
+
 @sexp_type('color')
 class Color:
     r: int = None
@@ -175,6 +211,19 @@ class TextEffect:
 
 @sexp_type('tstamp')
 class Timestamp:
+    value: str = field(default_factory=uuid.uuid4)
+
+    def __after_parse__(self, parent):
+        self.value = str(self.value)
+
+    def before_sexp(self):
+        self.value = Atom(str(self.value))
+
+    def bump(self):
+        self.value = uuid.uuid4()
+
+@sexp_type('uuid')
+class UUID:
     value: str = field(default_factory=uuid.uuid4)
 
     def __after_parse__(self, parent):

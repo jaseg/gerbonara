@@ -30,12 +30,6 @@ from ...aperture_macros.parse import GenericMacros, ApertureMacro
 from ...aperture_macros import primitive as amp
 
 
-@sexp_type('property')
-class Property:
-    key: str = ''
-    value: str = ''
-
-
 @sexp_type('attr')
 class Attribute:
     type: AtomChoice(Atom.smd, Atom.through_hole) = None
@@ -165,6 +159,7 @@ class Circle:
             aperture = ap.CircleAperture(dasher.width, unit=MM)
             for x1, y1, x2, y2 in dasher:
                 yield go.Line(x1, y1, x2, y2, aperture=aperture, unit=MM)
+
 
 @sexp_type('fp_arc')
 class Arc:
@@ -372,6 +367,7 @@ class Pad:
     tstamp: Timestamp = None
     pin_function: Named(str) = None
     pintype: Named(str) = None
+    pinfunction: Named(str) = None
     die_length: Named(float) = None
     solder_mask_margin: Named(float) = None
     solder_paste_margin: Named(float) = None
@@ -543,13 +539,6 @@ class Pad:
             yield go.Flash(self.at.x, self.at.y, aperture=aperture, unit=MM) 
 
 
-@sexp_type('group')
-class Group:
-    name: str = ""
-    id: Named(str) = ""
-    members: Named(List(str)) = field(default_factory=list)
-
-
 @sexp_type('model')
 class Model:
     name: str = ''
@@ -564,7 +553,7 @@ SUPPORTED_FILE_FORMAT_VERSIONS = [20210108, 20211014, 20221018]
 class Footprint:
     name: str = None
     _version: Named(int, name='version') = 20210108
-    generator: Named(Atom) = Atom.kicad_library_utils
+    generator: Named(Atom) = Atom.gerbonara
     locked: Flag() = False
     placed: Flag() = False
     layer: Named(str) = 'F.Cu'
@@ -655,11 +644,10 @@ class Footprint:
                 (self.dimensions if text else []),
                 (self.pads if pads else []))
 
-    def render(self, layer_stack, layer_map, x=0, y=0, rotation=0, text=False, side=None, variables={}, cache=None):
+    def render(self, layer_stack, layer_map, x=0, y=0, rotation=0, text=False, flip=False, variables={}, cache=None):
         x += self.at.x
         y += self.at.y
         rotation += math.radians(self.at.rotation)
-        flip = (side != 'top') if side else (self.layer != 'F.Cu')
 
         for obj in self.objects(pads=False, text=text):
             if not (layer := layer_map.get(obj.layer)):
@@ -718,35 +706,11 @@ class Footprint:
         if not self._bounding_box:
             stack = LayerStack()
             layer_map = {kc_id: gn_id for kc_id, gn_id in LAYER_MAP_K2G.items() if gn_id in stack}
-            self.render(stack, layer_map, x=0, y=0, rotation=0, side='top', text=False, variables={})
+            self.render(stack, layer_map, x=0, y=0, rotation=0, flip=False, text=False, variables={})
             self._bounding_box = stack.bounding_box(unit)
         return self._bounding_box
 
         
-
-LAYER_MAP_K2G = {
-        'F.Cu': ('top', 'copper'),
-        'B.Cu': ('bottom', 'copper'),
-        'F.SilkS': ('top', 'silk'),
-        'B.SilkS': ('bottom', 'silk'),
-        'F.Paste': ('top', 'paste'),
-        'B.Paste': ('bottom', 'paste'),
-        'F.Mask': ('top', 'mask'),
-        'B.Mask': ('bottom', 'mask'),
-        'B.CrtYd': ('bottom', 'courtyard'),
-        'F.CrtYd': ('top', 'courtyard'),
-        'B.Fab': ('bottom', 'fabrication'),
-        'F.Fab': ('top', 'fabrication'),
-        'B.Adhes': ('bottom', 'adhesive'),
-        'F.Adhes': ('top', 'adhesive'),
-        'Dwgs.User': ('mechanical', 'drawings'),
-        'Cmts.User': ('mechanical', 'comments'),
-        'Edge.Cuts': ('mechanical', 'outline'),
-        }
-
-LAYER_MAP_G2K = {v: k for k, v in LAYER_MAP_K2G.items()}
-
-
 @dataclass
 class FootprintInstance(Positioned):
     sexp: Footprint = None
@@ -756,7 +720,7 @@ class FootprintInstance(Positioned):
     variables: dict = field(default_factory=lambda: {})
 
     def render(self, layer_stack, cache=None):
-        x, y, rotation = self.abs_pos
+        x, y, rotation, flip= self.abs_pos
         x, y = MM(x, self.unit), MM(y, self.unit)
 
         variables = dict(self.variables)
@@ -771,12 +735,13 @@ class FootprintInstance(Positioned):
 
         self.sexp.render(layer_stack, layer_map,
                          x=x, y=y, rotation=rotation,
-                         side=self.side,
+                         flip=flip,
                          text=(not self.hide_text),
                          variables=variables, cache=cache)
     
     def bounding_box(self, unit=MM):
         return offset_bounds(self.sexp.bounding_box(unit), unit(self.x, self.unit), unit(self.y, self.unit))
+
 
 if __name__ == '__main__':
     import sys

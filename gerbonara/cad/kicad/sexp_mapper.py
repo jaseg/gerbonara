@@ -64,6 +64,7 @@ def sexp(t, v):
 def map_sexp(t, v, parent=None):
     if t is not Atom and hasattr(t, '__map__'):
         return t.__map__(v, parent=parent)
+
     elif t in (int, float, str, Atom):
         v, = v
         if not isinstance(v, t):
@@ -73,9 +74,11 @@ def map_sexp(t, v, parent=None):
             else:
                 raise TypeError(f'Cannot map s-expression value {v} of type {type(v)} to Python type {t}')
         return v
+
     elif isinstance(t, list):
         t, = t
         return [map_sexp(t, elem, parent=parent) for elem in v]
+
     else:
         raise TypeError(f'Python type {t} has no defined s-expression deserialization')
 

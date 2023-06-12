@@ -39,8 +39,8 @@ class ZoneFill:
     thermal_gap: Named(float) = 0.508
     thermal_bridge_width: Named(float) = 0.508
     smoothing: ZoneSmoothing = None
-    island_removal_node: Named(int) = None
-    islan_area_min: Named(float) = None
+    island_removal_mode: Named(int) = None
+    island_area_min: Named(float) = None
     hatch_thickness: Named(float) = None
     hatch_gap: Named(float) = None
     hatch_orientation: Named(int) = None
@@ -53,6 +53,7 @@ class ZoneFill:
 @sexp_type('filled_polygon')
 class FillPolygon:
     layer: Named(str) = ""
+    island: Wrap(Flag()) = False
     pts: PointList = field(default_factory=PointList)
 
 

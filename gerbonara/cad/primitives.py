@@ -173,6 +173,44 @@ class Positioned:
         return True
 
 
+# The dataclass API is slightly idiotic here, so we have to duplicate the entire thing.
+@dataclass(frozen=True)
+class FrozenPositioned:
+    x: float
+    y: float
+    _: KW_ONLY
+    rotation: float = 0.0
+    flip: bool = False
+    unit: LengthUnit = MM
+    parent: object = None
+
+    @property
+    def abs_pos(self):
+        if self.parent is None:
+            px, py, pa, pf = 0, 0, 0, False
+        else:
+            px, py, pa, pf = self.parent.abs_pos
+
+        return self.x+px, self.y+py, self.rotation+pa, (bool(self.flip) != bool(pf))
+
+    def bounding_box(self, unit=MM):
+        stack = LayerStack()
+        self.render(stack)
+        objects = chain(*(l.objects for l in stack.graphic_layers.values()),
+                        stack.drill_pth.objects, stack.drill_npth.objects)
+        objects = list(objects)
+        #print('foo', type(self).__name__,
+        #      [(type(obj).__name__, [prim.bounding_box() for prim in obj.to_primitives(unit)]) for obj in objects], file=sys.stderr)
+        return sum_bounds(prim.bounding_box() for obj in objects for prim in obj.to_primitives(unit))
+
+    def overlaps(self, bbox, unit=MM):
+        return bbox_intersect(self.bounding_box(unit), bbox)
+
+    @property
+    def single_sided(self):
+        return True
+
+
 @dataclass
 class Graphics(Positioned):
     top_copper: list = field(default_factory=list)
@@ -336,15 +374,6 @@ class Text(Positioned):
         return (self.x+x0, self.y+y0), (self.x+x0+approx_w, self.y+y0+approx_h)
 
 
-@dataclass
-class Pad(Positioned):
-    pad_stack: PadStack
-
-    @property
-    def single_sided(self):
-        return self.pad_stack.single_sided
-
-
 @dataclass(frozen=True, slots=True)
 class PadStackAperture:
     aperture: Aperture
@@ -493,7 +522,7 @@ class ThroughViaStack(PadStack):
 
 
 @dataclass(frozen=True, slots=True)
-class Via(Positioned):
+class Via(FrozenPositioned):
     pad_stack: PadStack
 
     def render(self, layer_stack, cache=None):
@@ -503,6 +532,15 @@ class Via(Positioned):
     @classmethod
     def at(kls, x, y, hole, dia=None, tented=True, unit=MM):
         return kls(x, y, ThroughViaStack(hole, dia, tented, unit=unit), unit=unit)
+
+
+@dataclass
+class Pad(Positioned):
+    pad_stack: PadStack
+
+    @property
+    def single_sided(self):
+        return self.pad_stack.single_sided
 
 
 @dataclass

@@ -24,6 +24,7 @@ class Text:
     layer: TextLayer = field(default_factory=TextLayer)
     tstamp: Timestamp = None
     effects: TextEffect = field(default_factory=TextEffect)
+    render_cache: RenderCache = None
 
     def render(self, variables={}):
         if not self.effects or self.effects.hide or not self.effects.font:
@@ -107,13 +108,18 @@ class Line:
     angle: Named(float) = None # wat
     layer: Named(str) = None
     width: Named(float) = None
+    stroke: Stroke = field(default_factory=Stroke)
     tstamp: Timestamp = None
 
     def render(self, variables=None):
         if self.angle:
             raise NotImplementedError('Angles on lines are not implemented. Please raise an issue and provide an example file.')
 
-        aperture = ap.CircleAperture(self.width, unit=MM)
+        if self.width:
+            aperture = ap.CircleAperture(self.width, unit=MM)
+        else:
+            aperture = ap.CircleAperture(self.stroke.width, unit=MM)
+
         yield go.Line(self.start.x, self.start.y, self.end.x, self.end.y, aperture=aperture, unit=MM)
 
 
@@ -179,16 +185,18 @@ class Arc:
     end: Rename(XYCoord) = None
     layer: Named(str) = None
     width: Named(float) = None
+    stroke: Stroke = field(default_factory=Stroke)
     tstamp: Timestamp = None
 
     def render(self, variables=None):
         if not self.width:
             return
 
+        aperture = ap.CircleAperture(self.width, unit=MM),
         cx, cy = self.mid.x, self.mid.y
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
-        yield go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, aperture=ap.CircleAperture(self.width or 0, unit=MM), clockwise=True, unit=MM)
+        yield go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, aperture=aperture, clockwise=True, unit=MM)
 
 
 @sexp_type('gr_poly')
@@ -227,4 +235,45 @@ class AnnotationBBox:
  
     def render(self, variables=None):
         return []
+
+
+@sexp_type('format')
+class DimensionFormat:
+    prefix: Named(str) = None
+    suffix: Named(str) = None
+    units: Named(int) = 2
+    units_format: Named(int) = 1
+    precision: Named(int) = 7
+    override_value: Named(str) = None
+    suppress_zeros: bool = False
+    
+
+@sexp_type('style')
+class DimensionStyle:
+    thickness: Named(float) = 0.1
+    arrow_length: Named(float) = 1.27
+    text_position_mode: Named(int) = 0
+    extension_height: Named(float) = None
+    text_frame: Named(float) = None
+    extension_offset: Named(float) = None
+    keep_text_aligned: bool = False
+
+
+@sexp_type('dimension')
+class Dimension:
+    locked: bool = False
+    dimension_type: Named(AtomChoice(Atom.aligned, Atom.leader, Atom.center, Atom.orthogonal, Atom.radial), name='type') = Atom.aligned
+    layer: Named(str) = 'Dwgs.User'
+    tstamp: Timestamp = field(default_factory=Timestamp)
+    pts: Named(Array(XYCoord)) = field(default_factory=list)
+    height: Named(float) = None
+    orientation: Named(int) = None
+    leader_length: Named(float) = None
+    gr_text: Text = None
+    dimension_format: OmitDefault(DimensionFormat) = field(default_factory=DimensionFormat)
+    dimension_style: OmitDefault(DimensionStyle) = field(default_factory=DimensionStyle)
+ 
+    def render(self, variables=None):
+        raise NotImplementedError('Dimension rendering is not yet supported. Please raise an issue.')
+
 
