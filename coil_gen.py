@@ -59,6 +59,17 @@ def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, cl
 
     segment_heights = [point_line_distance((cx, cy), (x1, y1), (x2, y2)) for (x1, y1), (x2, y2) in segments]
 
+    closest_points = []
+    for h, ((x1, y1), (x2, y2)) in zip(segment_heights, segments):
+        dc1 = dist((x1, y1), (cx, cy))
+        d12 = dist((x1, y1), (x2, y2))
+        db = sqrt(dc1**2 - h**2)
+        xn = (x2 - x1) / d12
+        yn = (y2 - y1) / d12
+        xb = x1 + xn * db
+        yb = y1 + yn * db
+        closest_points.append((xb, yb))
+
     smallest_radius = min(segment_heights)
     #trace_radius = smallest_radius - stop_radius
     trace_radius = smallest_radius
@@ -92,8 +103,11 @@ def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, cl
         f.write(f'<svg version="1.1" width="200mm" height="200mm" viewBox="{vbx} {vby} {vbw} {vbh}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">>\n')
         f.write(f'<path fill="none" stroke="#303030" stroke-width="0.05" d="{path_d}"/>\n')
         f.write(f'<path fill="none" stroke="#a0a0a0" stroke-width="0.05" d="{path_d2}"/>\n')
-        f.write(f'<path fill="none" stroke="#ff00ff" stroke-width="{trace_width}" d="{path_d3}"/>\n')
+        #f.write(f'<path fill="none" stroke="#ff00ff" stroke-width="{trace_width}" d="{path_d3}"/>\n')
         f.write(f'<circle r="0.1" fill="red" stroke="none" cx="{cx}" cy="{cy}"/>\n')
+        for x, y in closest_points:
+            f.write(f'<circle r="0.1" fill="blue" stroke="none" cx="{x}" cy="{y}"/>\n')
+            f.write(f'<path fill="none" stroke="#a0a0ff" stroke-width="0.05" d="M {cx} {cy} L {x} {y}"/>')
         f.write('</svg>\n')
 
 if __name__ == '__main__':
