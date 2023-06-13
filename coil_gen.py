@@ -16,6 +16,19 @@ def point_line_distance(p, l1, l2):
     # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line
     return abs((x2-x1)*(y1-y0) - (x1-x0)*(y2-y1)) / sqrt((x2-x1)**2 + (y2-y1)**2)
 
+def line_line_intersection(l1, l2):
+    p1, p2 = l1
+    p3, p4 = l2
+    x1, y1 = p1
+    x2, y2 = p2
+    x3, y3 = p3
+    x4, y4 = p4
+    
+    # https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection
+    px = ((x1*y2-y1*x2)*(x3-x4)-(x1-x2)*(x3*y4-y3*x4))/((x1-x2)*(y3-y4)-(y1-y2)*(x3-x4))
+    py = ((x1*y2-y1*x2)*(y3-y4)-(y1-y2)*(x3*y4-y3*x4))/((x1-x2)*(y3-y4)-(y1-y2)*(x3-x4))
+    return px, py
+
 
 @click.command()
 @click.argument('infile', type=click.Path(exists=True, dir_okay=False, path_type=Path))
@@ -58,9 +71,10 @@ def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, cl
     print(f'Sum of segment angles: {degrees(sum(segment_angles)):.2f}')
 
     segment_heights = [point_line_distance((cx, cy), (x1, y1), (x2, y2)) for (x1, y1), (x2, y2) in segments]
+    segment_foo = list(zip(segment_heights, segments))
 
     closest_points = []
-    for h, ((x1, y1), (x2, y2)) in zip(segment_heights, segments):
+    for h, ((x1, y1), (x2, y2)) in segment_foo:
         dc1 = dist((x1, y1), (cx, cy))
         d12 = dist((x1, y1), (x2, y2))
         db = sqrt(dc1**2 - h**2)
@@ -76,22 +90,76 @@ def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, cl
     num_windings = floor((trace_radius - trace_width) / (clearance + trace_width))
     print(f'Going for {num_windings} windings')
 
+    segment_foo = list(zip(segment_heights, segments, segment_angles, closest_points))
+
+    dbg_lines = []
     spiral_points = []
-    r_now = 0
-    for winding in range(num_windings):
-        for angle, ((x1, y1), (x2, y2)) in zip(segment_angles, segments):
-            angle_frac = angle/(2*pi)
-            d_r = angle_frac * (clearance + trace_width)
-            r_pt = dist((cx, cy), (x1, y1)) * (num_windings - winding) / num_windings
+    dr_tot = 0
+    for n in range(num_windings):
+        for (ha, (pa1, pa2), aa, ma), (hb, (pb1, pb2), ab, mb) in zip(segment_foo[-1:] + segment_foo[:-1], segment_foo):
+            pitch = clearance + trace_width
+            dr_tot_a = dr_tot
+            dr_tot_b = dr_tot + ab/(2*pi) * pitch
 
-            x1, y1 = x1-cx, y1-cy
-            x2, y2 = x2-cx, y2-cy
-            l1, l2 = hypot(x1, y1), hypot(x2, y2)
-            x1, y1 = x1/l1, y1/l1
-            x2, y2 = x2/l2, y2/l2
+            xma, yma = ma
+            xmb, ymb = mb
 
-            r_now += d_r
-            spiral_points.append((cx + x1*r_pt, cy + y1*r_pt))
+            xra = (xma - cx) / ha
+            yra = (yma - cy) / ha
+            xrb = (xmb - cx) / hb
+            yrb = (ymb - cy) / hb
+
+            xa1, ya1 = pa1
+            xa2, ya2 = pa2
+            xb1, yb1 = pb1
+            xb2, yb2 = pb2
+
+            dma = dist(pa2, ma)
+            dmb = dist(pb1, mb)
+
+            qa = dr_tot_a*dma/h
+            dra = hypot(dr_tot_a, qa)
+            xea = xa2 + (cx - xa2) / dist((cx, cy), pa2) * dra
+            yea = ya2 + (cy - ya2) / dist((cx, cy), pa2) * dra
+
+            qb = dr_tot_b*dmb/h
+            drb = hypot(dr_tot_b, qb)
+            xeb = xb1 + (cx - xb1) / dist((cx, cy), pb1) * drb
+            yeb = yb1 + (cy - yb1) / dist((cx, cy), pb1) * drb
+
+            xsa = xma - xra*dr_tot_a
+            ysa = yma - yra*dr_tot_a
+
+            xsb = xmb - xrb*dr_tot_b
+            ysb = ymb - yrb*dr_tot_b
+
+            l1 = (xsa, ysa), (xea, yea)
+            l2 = (xsb, ysb), (xeb, yeb)
+
+            dbg_lines.append(l1)
+            dbg_lines.append(l2)
+
+            pic = line_line_intersection(l1, l2)
+            spiral_points.append(pic)
+
+            dr_tot = dr_tot_b
+
+    #spiral_points = []
+    #r_now = 0
+    #for winding in range(num_windings):
+    #    for angle, ((x1, y1), (x2, y2)) in zip(segment_angles, segments):
+    #        angle_frac = angle/(2*pi)
+    #        d_r = angle_frac * (clearance + trace_width)
+    #        r_pt = dist((cx, cy), (x1, y1)) * (num_windings - winding) / num_windings
+#
+#            x1, y1 = x1-cx, y1-cy
+#            x2, y2 = x2-cx, y2-cy
+#            l1, l2 = hypot(x1, y1), hypot(x2, y2)
+#            x1, y1 = x1/l1, y1/l1
+#            x2, y2 = x2/l2, y2/l2
+#
+#            r_now += d_r
+#            spiral_points.append((cx + x1*r_pt, cy + y1*r_pt))
 
     path_d = ' '.join([f'M {xy[0][0]} {xy[0][1]}', *[f'L {x} {y}' for x, y in xy[1:]], 'Z'])
     path_d2 = ' '.join(f'M {cx} {cy} L {x} {y}' for x, y in xy)
@@ -103,11 +171,14 @@ def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, cl
         f.write(f'<svg version="1.1" width="200mm" height="200mm" viewBox="{vbx} {vby} {vbw} {vbh}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">>\n')
         f.write(f'<path fill="none" stroke="#303030" stroke-width="0.05" d="{path_d}"/>\n')
         f.write(f'<path fill="none" stroke="#a0a0a0" stroke-width="0.05" d="{path_d2}"/>\n')
-        #f.write(f'<path fill="none" stroke="#ff00ff" stroke-width="{trace_width}" d="{path_d3}"/>\n')
+        f.write(f'<path fill="none" stroke="#ff00ff" opacity="0.5" stroke-width="{trace_width}" d="{path_d3}"/>\n')
         f.write(f'<circle r="0.1" fill="red" stroke="none" cx="{cx}" cy="{cy}"/>\n')
         for x, y in closest_points:
             f.write(f'<circle r="0.1" fill="blue" stroke="none" cx="{x}" cy="{y}"/>\n')
             f.write(f'<path fill="none" stroke="#a0a0ff" stroke-width="0.05" d="M {cx} {cy} L {x} {y}"/>')
+
+        for (x1, y1), (x2, y2) in dbg_lines:
+            f.write(f'<path fill="none" stroke="#000000" opacity="0.2" stroke-width="0.05" d="M {x1} {y1} L {x2} {y2}"/>')
         f.write('</svg>\n')
 
 if __name__ == '__main__':
