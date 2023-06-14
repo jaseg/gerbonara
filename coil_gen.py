@@ -29,16 +29,22 @@ def line_line_intersection(l1, l2):
     py = ((x1*y2-y1*x2)*(y3-y4)-(y1-y2)*(x3*y4-y3*x4))/((x1-x2)*(y3-y4)-(y1-y2)*(x3-x4))
     return px, py
 
+def angle_between_vectors(va, vb):
+    angle = atan2(vb[1], vb[0]) - atan2(va[1], va[0])
+    if angle < 0:
+        angle += 2*pi
+    return angle
+
 
 @click.command()
 @click.argument('infile', type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.argument('outfile', type=click.Path(writable=True, dir_okay=False, path_type=Path))
 @click.option('--polygon', type=int, default=0, help="Use n'th polygon instead of first one. 0-based index.")
 @click.option('--start-angle', type=float, default=0, help='Angle for the start at the outermost layer of the spiral in degree')
-@click.option('--stop-radius', type=float, default=1, help='Inner radius of spiral')
+@click.option('--windings', type=int, default=5, help='Number of windings to generate')
 @click.option('--trace-width', type=float, default=0.15)
 @click.option('--clearance', type=float, default=0.15)
-def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, clearance):
+def generate(infile, outfile, polygon, start_angle, windings, trace_width, clearance):
     board = kicad_pcb.Board.open(infile)
     objs = [obj for obj in board.objects() if isinstance(obj, kicad_gr.Polygon)]
     print(f'Found {len(objs)} polygon(s).')
@@ -89,15 +95,13 @@ def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, cl
     smallest_radius = min(segment_heights)
     #trace_radius = smallest_radius - stop_radius
     trace_radius = smallest_radius
-    num_windings = floor((trace_radius - trace_width) / (clearance + trace_width))
-    print(f'Going for {num_windings} windings')
 
     segment_foo = list(zip(segment_heights, segments, segment_angles, midpoints, normals))
 
     dbg_lines1, dbg_lines2 = [], []
     spiral_points = []
     dr_tot = 0
-    for n in range(num_windings):
+    for n in range(windings):
         for (ha, (pa1, pa2), aa, ma, na), (hb, (pb1, pb2), ab, mb, nb) in zip(segment_foo[-1:] + segment_foo[:-1], segment_foo):
             pitch = clearance + trace_width
             dr_tot_a = dr_tot
@@ -171,6 +175,19 @@ def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, cl
 #
 #            r_now += d_r
 #            spiral_points.append((cx + x1*r_pt, cy + y1*r_pt))
+
+    out = [spiral_points[0]]
+    for pa, pb, pc in zip(spiral_points, spiral_points[1:], spiral_points[2:]):
+        xa, ya = pa
+        xb, yb = pb
+        xc, yc = pc
+
+        angle = angle_between_vectors((xa-xb, ya-yb), (xc-xb, yc-yb))
+        if angle > pi:
+            pass
+
+        else:
+            out.append(pb)
 
     path_d = ' '.join([f'M {xy[0][0]} {xy[0][1]}', *[f'L {x} {y}' for x, y in xy[1:]], 'Z'])
     path_d2 = ' '.join(f'M {cx} {cy} L {x} {y}' for x, y in xy)
