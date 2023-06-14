@@ -177,17 +177,31 @@ def generate(infile, outfile, polygon, start_angle, windings, trace_width, clear
 #            spiral_points.append((cx + x1*r_pt, cy + y1*r_pt))
 
     out = [spiral_points[0]]
-    for pa, pb, pc in zip(spiral_points, spiral_points[1:], spiral_points[2:]):
+    ndrop = 0
+    for i, (pa, pb, pc) in enumerate(zip(spiral_points, spiral_points[1:], spiral_points[2:])):
         xa, ya = pa
         xb, yb = pb
         xc, yc = pc
+        if ndrop:
+            ndrop -= 1
+            continue
 
         angle = angle_between_vectors((xa-xb, ya-yb), (xc-xb, yc-yb))
         if angle > pi:
-            pass
+            ndrop += 1
+            for pd, pe in zip(spiral_points[i+2:], spiral_points[i+3:]):
+                xd, yd = pd
+                xe, ye = pe
+                angle = angle_between_vectors((xa-xb, ya-yb), (xe-xd, ye-yd))
+                if angle > pi:
+                    ndrop += 1
+                else:
+                    out.append(line_line_intersection((pa, pb), (pd, pe)))
+                    break
 
         else:
             out.append(pb)
+    spiral_points = out
 
     path_d = ' '.join([f'M {xy[0][0]} {xy[0][1]}', *[f'L {x} {y}' for x, y in xy[1:]], 'Z'])
     path_d2 = ' '.join(f'M {cx} {cy} L {x} {y}' for x, y in xy)
