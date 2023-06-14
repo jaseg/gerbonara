@@ -117,12 +117,12 @@ def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, cl
             dma = dist(pa2, ma)
             dmb = dist(pb1, mb)
 
-            qa = dr_tot_a*dma/h
+            qa = dr_tot_a*dma/ha
             dra = hypot(dr_tot_a, qa)
             xea = xa2 + (cx - xa2) / dist((cx, cy), pa2) * dra
             yea = ya2 + (cy - ya2) / dist((cx, cy), pa2) * dra
 
-            qb = dr_tot_b*dmb/h
+            qb = dr_tot_b*dmb/hb
             drb = hypot(dr_tot_b, qb)
             xeb = xb1 + (cx - xb1) / dist((cx, cy), pb1) * drb
             yeb = yb1 + (cy - yb1) / dist((cx, cy), pb1) * drb
