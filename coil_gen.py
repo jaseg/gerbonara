@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 
+import subprocess
+import sys
+import os
 from math import *
 from pathlib import Path
 from itertools import cycle
 
 from gerbonara.cad.kicad import pcb as kicad_pcb
+from gerbonara.cad.kicad import footprints as kicad_fp
 from gerbonara.cad.kicad import graphical_primitives as kicad_gr
 import click
+
+
+__version__ = '1.0.0'
 
 
 def point_line_distance(p, l1, l2):
@@ -37,20 +44,49 @@ def angle_between_vectors(va, vb):
 
 
 @click.command()
-@click.argument('infile', type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.argument('outfile', type=click.Path(writable=True, dir_okay=False, path_type=Path))
+@click.argument('infile', required=False, type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument('outfile', required=False, type=click.Path(writable=True, dir_okay=False, path_type=Path))
+@click.option('--footprint-name', help="Name for the generated footprint. Default: Output file name sans extension.")
+@click.option('--target-layer', default='F.Cu', help="Target KiCad layer for the generated footprint. Default: F.Cu.")
 @click.option('--polygon', type=int, default=0, help="Use n'th polygon instead of first one. 0-based index.")
 @click.option('--start-angle', type=float, default=0, help='Angle for the start at the outermost layer of the spiral in degree')
 @click.option('--windings', type=int, default=5, help='Number of windings to generate')
 @click.option('--trace-width', type=float, default=0.15)
 @click.option('--clearance', type=float, default=0.15)
-def generate(infile, outfile, polygon, start_angle, windings, trace_width, clearance):
-    board = kicad_pcb.Board.open(infile)
+@click.option('--clipboard/--no-clipboard', help='Use clipboard integration (requires wl-clipboard)')
+@click.option('--counter-clockwise/--clockwise', help='Direction of generated spiral. Default: clockwise when wound from the inside.')
+def generate(infile, outfile, polygon, start_angle, windings, trace_width, clearance, footprint_name, target_layer, clipboard, counter_clockwise):
+    if 'WAYLAND_DISPLAY' in os.environ:
+        copy, paste, cliputil = ['wl-copy'], ['wl-paste'], 'xclip'
+    else:
+        copy, paste, cliputil = ['xclip', '-i', '-sel', 'clipboard'], ['xclip', '-o', '-sel' 'clipboard'], 'wl-clipboard'
+
+    if clipboard:
+        try:
+            proc = subprocess.run(paste, capture_output=True, text=True, check=True)
+        except FileNotFoundError:
+            print(f'Error: --clipboard requires the {copy[0]} and {paste[0]} utilities from {cliputil} to be installed.', file=sys.stderr)
+        board = kicad_pcb.Board.load(proc.stdout)
+    elif not infile:
+        board = kicad_pcb.Board.load(sys.stdin.read())
+    else:
+        board = kicad_pcb.Board.open(infile)
+
     objs = [obj for obj in board.objects() if isinstance(obj, kicad_gr.Polygon)]
-    print(f'Found {len(objs)} polygon(s).')
+    print(f'Found {len(objs)} polygon(s).', file=sys.stderr)
     poly = objs[polygon]
     xy = [(pt.x, pt.y) for pt in poly.pts.xy]
+
+    if counter_clockwise:
+        xy = [(-x, y) for x, y in xy]
+
     segments = list(zip(xy, xy[1:] + xy[:1]))
+
+    # normalize orientation, make xy counter-clockwise
+    if sum((x2 - x1) * (y2 + y1) for (x1, y1), (x2, y2) in segments) < 0:
+        print(f'Reversing polygon direction.', file=sys.stderr)
+        xy = xy[::-1]
+        segments = list(zip(xy, xy[1:] + xy[:1]))
 
     vbx, vby = min(x for x, y in xy), min(y for x, y, in xy)
     vbw, vbh = max(x for x, y in xy), max(y for x, y, in xy)
@@ -73,8 +109,6 @@ def generate(infile, outfile, polygon, start_angle, windings, trace_width, clear
 
     segment_angles = [(atan2(y1-cy, x1-cx) - atan2(y2-cy, x2-cx) + 2*pi) % (2*pi) for (x1, y1), (x2, y2) in segments]
     angle_strs = [f'{degrees(a):.2f}' for a in segment_angles]
-    print(f'Segment angles: {" ".join(angle_strs)}')
-    print(f'Sum of segment angles: {degrees(sum(segment_angles)):.2f}')
 
     segment_heights = [point_line_distance((cx, cy), (x1, y1), (x2, y2)) for (x1, y1), (x2, y2) in segments]
     segment_foo = list(zip(segment_heights, segments))
@@ -100,12 +134,12 @@ def generate(infile, outfile, polygon, start_angle, windings, trace_width, clear
 
     dbg_lines1, dbg_lines2 = [], []
     spiral_points = []
-    dr_tot = 0
+    dr_tot = trace_width/2
     for n in range(windings):
         for (ha, (pa1, pa2), aa, ma, na), (hb, (pb1, pb2), ab, mb, nb) in zip(segment_foo[-1:] + segment_foo[:-1], segment_foo):
             pitch = clearance + trace_width
             dr_tot_a = dr_tot
-            dr_tot_b = dr_tot + ab/(2*pi) * pitch
+            dr_tot_b = n * pitch + trace_width/2
 
             xma, yma = ma
             xna, yna = na
@@ -227,6 +261,57 @@ def generate(infile, outfile, polygon, start_angle, windings, trace_width, clear
 
         f.write(f'<circle r="0.1" fill="red" stroke="none" cx="{cx}" cy="{cy}"/>\n')
         f.write('</svg>\n')
+
+    if counter_clockwise:
+        spiral_points = [(-x, y) for x, y in spiral_points]
+
+    fp_lines = [
+            kicad_fp.Line(
+                start=kicad_fp.XYCoord(x=x1, y=y1),
+                end=kicad_fp.XYCoord(x=x2, y=y2),
+                layer=target_layer, 
+                stroke=kicad_fp.Stroke(width=trace_width))
+            for (x1, y1), (x2, y2) in zip(spiral_points, spiral_points[1:])]
+
+    make_pad = lambda num, x, y: kicad_fp.Pad(
+            number=str(num),
+            type=kicad_fp.Atom.smd,
+            shape=kicad_fp.Atom.circle,
+            at=kicad_fp.AtPos(x=x, y=y),
+            size=kicad_fp.XYCoord(x=trace_width, y=trace_width),
+            layers=[target_layer],
+            clearance=clearance,
+            zone_connect=0,
+            )
+
+    if footprint_name:
+        name = footprint_name
+    elif outfile:
+        name = outfile.stem,
+    else:
+        name = 'generated_coil'
+
+    fp = kicad_fp.Footprint(
+            name=name,
+            generator=kicad_fp.Atom('GerbonaraCoilGenV1'),
+            layer='F.Cu',
+            descr=f"{windings} winding coil footprint generated by gerbonara'c Coil generator, version {__version__}",
+            clearance=clearance,
+            zone_connect=0,
+            lines=fp_lines,
+            pads=[make_pad(1, *spiral_points[0]), make_pad(2, *spiral_points[-1])],
+            )
+
+    if clipboard:
+        try:
+            print(f'Running {copy[0]}. Press Ctrl+C when you are done pasting.')
+            subprocess.run(copy, capture_output=True, text=True, check=True, input=fp.serialize())
+        except FileNotFoundError:
+            print(f'Error: --clipboard requires the {copy[0]} and {paste[0]} utilities from {cliputil} to be installed.', file=sys.stderr)
+    elif not outfile:
+        print(fp.serialize())
+    else:
+        fp.write(outfile)
 
 if __name__ == '__main__':
     generate()

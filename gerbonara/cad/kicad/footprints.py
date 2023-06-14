@@ -604,7 +604,10 @@ class Footprint:
 
     def write(self, filename=None):
         with open(filename or self.original_filename, 'w') as f:
-            f.write(build_sexp(sexp(self)))
+            f.write(self.serialize())
+
+    def serialize(self):
+        return build_sexp(sexp(type(self), self)[0])
 
     @classmethod
     def open_pretty(kls, pretty_dir, fp_name, *args, **kwargs):
