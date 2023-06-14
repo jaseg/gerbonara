@@ -73,16 +73,18 @@ def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, cl
     segment_heights = [point_line_distance((cx, cy), (x1, y1), (x2, y2)) for (x1, y1), (x2, y2) in segments]
     segment_foo = list(zip(segment_heights, segments))
 
-    closest_points = []
+    midpoints = []
     for h, ((x1, y1), (x2, y2)) in segment_foo:
-        dc1 = dist((x1, y1), (cx, cy))
+        xb = (x1 + x2) / 2
+        yb = (y1 + y2) / 2
+        midpoints.append((xb, yb))
+
+    normals = []
+    for h, ((x1, y1), (x2, y2)) in segment_foo:
         d12 = dist((x1, y1), (x2, y2))
-        db = sqrt(dc1**2 - h**2)
-        xn = (x2 - x1) / d12
-        yn = (y2 - y1) / d12
-        xb = x1 + xn * db
-        yb = y1 + yn * db
-        closest_points.append((xb, yb))
+        dx = x2 - x1
+        dy = y2 - y1
+        normals.append((-dy/d12, dx/d12))
 
     smallest_radius = min(segment_heights)
     #trace_radius = smallest_radius - stop_radius
@@ -90,24 +92,21 @@ def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, cl
     num_windings = floor((trace_radius - trace_width) / (clearance + trace_width))
     print(f'Going for {num_windings} windings')
 
-    segment_foo = list(zip(segment_heights, segments, segment_angles, closest_points))
+    segment_foo = list(zip(segment_heights, segments, segment_angles, midpoints, normals))
 
-    dbg_lines = []
+    dbg_lines1, dbg_lines2 = [], []
     spiral_points = []
     dr_tot = 0
     for n in range(num_windings):
-        for (ha, (pa1, pa2), aa, ma), (hb, (pb1, pb2), ab, mb) in zip(segment_foo[-1:] + segment_foo[:-1], segment_foo):
+        for (ha, (pa1, pa2), aa, ma, na), (hb, (pb1, pb2), ab, mb, nb) in zip(segment_foo[-1:] + segment_foo[:-1], segment_foo):
             pitch = clearance + trace_width
             dr_tot_a = dr_tot
             dr_tot_b = dr_tot + ab/(2*pi) * pitch
 
             xma, yma = ma
+            xna, yna = na
             xmb, ymb = mb
-
-            xra = (xma - cx) / ha
-            yra = (yma - cy) / ha
-            xrb = (xmb - cx) / hb
-            yrb = (ymb - cy) / hb
+            xnb, ynb = nb
 
             xa1, ya1 = pa1
             xa2, ya2 = pa2
@@ -117,27 +116,39 @@ def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, cl
             dma = dist(pa2, ma)
             dmb = dist(pb1, mb)
 
-            qa = dr_tot_a*dma/ha
-            dra = hypot(dr_tot_a, qa)
-            xea = xa2 + (cx - xa2) / dist((cx, cy), pa2) * dra
-            yea = ya2 + (cy - ya2) / dist((cx, cy), pa2) * dra
+            x_cons_a, y_cons_a = p_cons_a = line_line_intersection((pa2, (cx, cy)), (ma, (xma-xna, yma-yna)))
+            d_cons_a = dist(p_cons_a, ma)
+            qa = dma * dr_tot_a / d_cons_a
+            dra = hypot(qa, dr_tot_a)
 
-            qb = dr_tot_b*dmb/hb
-            drb = hypot(dr_tot_b, qb)
-            xeb = xb1 + (cx - xb1) / dist((cx, cy), pb1) * drb
-            yeb = yb1 + (cy - yb1) / dist((cx, cy), pb1) * drb
+            nrax = (xa2 - cx) / dist((cx, cy), pa2)
+            nray = (ya2 - cy) / dist((cx, cy), pa2)
 
-            xsa = xma - xra*dr_tot_a
-            ysa = yma - yra*dr_tot_a
+            xea = xa2 - nrax*dra
+            yea = ya2 - nray*dra
 
-            xsb = xmb - xrb*dr_tot_b
-            ysb = ymb - yrb*dr_tot_b
+            x_cons_b, y_cons_b = p_cons_b = line_line_intersection((pb1, (cx, cy)), (mb, (xmb-xnb, ymb-ynb)))
+            d_cons_b = dist(p_cons_b, mb)
+            qb = dmb * dr_tot_b / d_cons_b
+            drb = hypot(qb, dr_tot_b)
+
+            nrbx = (xb1 - cx) / dist((cx, cy), pb1)
+            nrby = (yb1 - cy) / dist((cx, cy), pb1)
+
+            xeb = xb1 - nrbx*drb
+            yeb = yb1 - nrby*drb
+
+            xsa = xma - xna*dr_tot_a
+            ysa = yma - yna*dr_tot_a
+
+            xsb = xmb - xnb*dr_tot_b
+            ysb = ymb - ynb*dr_tot_b
 
             l1 = (xsa, ysa), (xea, yea)
             l2 = (xsb, ysb), (xeb, yeb)
 
-            dbg_lines.append(l1)
-            dbg_lines.append(l2)
+            dbg_lines1.append(l1)
+            dbg_lines2.append(l2)
 
             pic = line_line_intersection(l1, l2)
             spiral_points.append(pic)
@@ -172,13 +183,18 @@ def generate(infile, outfile, polygon, start_angle, stop_radius, trace_width, cl
         f.write(f'<path fill="none" stroke="#303030" stroke-width="0.05" d="{path_d}"/>\n')
         f.write(f'<path fill="none" stroke="#a0a0a0" stroke-width="0.05" d="{path_d2}"/>\n')
         f.write(f'<path fill="none" stroke="#ff00ff" opacity="0.5" stroke-width="{trace_width}" d="{path_d3}"/>\n')
-        f.write(f'<circle r="0.1" fill="red" stroke="none" cx="{cx}" cy="{cy}"/>\n')
-        for x, y in closest_points:
-            f.write(f'<circle r="0.1" fill="blue" stroke="none" cx="{x}" cy="{y}"/>\n')
-            f.write(f'<path fill="none" stroke="#a0a0ff" stroke-width="0.05" d="M {cx} {cy} L {x} {y}"/>')
 
-        for (x1, y1), (x2, y2) in dbg_lines:
-            f.write(f'<path fill="none" stroke="#000000" opacity="0.2" stroke-width="0.05" d="M {x1} {y1} L {x2} {y2}"/>')
+        for (x1, y1), (x2, y2) in dbg_lines1:
+            f.write(f'<path fill="none" stroke="#ff0000" opacity="0.2" stroke-width="0.05" d="M {x1} {y1} L {x2} {y2}"/>')
+
+        for (x1, y1), (x2, y2) in dbg_lines2:
+            f.write(f'<path fill="none" stroke="#0000ff" opacity="0.2" stroke-width="0.05" d="M {x1} {y1} L {x2} {y2}"/>')
+
+        for x, y in midpoints:
+            f.write(f'<path fill="none" stroke="#a0a0ff" stroke-width="0.05" d="M {cx} {cy} L {x} {y}"/>')
+            f.write(f'<circle r="0.1" fill="blue" stroke="none" cx="{x}" cy="{y}"/>\n')
+
+        f.write(f'<circle r="0.1" fill="red" stroke="none" cx="{cx}" cy="{cy}"/>\n')
         f.write('</svg>\n')
 
 if __name__ == '__main__':
