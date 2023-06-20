@@ -304,8 +304,9 @@ def generate(infile, outfile, polygon, start_angle, windings, trace_width, clear
 
     if clipboard:
         try:
-            print(f'Running {copy[0]}. Press Ctrl+C when you are done pasting.')
-            subprocess.run(copy, capture_output=True, text=True, check=True, input=fp.serialize())
+            print(f'Running {copy[0]}.')
+            proc = subprocess.Popen(copy, stdin=subprocess.PIPE, text=True)
+            proc.communicate(fp.serialize())
         except FileNotFoundError:
             print(f'Error: --clipboard requires the {copy[0]} and {paste[0]} utilities from {cliputil} to be installed.', file=sys.stderr)
     elif not outfile:

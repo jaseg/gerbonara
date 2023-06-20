@@ -166,9 +166,9 @@ class Arc:
     start: Rename(XYCoord) = None
     mid: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
-    layer: Named(str) = None
     width: Named(float) = None
     stroke: Stroke = None
+    layer: Named(str) = None
     locked: Flag() = False
     tstamp: Timestamp = None
 
@@ -548,11 +548,11 @@ class Model:
     rotate: Named(XYZCoord) = field(default_factory=XYZCoord)
 
 
-SUPPORTED_FILE_FORMAT_VERSIONS = [20210108, 20211014, 20221018]
+SUPPORTED_FILE_FORMAT_VERSIONS = [20210108, 20211014, 20221018, 20230517]
 @sexp_type('footprint')
 class Footprint:
     name: str = None
-    _version: Named(int, name='version') = 20210108
+    _version: Named(int, name='version') = 20221018
     generator: Named(Atom) = Atom.gerbonara
     locked: Flag() = False
     placed: Flag() = False
