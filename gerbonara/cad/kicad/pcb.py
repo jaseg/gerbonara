@@ -33,12 +33,12 @@ class PageSettings:
     page_format: str = 'A4'
     width: float = None
     height: float = None
-    portrait: bool = False
+    portrait: Flag() = False
 
 
 @sexp_type('layers')
 class LayerSettings:
-    index: int = None
+    index: int = 0
     canonical_name: str = None
     layer_type: AtomChoice(Atom.jumper, Atom.mixed, Atom.power, Atom.signal, Atom.user) = Atom.signal
     custom_name: str = None
@@ -206,7 +206,7 @@ class Board:
     generator: Named(Atom) = Atom.gerbonara
     general: GeneralSection = field(default_factory=GeneralSection)
     page: PageSettings = field(default_factory=PageSettings)
-    layers: Named(Array(LayerSettings)) = field(default_factory=list)
+    layers: Named(Array(Untagged(LayerSettings))) = field(default_factory=list)
     setup: BoardSetup = field(default_factory=BoardSetup)
     properties: List(Property) = field(default_factory=list)
     nets: List(Net) = field(default_factory=list)
@@ -245,7 +245,10 @@ class Board:
 
     def write(self, filename=None):
         with open(filename or self.original_filename, 'w') as f:
-            f.write(build_sexp(sexp(self)))
+            f.write(self.serialize())
+
+    def serialize(self):
+        return build_sexp(sexp(type(self), self)[0])
 
     @classmethod
     def open(kls, pcb_file, *args, **kwargs):
