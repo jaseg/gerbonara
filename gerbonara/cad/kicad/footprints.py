@@ -30,12 +30,16 @@ from ...aperture_macros.parse import GenericMacros, ApertureMacro
 from ...aperture_macros import primitive as amp
 
 
+class _MISSING:
+    pass
+
 @sexp_type('attr')
 class Attribute:
     type: AtomChoice(Atom.smd, Atom.through_hole) = None
     board_only: Flag() = False
     exclude_from_pos_files: Flag() = False
     exclude_from_bom: Flag() = False
+    dnp: Flag() = False
 
 
 @sexp_type('fp_text')
@@ -378,7 +382,13 @@ class Pad:
     thermal_gap: Named(float) = None
     options: OmitDefault(CustomPadOptions) = None
     primitives: OmitDefault(CustomPadPrimitives) = None
+    _: SEXP_END = None
+    footprint: object = None
 
+    def find_connected(self, **filters):
+        """ Find footprints connected to the same net as this pad """
+        return self.footprint.board.find_footprints(net=self.net.name, **filters)
+    
     def render(self, variables=None, margin=None, cache=None):
         #if self.type in (Atom.connect, Atom.np_thru_hole):
         #    return
@@ -562,8 +572,10 @@ class Footprint:
     at: AtPos = field(default_factory=AtPos)
     descr: Named(str) = None
     tags: Named(str) = None
-    properties: List(Property) = field(default_factory=list)
+    properties: List(DrawnProperty) = field(default_factory=list)
     path: Named(str) = None
+    sheetname: Named(str) = None
+    sheetfile: Named(str) = None
     autoplace_cost90: Named(float) = None
     autoplace_cost180: Named(float) = None
     solder_mask_margin: Named(float) = None
@@ -592,6 +604,26 @@ class Footprint:
     _ : SEXP_END = None
     original_filename: str = None
     _bounding_box: tuple = None
+    board: object = None
+
+
+    def __after_parse__(self, parent):
+        self.properties = {prop.key: prop for prop in self.properties}
+
+        for pad in self.pads:
+            pad.footprint = self
+
+    def __before_sexp__(self):
+        self.properties = list(self.properties.values())
+
+    def property_value(self, key, default=_MISSING):
+        if default is not _MISSING and key not in self.properties:
+            return default
+        return self.properties[key].value
+
+    @property
+    def pads_by_number(self):
+        return {(int(pad.number) if pad.number.isnumeric() else pad.number): pad for pad in self.pads if pad.number}
 
     @property
     def version(self):
@@ -633,6 +665,19 @@ class Footprint:
     @property
     def single_sided(self):
         raise NotImplementedError()
+    
+    def rotate(self, angle, cx=None, cy=None):
+        """ Rotate this footprint by the given angle in radians, counter-clockwise. When (cx, cy) are given, rotate
+        around the given coordinates in the global coordinate space. Otherwise rotate around the footprint's origin. """
+        if (cx, cy) != (None, None):
+            x, y = self.at.x-cx, self.at.y-cy
+            self.at.x = math.cos(angle)*x - math.sin(angle)*y + cx
+            self.at.y = math.sin(angle)*x + math.cos(angle)*y + cy
+        
+        self.at.rotation -= math.degrees(angle)
+
+        for pad in self.pads:
+            pad.at.rotation -= math.degrees(angle)
 
     def objects(self, text=False, pads=True):
         return chain(

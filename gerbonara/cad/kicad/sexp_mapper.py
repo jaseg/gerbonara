@@ -1,4 +1,6 @@
 
+import textwrap
+
 from dataclasses import MISSING
 from .sexp import *
 
@@ -48,39 +50,58 @@ class Flag:
 
 
 def sexp(t, v):
-    if v is None:
-        return []
-    elif t in (int, float, str, Atom):
-        return [t(v)]
-    elif hasattr(t, '__sexp__'):
-        return list(t.__sexp__(v))
-    elif isinstance(t, list):
-        t, = t
-        return [sexp(t, elem) for elem in v]
-    else:
-        raise TypeError(f'Python type {t} has no defined s-expression serialization')
+    try:
+        if v is None:
+            return []
+        elif t in (int, float, str, Atom):
+            return [t(v)]
+        elif hasattr(t, '__sexp__'):
+            return list(t.__sexp__(v))
+        elif isinstance(t, list):
+            t, = t
+            return [sexp(t, elem) for elem in v]
+        else:
+            raise TypeError(f'Python type {t} has no defined s-expression serialization')
 
+    except MappingError as e:
+        raise e
+
+    except Exception as e:
+        raise MappingError(f'Error trying to serialize {textwrap.shorten(str(v), width=120)} into type {t}', t, v) from e
+
+
+class MappingError(TypeError):
+    def __init__(self, msg, t, sexp):
+        super().__init__(msg)
+        self.t, self.sexp = t, sexp
 
 def map_sexp(t, v, parent=None):
-    if t is not Atom and hasattr(t, '__map__'):
-        return t.__map__(v, parent=parent)
+    try:
+        if t is not Atom and hasattr(t, '__map__'):
+            return t.__map__(v, parent=parent)
 
-    elif t in (int, float, str, Atom):
-        v, = v
-        if not isinstance(v, t):
-            types = set({type(v), t})
-            if types == {int, float} or types == {str, Atom}:
-                v = t(v)
-            else:
-                raise TypeError(f'Cannot map s-expression value {v} of type {type(v)} to Python type {t}')
-        return v
+        elif t in (int, float, str, Atom):
+            v, = v
+            if not isinstance(v, t):
+                types = set({type(v), t})
+                if types == {int, float} or types == {str, Atom}:
+                    v = t(v)
+                else:
+                    raise TypeError(f'Cannot map s-expression value {v} of type {type(v)} to Python type {t}')
+            return v
 
-    elif isinstance(t, list):
-        t, = t
-        return [map_sexp(t, elem, parent=parent) for elem in v]
+        elif isinstance(t, list):
+            t, = t
+            return [map_sexp(t, elem, parent=parent) for elem in v]
 
-    else:
-        raise TypeError(f'Python type {t} has no defined s-expression deserialization')
+        else:
+            raise TypeError(f'Python type {t} has no defined s-expression deserialization')
+
+    except MappingError as e:
+        raise e
+
+    except Exception as e:
+        raise MappingError(f'Error trying to map {textwrap.shorten(str(v), width=120)} into type {t}', t, v) from e
 
 
 class WrapperType:
@@ -299,8 +320,6 @@ def sexp_type(name=None):
 
         return cls
     return register
-
-
 
 
 class List(WrapperType):

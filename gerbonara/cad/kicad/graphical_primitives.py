@@ -143,6 +143,7 @@ class Rectangle:
     end: Rename(XYCoord) = None
     layer: Named(str) = None
     width: Named(float) = None
+    stroke: Stroke = field(default_factory=Stroke)
     fill: FillMode = False
     tstamp: Timestamp = None
 
@@ -155,6 +156,7 @@ class Rectangle:
             yield rect
 
         if self.width:
+            # FIXME stroke support
             yield from rect.outline_objects(aperture=ap.CircleAperture(self.width, unit=MM))
 
 
@@ -164,6 +166,7 @@ class Circle:
     end: Rename(XYCoord) = None
     layer: Named(str) = None
     width: Named(float) = None
+    stroke: Stroke = field(default_factory=Stroke)
     fill: FillMode = False
     tstamp: Timestamp = None
 
@@ -173,6 +176,7 @@ class Circle:
         arc = go.Arc.from_circle(self.center.x, self.center.y, r, aperture=aperture, unit=MM)
 
         if self.width:
+            # FIXME stroke support
             yield arc
 
         if self.fill:
@@ -190,6 +194,7 @@ class Arc:
     tstamp: Timestamp = None
 
     def render(self, variables=None):
+        # FIXME stroke support
         if not self.width:
             return
 
@@ -212,6 +217,7 @@ class Polygon:
     def render(self, variables=None):
         reg = go.Region([(pt.x, pt.y) for pt in self.pts.xy], unit=MM)
         
+        # FIXME stroke support
         if self.width and self.width >= 0.005 or self.stroke.width and self.stroke.width > 0.005:
             yield from reg.outline_objects(aperture=ap.CircleAperture(self.width, unit=MM))
 

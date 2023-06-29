@@ -5,6 +5,7 @@ Library for handling KiCad's PCB files (`*.kicad_mod`).
 from pathlib import Path
 from dataclasses import field
 from itertools import chain
+import re
 import fnmatch
 
 from .sexp import *
@@ -21,6 +22,12 @@ from ... import apertures as ap
 from ...layers import LayerStack
 from ...newstroke import Newstroke
 from ...utils import MM
+
+
+def match_filter(f, value):
+    if isinstance(f, str) and re.fullmatch(f, value):
+        return True
+    return value in f
 
 
 @sexp_type('general')
@@ -233,6 +240,39 @@ class Board:
     _ : SEXP_END = None
     original_filename: str = None
     _bounding_box: tuple = None
+
+
+    def __after_parse__(self, parent):
+        self.properties = {prop.key: prop.value for prop in self.properties}
+
+        for fp in self.footprints:
+            fp.board = self
+
+    def __before_sexp__(self):
+        self.properties = [Property(key, value) for key, value in self.properties.items()]
+
+    def find_pads(self, net=None):
+        for fp in self.footprints:
+            for pad in fp.pads:
+                if net and not match_filter(net, pad.net.name):
+                    continue
+                yield pad
+
+    def find_footprints(self, value=None, reference=None, name=None, net=None, sheetname=None, sheetfile=None):
+        for fp in self.footprints:
+            if name and not match_filter(name, fp.name):
+                continue
+            if value and not match_filter(value, fp.properties.get('value', '')):
+                continue
+            if reference and not match_filter(reference, fp.properties.get('reference', '')):
+                continue
+            if net and not any(match_filter(net, pad.net.name) for pad in fp.pads):
+                continue
+            if sheetname and not match_filter(sheetname, fp.sheetname):
+                continue
+            if sheetfile and not match_filter(sheetfile, fp.sheetfile):
+                continue
+            yield fp
 
     @property
     def version(self):

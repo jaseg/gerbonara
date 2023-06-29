@@ -39,12 +39,6 @@ class Group:
     members: Named(List(str)) = field(default_factory=list)
 
 
-@sexp_type('property')
-class Property:
-    key: str = ''
-    value: str = ''
-
-
 @sexp_type('color')
 class Color:
     r: int = None
@@ -247,6 +241,24 @@ class EditTime:
 
     def bump(self):
         self.value = time.time()
+
+@sexp_type('property')
+class Property:
+    key: str = ''
+    value: str = ''
+
+
+@sexp_type('property')
+class DrawnProperty:
+    key: str = None
+    value: str = None
+    id: Named(int) = None
+    at: AtPos = field(default_factory=AtPos)
+    layer: Named(str) = None
+    hide: Flag() = False
+    tstamp: Timestamp = None
+    effects: TextEffect = field(default_factory=TextEffect)
+
 
 if __name__ == '__main__':
     class Foo:
