@@ -190,12 +190,6 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
     # micrometers, but it's enough to really throw off our error calculation, so we just ignore text.
     fp = FootprintInstance(0, 0, sexp=Footprint.open_mod(kicad_mod_file), hide_text=True)
 
-    # kicad-cli doesn't render mask on nonplated pads. I think that's a bug, but let's work around this on our side for
-    # now.
-    for pad in fp.sexp.pads:
-        if pad.type == Atom.np_thru_hole:
-            pad.solder_mask_margin = 0
-
     stack = LayerStack(courtyard=True, fabrication=True, adhesive=True)
     stack.add_layer('mechanical drawings')
     stack.add_layer('mechanical comments')
