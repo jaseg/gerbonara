@@ -11,7 +11,7 @@ import time
 import fnmatch
 from itertools import chain
 from pathlib import Path
-from dataclasses import field
+from dataclasses import field, replace
 
 from .sexp import *
 from .base_types import *
@@ -37,8 +37,11 @@ class _MISSING:
 class Attribute:
     type: AtomChoice(Atom.smd, Atom.through_hole) = None
     board_only: Flag() = False
+    virtual: Flag() = False # prior to 20208026
     exclude_from_pos_files: Flag() = False
     exclude_from_bom: Flag() = False
+    allow_missing_courtyard: Flag() = False
+    allow_soldermask_bridges: Flag() = False
     dnp: Flag() = False
 
 
@@ -365,6 +368,7 @@ class Pad:
     rect_delta: Rename(XYCoord) = None
     roundrect_rratio: Named(float) = None
     thermal_bridge_angle: Named(int) = 45
+    thermal_bridge_width: Named(float) = 0.5
     chamfer_ratio: Named(float) = None
     chamfer: Chamfer = None
     net: NetDef = None
@@ -481,7 +485,7 @@ class Pad:
             for obj in self.primitives.all():
                 for gn_obj in obj.render():
                     if margin and isinstance(gn_obj, (go.Line, go.Arc)):
-                        gn_obj = gn_obj.dilated(margin)
+                        gn_obj = replace(gn_obj, aperture=gn_obj.aperture.dilated(margin))
 
                     if isinstance(gn_obj, go.Region) and margin > 0:
                         for line in gn_obj.outline_objects(ap.CircleAperture(2*margin, unit=MM)):
@@ -587,7 +591,7 @@ class Footprint:
     thermal_gap: Named(float) = None
     attributes: List(Attribute) = field(default_factory=list)
     private_layers: Named(str) = None
-    net_tie_pad_groups: Named(str) = None
+    net_tie_pad_groups: Named(Array(str)) = None
     texts: List(Text) = field(default_factory=list)
     text_boxes: List(TextBox) = field(default_factory=list)
     lines: List(Line) = field(default_factory=list)

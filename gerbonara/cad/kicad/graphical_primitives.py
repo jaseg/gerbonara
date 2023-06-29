@@ -198,7 +198,7 @@ class Arc:
         if not self.width:
             return
 
-        aperture = ap.CircleAperture(self.width, unit=MM),
+        aperture = ap.CircleAperture(self.width, unit=MM)
         cx, cy = self.mid.x, self.mid.y
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
