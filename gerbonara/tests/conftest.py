@@ -1,6 +1,7 @@
 
 import os
 from pathlib import Path
+from itertools import chain
 
 import pytest
 
