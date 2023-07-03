@@ -1140,6 +1140,12 @@ class LayerStack:
 
         joins = {}
         for cur in lines:
+            # Special case: An arc may describe a complete circle, in which case we have to return it as-is since it
+            # is the only primitive that can join itself.
+            if isinstance(cur, gp.Arc) and cur.is_circle:
+                yield [cur]
+                continue
+
             for (i, x, y) in [(0, cur.x1, cur.y1), (1, cur.x2, cur.y2)]:
                 x_left  = bisect.bisect_left (by_x, x, key=lambda elem: elem[0] + tol)
                 x_right = bisect.bisect_right(by_x, x, key=lambda elem: elem[0] - tol)

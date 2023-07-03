@@ -212,6 +212,10 @@ class Arc(GraphicPrimitive):
     #: Line width of this arc.
     width : float
 
+    @property
+    def is_circle(self):
+        return math.isclose(self.x1, self.x2) and math.isclose(self.y1, self.y2)
+
     def flip(self):
         return replace(self, x1=self.x2, y1=self.y2, x2=self.x1, y2=self.y1,
             cx=(self.x1 + self.cx) - self.x2, cy=(self.y1 + self.cy) - self.y2, clockwise=not self.clockwise)
