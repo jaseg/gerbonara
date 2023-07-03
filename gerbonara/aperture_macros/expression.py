@@ -167,7 +167,7 @@ class VariableExpression(Expression):
 
     def optimized(self, variable_binding={}):
         if self.number in variable_binding:
-            return ConstantExpression(expr(variable_binding[self.number]).optimized(variable_binding))
+            return expr(variable_binding[self.number]).optimized(variable_binding)
         return self
 
     def __eq__(self, other):
