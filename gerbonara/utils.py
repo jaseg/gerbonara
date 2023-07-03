@@ -354,6 +354,10 @@ def arc_bounds(x1, y1, x2, y2, cx, cy, clockwise):
     # Calculate radius
     r = math.sqrt(x1**2 + y1**2)
 
+    # Special case: Gerber defines an arc with p1 == p2 as a full circle.
+    if math.isclose(x1, x2) and math.isclose(y1, y2):
+        return (cx-r, cy-r), (cx+r, cy+r)
+
     # Calculate in which half-planes (north/south, west/east) P1 and P2 lie.
     # Note that we assume the y axis points upwards, as in Gerber and maths.
     # SVG has its y axis pointing downwards.
