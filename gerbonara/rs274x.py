@@ -1048,7 +1048,7 @@ class GerberParser:
 
         else:
             target = {'TF': self.file_attrs, 'TO': self.graphics_state.object_attrs, 'TA': self.aperture_attrs}[match['type']]
-            target[match['name']] = match['value'].split(',')
+            target[match['name']] = tuple(match['value'].split(','))
 
             if 'EAGLE' in self.file_attrs.get('.GenerationSoftware', []) or match['eagle_garbage']:
                 self.generator_hints.append('eagle')
