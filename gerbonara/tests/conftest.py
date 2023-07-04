@@ -58,7 +58,7 @@ def pytest_generate_tests(metafunc):
                 lib_dir = Path(lib_dir).expanduser()
                 if not lib_dir.is_dir():
                     raise ValueError(f'Path "{lib_dir}" given by KICAD_FOOTPRINTS environment variable does not exist or is not a directory.')
-                mod_files = list(lib_dir.glob('**/*.kicad_mod'))
+                mod_files = list(lib_dir.glob('*.pretty/*.kicad_mod'))
             else:
                 raise ValueError('Either --kicad-footprint-files command line parameter or KICAD_FOOTPRINTS environment variable must be given.')
         metafunc.parametrize('kicad_mod_file', mod_files, ids=list(map(str, mod_files)))

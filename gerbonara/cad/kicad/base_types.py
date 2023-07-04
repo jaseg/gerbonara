@@ -199,8 +199,8 @@ class Justify:
 @sexp_type('effects')
 class TextEffect:
     font: FontSpec = field(default_factory=FontSpec)
-    justify: OmitDefault(Justify) = field(default_factory=Justify)
     hide: Flag() = False
+    justify: OmitDefault(Justify) = field(default_factory=Justify)
 
 
 @sexp_type('tstamp')

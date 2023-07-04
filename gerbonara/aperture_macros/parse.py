@@ -113,7 +113,7 @@ class ApertureMacro:
 
     def to_gerber(self, unit=None):
         """ Serialize this macro's content (without the name) into Gerber using the given file unit """
-        comments = [ str(c) for c in self.comments ]
+        comments = [ f'0 {c.replace("*", "_").replace("%", "_")}' for c in self.comments ]
         variable_defs = [ f'${var}={str(expr)[1:-1]}' for var, expr in enumerate(self.variables, start=1) if expr is not None ]
         primitive_defs = [ prim.to_gerber(unit) for prim in self.primitives ]
         return '*\n'.join(comments + variable_defs + primitive_defs)
