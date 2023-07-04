@@ -53,7 +53,7 @@ class LayerSettings:
 
 @sexp_type('layer')
 class LayerStackupSettings:
-    dielectric: bool = False
+    dielectric: Flag() = False
     name: str = None
     index: int = None
     layer_type: Named(str, name='type') = ''
@@ -149,7 +149,7 @@ class TrackSegment:
     end: Rename(XYCoord) = field(default_factory=XYCoord)
     width: Named(float) = 0.5
     layer: Named(str) = 'F.Cu'
-    locked: bool = False
+    locked: Flag() = False
     net: Named(int) = 0
     tstamp: Timestamp = field(default_factory=Timestamp)
 
@@ -168,7 +168,7 @@ class TrackArc:
     end: Rename(XYCoord) = field(default_factory=XYCoord)
     width: Named(float) = 0.5
     layer: Named(str) = 'F.Cu'
-    locked: bool = False
+    locked: Flag() = False
     net: Named(int) = 0
     tstamp: Timestamp = field(default_factory=Timestamp)
 
@@ -186,13 +186,13 @@ class TrackArc:
 @sexp_type('via')
 class Via:
     via_type: AtomChoice(Atom.blind, Atom.micro) = None
-    locked: bool = False
-    at: AtPos = field(default_factory=AtPos)
+    locked: Flag() = False
+    at: Rename(XYCoord) = field(default_factory=XYCoord)
     size: Named(float) = 0.8
     drill: Named(float) = 0.4
     layers: Named(Array(str)) = field(default_factory=list)
-    remove_unused_layers: bool = False
-    keep_end_layers: bool = False
+    remove_unused_layers: Flag() = False
+    keep_end_layers: Flag() = False
     free: Wrap(Flag()) = False
     net: Named(int) = 0
     tstamp: Timestamp = field(default_factory=Timestamp)
