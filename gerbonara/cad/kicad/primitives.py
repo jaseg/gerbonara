@@ -63,6 +63,11 @@ class FillSegment:
     pts: PointList = field(default_factory=PointList)
 
 
+@sexp_type('polygon')
+class ZonePolygon:
+    pts: PointList = field(default_factory=PointList)
+
+
 @sexp_type('zone')
 class Zone:
     net: Named(int) = 0
@@ -75,10 +80,10 @@ class Zone:
     priority: OmitDefault(Named(int)) = 0
     connect_pads: PadConnection = field(default_factory=PadConnection)
     min_thickness: Named(float) = 0.254
-    filled_areas_thickness: Flag() = True
+    filled_areas_thickness: Named(YesNoAtom()) = True
     keepouts: List(ZoneKeepout) = field(default_factory=list)
     fill: ZoneFill = field(default_factory=ZoneFill)
-    polygon: Named(PointList) = field(default_factory=PointList)
+    polygon: ZonePolygon = field(default_factory=ZonePolygon)
     fill_polygons: List(FillPolygon) = field(default_factory=list)
     fill_segments: List(FillSegment) = field(default_factory=list)
 

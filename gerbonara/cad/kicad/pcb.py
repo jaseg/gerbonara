@@ -70,8 +70,8 @@ class StackupSettings:
     copper_finish: Named(str) = None
     dielectric_constraints: Named(YesNoAtom()) = None
     edge_connector: Named(AtomChoice(Atom.yes, Atom.bevelled)) = None
-    castellated_pads: Named(bool) = None
-    edge_plating: Named(bool) = None
+    castellated_pads: Named(YesNoAtom()) = None
+    edge_plating: Named(YesNoAtom()) = None
 
 
 TFBool = YesNoAtom(yes=Atom.true, no=Atom.false)
