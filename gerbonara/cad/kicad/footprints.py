@@ -616,9 +616,14 @@ class Footprint:
             pad.footprint = self
 
     def property_value(self, key, default=_MISSING):
-        if default is not _MISSING and key not in self.properties:
+        for prop in self.properties:
+            if prop.key == key:
+                return prop.value
+
+        if default is not _MISSING:
             return default
-        return self.properties[key].value
+
+        raise IndexError(f'Footprint has no property named "{key}"')
 
     @property
     def pads_by_number(self):
