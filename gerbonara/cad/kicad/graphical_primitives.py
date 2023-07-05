@@ -253,7 +253,7 @@ class DimensionFormat:
     units_format: Named(int) = 1
     precision: Named(int) = 7
     override_value: Named(str) = None
-    suppress_zeros: bool = False
+    suppress_zeros: Flag() = False
     
 
 @sexp_type('style')
@@ -264,7 +264,7 @@ class DimensionStyle:
     extension_height: Named(float) = None
     text_frame: Named(float) = None
     extension_offset: Named(float) = None
-    keep_text_aligned: bool = False
+    keep_text_aligned: Flag() = False
 
 
 @sexp_type('dimension')
