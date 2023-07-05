@@ -269,7 +269,7 @@ class DimensionStyle:
 
 @sexp_type('dimension')
 class Dimension:
-    locked: bool = False
+    locked: Flag() = False
     dimension_type: Named(AtomChoice(Atom.aligned, Atom.leader, Atom.center, Atom.orthogonal, Atom.radial), name='type') = Atom.aligned
     layer: Named(str) = 'Dwgs.User'
     tstamp: Timestamp = field(default_factory=Timestamp)
