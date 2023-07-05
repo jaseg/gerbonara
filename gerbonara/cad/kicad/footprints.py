@@ -612,13 +612,8 @@ class Footprint:
 
 
     def __after_parse__(self, parent):
-        self.properties = {prop.key: prop for prop in self.properties}
-
         for pad in self.pads:
             pad.footprint = self
-
-    def __before_sexp__(self):
-        self.properties = list(self.properties.values())
 
     def property_value(self, key, default=_MISSING):
         if default is not _MISSING and key not in self.properties:

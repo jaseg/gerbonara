@@ -11,6 +11,7 @@ from scipy.constants import mu_0
 from gerbonara.cad.kicad import pcb as kicad_pcb
 from gerbonara.cad.kicad import footprints as kicad_fp
 from gerbonara.cad.kicad import graphical_primitives as kicad_gr
+from gerbonara.cad.kicad import primitives as kicad_pr
 import click
 
 
@@ -95,13 +96,15 @@ def svg_file(fn, stuff, vbw, vbh, vbx=0, vby=0):
 @click.option('--trace-width', type=float, default=0.15)
 @click.option('--via-diameter', type=float, default=0.6)
 @click.option('--via-drill', type=float, default=0.3)
+@click.option('--keepout-zone/--no-keepout-zone', default=True, help='Add a keepout are to the footprint (default: yes)')
+@click.option('--keepout-margin', type=float, default=5, help='Margin between outside of coil and keepout area (mm, default: 5)')
 @click.option('--twist-width', type=float, default=20, help='Width of twist versus straight coil in percent (0-100, default: 20)')
 @click.option('--num-twists', type=int, default=1, help='Number of twists per revolution (default: 1)')
 @click.option('--clearance', type=float, default=0.15)
 @click.option('--clipboard/--no-clipboard', help='Use clipboard integration (requires wl-clipboard)')
 @click.option('--counter-clockwise/--clockwise', help='Direction of generated spiral. Default: clockwise when wound from the inside.')
 def generate(outfile, turns, diameter, via_diameter, via_drill, trace_width, clearance, footprint_name, target_layer,
-             jumper_layer, twist_width, num_twists, clipboard, counter_clockwise):
+             jumper_layer, twist_width, num_twists, clipboard, counter_clockwise, keepout_zone, keepout_margin):
     if 'WAYLAND_DISPLAY' in os.environ:
         copy, paste, cliputil = ['wl-copy'], ['wl-paste'], 'xclip'
     else:
@@ -250,6 +253,19 @@ def generate(outfile, turns, diameter, via_diameter, via_drill, trace_width, cle
     else:
         name = 'generated_coil'
 
+    if keepout_zone:
+        r = diameter/2 + keepout_margin
+        tol = 0.05 # mm
+        n = ceil(pi / acos(1 - tol/r))
+        pts = [(r*cos(a*2*pi/n), r*sin(a*2*pi/n)) for a in range(n)]
+        zones = [kicad_pr.Zone(layers=['*.Cu'],
+            hatch=kicad_pr.Hatch(),
+            filled_areas_thickness=False,
+            keepout=kicad_pr.ZoneKeepout(copperpour_allowed=False),
+            polygon=kicad_pr.ZonePolygon(pts=kicad_pr.PointList(xy=[kicad_pr.XYCoord(x=x, y=y) for x, y in pts])))]
+    else:
+        zones = []
+
     fp = kicad_fp.Footprint(
             name=name,
             generator=kicad_fp.Atom('GerbonaraTwistedCoilGenV1'),
@@ -260,6 +276,7 @@ def generate(outfile, turns, diameter, via_diameter, via_drill, trace_width, cle
             lines=lines,
             arcs=arcs,
             pads=pads,
+            zones=zones,
             )
 
     if clipboard:

@@ -81,7 +81,7 @@ class Zone:
     connect_pads: PadConnection = field(default_factory=PadConnection)
     min_thickness: Named(float) = 0.254
     filled_areas_thickness: Named(YesNoAtom()) = True
-    keepouts: List(ZoneKeepout) = field(default_factory=list)
+    keepout: ZoneKeepout = field(default_factory=ZoneKeepout)
     fill: ZoneFill = field(default_factory=ZoneFill)
     polygon: ZonePolygon = field(default_factory=ZonePolygon)
     fill_polygons: List(FillPolygon) = field(default_factory=list)
