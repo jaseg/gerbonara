@@ -251,6 +251,10 @@ class Board:
     def __before_sexp__(self):
         self.properties = [Property(key, value) for key, value in self.properties.items()]
 
+    def unfill_zones(self):
+        for zone in self.zones:
+            zone.unfill()
+
     def find_pads(self, net=None):
         for fp in self.footprints:
             for pad in fp.pads:

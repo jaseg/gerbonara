@@ -1,8 +1,22 @@
 
 import enum
+import re
 
 from .sexp import *
 from .base_types import *
+
+
+def unfuck_layers(layers):
+    if layers and layers[0] == 'F&B.Cu':
+        return ['F.Cu', 'B.Cu', *layers[1:]]
+    else:
+        return layers
+
+def fuck_layers(layers):
+    if layers and 'F.Cu' in layers and 'B.Cu' in layers and not any(re.match(r'^In[0-9]+\.Cu$', l) for l in layers):
+        return ['F&B.Cu', *(l for l in layers if l not in ('F.Cu', 'B.Cu'))]
+    else:
+        return layers
 
 
 @sexp_type('hatch')
@@ -81,11 +95,22 @@ class Zone:
     connect_pads: PadConnection = field(default_factory=PadConnection)
     min_thickness: Named(float) = 0.254
     filled_areas_thickness: Named(YesNoAtom()) = True
-    keepout: ZoneKeepout = field(default_factory=ZoneKeepout)
+    keepout: ZoneKeepout = None
     fill: ZoneFill = field(default_factory=ZoneFill)
     polygon: ZonePolygon = field(default_factory=ZonePolygon)
     fill_polygons: List(FillPolygon) = field(default_factory=list)
     fill_segments: List(FillSegment) = field(default_factory=list)
+
+    def __after_parse__(self, parent=None):
+        self.layers = unfuck_layers(self.layers)
+
+    def __before_sexp__(self):
+        self.layers = fuck_layers(self.layers)
+
+    def unfill(self):
+        self.fill.yes = False
+        self.fill_polygons = []
+        self.fill_segments = []
 
 
 @sexp_type('polygon')

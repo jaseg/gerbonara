@@ -202,7 +202,6 @@ class TextEffect:
     hide: Flag() = False
     justify: OmitDefault(Justify) = field(default_factory=Justify)
 
-
 @sexp_type('tstamp')
 class Timestamp:
     value: str = field(default_factory=uuid.uuid4)

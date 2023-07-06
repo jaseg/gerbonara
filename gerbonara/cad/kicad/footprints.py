@@ -389,6 +389,12 @@ class Pad:
     _: SEXP_END = None
     footprint: object = None
 
+    def __after_parse__(self, parent=None):
+        self.layers = unfuck_layers(self.layers)
+
+    def __before_sexp__(self):
+        self.layers = fuck_layers(self.layers)
+
     def find_connected(self, **filters):
         """ Find footprints connected to the same net as this pad """
         return self.footprint.board.find_footprints(net=self.net.name, **filters)
@@ -677,11 +683,18 @@ class Footprint:
             x, y = self.at.x-cx, self.at.y-cy
             self.at.x = math.cos(angle)*x - math.sin(angle)*y + cx
             self.at.y = math.sin(angle)*x + math.cos(angle)*y + cy
-        
-        self.at.rotation -= math.degrees(angle)
 
+        self.at.rotation -= math.degrees(angle)
         for pad in self.pads:
             pad.at.rotation -= math.degrees(angle)
+
+    def set_rotation(self, angle):
+        old_deg = self.at.rotation
+        new_deg = self.at.rotation = -math.degrees(angle)
+        delta = new_deg - old_deg
+
+        for pad in self.pads:
+            pad.at.rotation += delta
 
     def objects(self, text=False, pads=True):
         return chain(
