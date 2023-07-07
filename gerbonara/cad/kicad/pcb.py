@@ -2,6 +2,7 @@
 Library for handling KiCad's PCB files (`*.kicad_mod`).
 """
 
+import math
 from pathlib import Path
 from dataclasses import field
 from itertools import chain
@@ -14,20 +15,43 @@ from .primitives import *
 from .footprints import Footprint
 from . import graphical_primitives as gr
 
-from ..primitives import Positioned
+from .. import primitives as cad_pr
 
 from ... import graphic_primitives as gp
 from ... import graphic_objects as go
 from ... import apertures as ap
 from ...layers import LayerStack
 from ...newstroke import Newstroke
-from ...utils import MM
+from ...utils import MM, rotate_point
 
 
 def match_filter(f, value):
     if isinstance(f, str) and re.fullmatch(f, value):
         return True
     return value in f
+
+def gn_side_to_kicad(side, layer='Cu'):
+    if side == 'top':
+        return f'F.{layer}'
+    elif side == 'bottom':
+        return f'B.{layer}'
+    elif side.startswith('inner'):
+        return f'In{int(side[5:])}.{layer}'
+    else:
+        raise ValueError(f'Cannot parse gerbonara side name "{side}"')
+
+def gn_layer_to_kicad(layer, flip=False):
+    side = 'B' if flip else 'F'
+    if layer == 'silk':
+        return f'{side}.SilkS'
+    elif layer == 'mask':
+        return f'{side}.Mask'
+    elif layer == 'paste':
+        return f'{side}.Paste'
+    elif layer == 'copper':
+        return f'{side}.Cu'
+    else:
+        raise ValueError('Cannot translate gerbonara layer name "{layer}" to KiCad')
 
 
 @sexp_type('general')
@@ -160,6 +184,13 @@ class TrackSegment:
         aperture = ap.CircleAperture(self.width, unit=MM)
         yield go.Line(self.start.x, self.start.y, self.end.x, self.end.y, aperture=aperture, unit=MM)
 
+    def rotate(self, angle, cx=None, cy=None):
+        if cx is None or cy is None:
+            cx, cy = self.start.x, self.start.y
+
+        self.start.x, self.start.y = rotate_point(self.start.x, self.start.y, angle, cx, cy)
+        self.end.x, self.end.y = rotate_point(self.end.x, self.end.y, angle, cx, cy)
+
 
 @sexp_type('arc')
 class TrackArc:
@@ -181,6 +212,14 @@ class TrackArc:
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
         yield go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, aperture=aperture, clockwise=True, unit=MM)
+
+    def rotate(self, angle, cx=None, cy=None):
+        if cx is None or cy is None:
+            cx, cy = self.mid.x, self.mid.y
+
+        self.start.x, self.start.y = rotate_point(self.start.x, self.start.y, angle, cx, cy)
+        self.mid.x, self.mid.y = rotate_point(self.mid.x, self.mid.y, angle, cx, cy)
+        self.end.x, self.end.y = rotate_point(self.end.x, self.end.y, angle, cx, cy)
 
 
 @sexp_type('via')
@@ -231,8 +270,8 @@ class Board:
     images: List(Image) = field(default_factory=list)
     # Tracks
     track_segments: List(TrackSegment) = field(default_factory=list)
-    vias: List(Via) = field(default_factory=list)
     track_arcs: List(TrackArc) = field(default_factory=list)
+    vias: List(Via) = field(default_factory=list)
     # Other stuff
     zones: List(Zone) = field(default_factory=list)
     groups: List(Group) = field(default_factory=list)
@@ -248,8 +287,98 @@ class Board:
         for fp in self.footprints:
             fp.board = self
 
+        self.nets = {net.index: net.name for net in self.nets}
+
     def __before_sexp__(self):
         self.properties = [Property(key, value) for key, value in self.properties.items()]
+        self.nets = [Net(index, name) for index, name in self.nets.items()]
+
+    def add(self, obj):
+        match obj:
+            case gr.Text():
+                self.texts.append(obj)
+            case gr.TextBox():
+                self.text_boxes.append(obj)
+            case gr.Line():
+                self.lines.append(obj)
+            case gr.Rectangle():
+                self.rectangles.append(obj)
+            case gr.Circle():
+                self.circles.append(obj)
+            case gr.Arc():
+                self.arcs.append(obj)
+            case gr.Polygon():
+                self.polygons.append(obj)
+            case gr.Curve():
+                self.curves.append(obj)
+            case gr.Dimension():
+                self.dimensions.append(obj)
+            case Image():
+                self.images.append(obj)
+            case TrackSegment():
+                self.track_segments.append(obj)
+            case TrackArc():
+                self.track_arcs.append(obj)
+            case Via():
+                self.vias.append(obj)
+            case Zone():
+                self.zones.append(obj)
+            case Group():
+                self.groups.append(obj)
+            case _:
+                for elem in self.map_gn_cad(obj):
+                    self.add(elem)
+
+    def map_gn_cad(self, obj, locked=False, net_name=None):
+        match obj:
+            case cad_pr.Trace():
+                for elem in obj.to_graphic_objects():
+                    elem.convert_to(MM)
+                    match elem:
+                        case go.Arc(x1, y1, x2, y2, xc, yc, cw, ap):
+                            yield TrackArc(
+                                start=XYCoord(x1, y1),
+                                mid=XYCoord(x1+xc, y1+yc),
+                                end=XYCoord(x2, y2),
+                                width=ap.equivalent_width(MM),
+                                layer=gn_side_to_kicad(obj.side),
+                                locked=locked, 
+                                net=self.net_id(net_name))
+
+                        case go.Line(x1, y1, x2, y2, ap):
+                            yield TrackSegment(
+                                start=XYCoord(x1, y1),
+                                end=XYCoord(x2, y2),
+                                width=ap.equivalent_width(MM),
+                                layer=gn_side_to_kicad(obj.side),
+                                locked=locked,
+                                net=self.net_id(net_name))
+
+            case cad_pr.Via(pad_stack=cad_pr.ThroughViaStack(hole, dia, unit=st_unit)):
+                x, y, _a, _f = obj.abs_pos()
+                x, y = MM(x, st_unit), MM(y, obj.unit)
+                yield Via(
+                    locked=locked,
+                    at=XYCoord(x, y),
+                    size=MM(dia, st_unit),
+                    drill=MM(hole, st_unit),
+                    layers='*.Cu',
+                    net=self.net_id(net_name))
+
+            case cad_pr.Text(_x, _y, text, font_size, stroke_width, h_align, v_align, layer, dark):
+                x, y, a, flip = obj.abs_pos()
+                x, y = MM(x, st_unit), MM(y, st_unit)
+                size = MM(size, unit)
+                yield gr.Text(
+                    text, 
+                    AtPos(x, y, -math.degrees(a)),
+                    layer=gr.TextLayer(gn_layer_to_kicad(layer, flip), not dark),
+                    effects=TextEffect(font=FontSpec(
+                            size=XYCoord(size, size),
+                            thickness=stroke_width),
+                        justify=Justify(h=Atom(h_align) if h_align != 'center' else None,
+                                        v=Atom(v_align) if v_align != 'middle' else None,
+                                        mirror=flip)))
 
     def unfill_zones(self):
         for zone in self.zones:
@@ -305,6 +434,22 @@ class Board:
     @property
     def single_sided(self):
         raise NotImplementedError()
+
+    def net_id(self, name, create=True):
+        if name is None:
+            return None
+
+        for i, n in self.nets.items():
+            if n == name:
+                return i
+
+        if create:
+            index = max(self.nets.keys()) + 1
+            self.nets[index] = name
+            return index
+
+        else:
+            raise IndexError(f'No such net: "{name}"')
 
 # FIXME vvv
     def graphic_objects(self, text=False, images=False):
@@ -363,7 +508,7 @@ class Board:
 
  
 @dataclass
-class BoardInstance(Positioned):
+class BoardInstance(cad_pr.Positioned):
     sexp: Board = None
     variables: dict = field(default_factory=lambda: {})
 

@@ -2,6 +2,7 @@
 Library for handling KiCad's footprint files (`*.kicad_mod`).
 """
 
+import re
 import copy
 import enum
 import string
@@ -32,6 +33,9 @@ from ...aperture_macros import primitive as amp
 
 class _MISSING:
     pass
+
+def angle_difference(a, b):
+    return (b - a + math.pi) % (2*math.pi) - math.pi
 
 @sexp_type('attr')
 class Attribute:
@@ -395,6 +399,16 @@ class Pad:
     def __before_sexp__(self):
         self.layers = fuck_layers(self.layers)
 
+    @property
+    def abs_pos(self):
+        if self.footprint:
+            px, py = self.footprint.at.x, self.footprint.at.y
+        else:
+            px, py = 0, 0
+
+        x, y = rotate_point(self.at.x, self.at.y, -math.radians(self.at.rotation))
+        return x+px, y+py, self.at.rotation, False
+
     def find_connected(self, **filters):
         """ Find footprints connected to the same net as this pad """
         return self.footprint.board.find_footprints(net=self.net.name, **filters)
@@ -631,13 +645,72 @@ class Footprint:
 
         raise IndexError(f'Footprint has no property named "{key}"')
 
+    def set_property(self, key, value, x=0, y=0, rotation=0, layer='F.Fab', hide=True, effects=None):
+        for prop in self.properties:
+            if prop.key == key:
+                old_value, prop.value = prop.value, value
+                return old_value
+
+        if effects is None:
+            effects = TextEffect()
+
+        self.properties.append(DrawnProperty(key, value, 
+                                             at=AtPos(x, y, rotation),
+                                             layer=layer,
+                                             hide=hide,
+                                             effects=effects))
+
     @property
     def pads_by_number(self):
         return {(int(pad.number) if pad.number.isnumeric() else pad.number): pad for pad in self.pads if pad.number}
 
+    def find_pads(self, number=None, net=None):
+        for pad in self.pads:
+            if number is not None and pad.number == str(number):
+                print('find_pads', number, net, pad.number)
+                yield pad
+            elif isinstance(net, str) and fnmatch.fnmatch(pad.net.name, net):
+                yield pad
+            elif net is not None and pad.net.number == net:
+                yield pad
+
+    def pad(self, number=None, net=None):
+        candidates = list(self.find_pads(number=number, net=net))
+        if not candidates:
+            raise IndexError(f'No such pad "{number or net}"')
+
+        if len(candidates) > 1:
+            raise IndexError(f'Ambiguous pad "{number or net}", {len(candidates)} matching pads.')
+
+        return candidates[0]
+
     @property
     def version(self):
         return self._version
+
+    @property
+    def reference(self):
+        return self.property_value('Reference')
+
+    @reference.setter
+    def reference(self, value):
+        self.set_property('Reference', value)
+
+    @property
+    def parsed_reference(self):
+        ref = self.reference
+        if (m := re.match(r'^.*[^0-9]([0-9]+)$', ref)):
+            return m.group(0), int(m.group(1))
+        else:
+            return ref
+
+    @property
+    def value(self):
+        return self.property_value('Value')
+
+    @reference.setter
+    def value(self, value):
+        self.set_property('Value', value)
 
     @version.setter
     def version(self, value):
@@ -676,7 +749,35 @@ class Footprint:
     def single_sided(self):
         raise NotImplementedError()
     
-    def rotate(self, angle, cx=None, cy=None):
+    def face(self, direction, pad=None, net=None):
+        if not net and not pad:
+            pad = '1'
+
+        candidates = list(self.find_pads(net=net, number=pad))
+        if len(candidates) == 0:
+            raise KeyError(f'Reference pad "{net or pad}" not found.')
+
+        if len(candidates) > 1:
+            raise KeyError(f'Reference pad "{net or pad}" is ambiguous, {len(candidates)} matching pads found.')
+
+        pad = candidates[0]
+        pad_angle = math.atan2(pad.at.y, pad.at.x)
+
+        target_angle = {
+                'right': 0,
+                'top right': math.pi/4,
+                'top': math.pi/2,
+                'top left': 3*math.pi/4,
+                'left': math.pi,
+                'bottom left': -3*math.pi/4,
+                'bottom': -math.pi/2,
+                'bottom right': -math.pi/4}.get(direction, direction)
+        
+        delta = angle_difference(target_angle, pad_angle)
+        adj = round(delta / (math.pi/2)) * math.pi/2
+        self.set_rotation(adj)
+        
+    def rotate(self, angle=None, cx=None, cy=None, **reference_pad):
         """ Rotate this footprint by the given angle in radians, counter-clockwise. When (cx, cy) are given, rotate
         around the given coordinates in the global coordinate space. Otherwise rotate around the footprint's origin. """
         if (cx, cy) != (None, None):
@@ -684,9 +785,9 @@ class Footprint:
             self.at.x = math.cos(angle)*x - math.sin(angle)*y + cx
             self.at.y = math.sin(angle)*x + math.cos(angle)*y + cy
 
-        self.at.rotation -= math.degrees(angle)
+        self.at.rotation = (self.at.rotation - math.degrees(angle)) % 360
         for pad in self.pads:
-            pad.at.rotation -= math.degrees(angle)
+            pad.at.rotation = (pad.at.rotation - math.degrees(angle)) % 360
 
     def set_rotation(self, angle):
         old_deg = self.at.rotation
@@ -694,7 +795,7 @@ class Footprint:
         delta = new_deg - old_deg
 
         for pad in self.pads:
-            pad.at.rotation += delta
+            pad.at.rotation = (pad.at.rotation + delta) % 360
 
     def objects(self, text=False, pads=True):
         return chain(

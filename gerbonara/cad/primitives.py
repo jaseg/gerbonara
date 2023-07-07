@@ -700,13 +700,13 @@ class Trace:
 
         yield Line(line_b.x1, line_b.y1, x3, y3, aperture=aperture, unit=self.unit)
         
-    def _to_graphic_objects(self):
+    def to_graphic_objects(self):
         start, end = self.start, self.end
 
         if not isinstance(start, tuple):
-            *start, _rotation = start.abs_pos
+            *start, _rotation, _flip = start.abs_pos
         if not isinstance(end, tuple):
-            *end, _rotation = end.abs_pos
+            *end, _rotation, _flip = end.abs_pos
 
         aperture = CircleAperture(diameter=self.width, unit=self.unit)
 
@@ -720,7 +720,7 @@ class Trace:
         return self._round_over(points, aperture)
 
     def render(self, layer_stack, cache=None):
-        layer_stack[self.side, 'copper'].objects.extend(self._to_graphic_objects())
+        layer_stack[self.side, 'copper'].objects.extend(self.to_graphic_objects())
 
 def _route_demo():
     from ..utils import setup_svg, Tag
