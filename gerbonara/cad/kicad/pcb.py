@@ -4,7 +4,7 @@ Library for handling KiCad's PCB files (`*.kicad_mod`).
 
 import math
 from pathlib import Path
-from dataclasses import field
+from dataclasses import field, KW_ONLY
 from itertools import chain
 import re
 import fnmatch
@@ -166,6 +166,9 @@ class Image:
     uuid: UUID = field(default_factory=UUID)
     data: str = ''
 
+    def offset(self, x=0, y=0):
+        self.at = self.at.with_offset(x, y)
+
 
 @sexp_type('segment')
 class TrackSegment:
@@ -176,6 +179,10 @@ class TrackSegment:
     locked: Flag() = False
     net: Named(int) = 0
     tstamp: Timestamp = field(default_factory=Timestamp)
+
+    def __post_init__(self):
+        self.start = XYCoord(self.start)
+        self.end = XYCoord(self.end)
 
     def render(self, variables=None, cache=None):
         if not self.width:
@@ -191,6 +198,10 @@ class TrackSegment:
         self.start.x, self.start.y = rotate_point(self.start.x, self.start.y, angle, cx, cy)
         self.end.x, self.end.y = rotate_point(self.end.x, self.end.y, angle, cx, cy)
 
+    def offset(self, x=0, y=0):
+        self.start = self.start.with_offset(x, y)
+        self.end = self.end.with_offset(x, y)
+
 
 @sexp_type('arc')
 class TrackArc:
@@ -202,6 +213,29 @@ class TrackArc:
     locked: Flag() = False
     net: Named(int) = 0
     tstamp: Timestamp = field(default_factory=Timestamp)
+    _: KW_ONLY
+    center: XYCoord = None
+
+    def __post_init__(self):
+        self.start = XYCoord(self.start)
+        self.end = XYCoord(self.end)
+        if self.center is not None:
+            # Convert normal p1/p2/center notation to the insanity that is kicad's midpoint notation
+            center = XYCoord(self.center)
+            cx, cy = center.x, center.y
+            x1, y1 = self.start.x - cx, self.start.y - cy
+            x2, y2 = self.end.x - cx, self.end.y - cy
+            # Get a vector pointing towards the middle between "start" and "end"
+            dx, dy = (x1 + x2)/2, (y1 + y2)/2
+            # normalize vector, and multiply by radius to get final point
+            r = math.hypot(x1, y1)
+            l = math.hypot(dx, dy)
+            mx = cx + dx / l * r
+            my = cy + dy / l * r
+            self.mid = XYCoord(mx, my)
+            self.center = None
+        else:
+            self.mid = XYCoord(self.mid)
 
     def render(self, variables=None, cache=None):
         if not self.width:
@@ -221,6 +255,11 @@ class TrackArc:
         self.mid.x, self.mid.y = rotate_point(self.mid.x, self.mid.y, angle, cx, cy)
         self.end.x, self.end.y = rotate_point(self.end.x, self.end.y, angle, cx, cy)
 
+    def offset(self, x=0, y=0):
+        self.start = self.start.with_offset(x, y)
+        self.mid = self.mid.with_offset(x, y)
+        self.end = self.end.with_offset(x, y)
+
 
 @sexp_type('via')
 class Via:
@@ -229,12 +268,19 @@ class Via:
     at: Rename(XYCoord) = field(default_factory=XYCoord)
     size: Named(float) = 0.8
     drill: Named(float) = 0.4
-    layers: Named(Array(str)) = field(default_factory=list)
+    layers: Named(Array(str)) = field(default_factory=lambda: ['F.Cu', 'B.Cu'])
     remove_unused_layers: Flag() = False
     keep_end_layers: Flag() = False
     free: Wrap(Flag()) = False
     net: Named(int) = 0
     tstamp: Timestamp = field(default_factory=Timestamp)
+
+    @property
+    def abs_pos(self):
+        return self.at.x, self.at.y, 0, False
+
+    def __post_init__(self):
+        self.at = XYCoord(self.at)
 
     def render_drill(self):
         aperture = ap.ExcellonTool(self.drill, plated=True, unit=MM)
@@ -243,6 +289,15 @@ class Via:
     def render(self, variables=None, cache=None):
         aperture = ap.CircleAperture(self.size, unit=MM)
         yield go.Flash(self.at.x, self.at.y, aperture, unit=MM)
+
+    def rotate(self, angle, cx=None, cy=None):
+        if cx is None or cy is None:
+            return
+
+        self.at.x, self.at.y = rotate_point(self.at.x, self.at.y, angle, cx, cy)
+
+    def offset(self, x=0, y=0):
+        self.at = self.at.with_offset(x, y)
 
 
 SUPPORTED_FILE_FORMAT_VERSIONS = [20210108, 20211014, 20221018, 20230517]
@@ -293,6 +348,43 @@ class Board:
         self.properties = [Property(key, value) for key, value in self.properties.items()]
         self.nets = [Net(index, name) for index, name in self.nets.items()]
 
+    def remove(self, obj):
+        match obj:
+            case gr.Text():
+                self.texts.remove(obj)
+            case gr.TextBox():
+                self.text_boxes.remove(obj)
+            case gr.Line():
+                self.lines.remove(obj)
+            case gr.Rectangle():
+                self.rectangles.remove(obj)
+            case gr.Circle():
+                self.circles.remove(obj)
+            case gr.Arc():
+                self.arcs.remove(obj)
+            case gr.Polygon():
+                self.polygons.remove(obj)
+            case gr.Curve():
+                self.curves.remove(obj)
+            case gr.Dimension():
+                self.dimensions.remove(obj)
+            case Image():
+                self.images.remove(obj)
+            case TrackSegment():
+                self.track_segments.remove(obj)
+            case TrackArc():
+                self.track_arcs.remove(obj)
+            case Via():
+                self.vias.remove(obj)
+            case Zone():
+                self.zones.remove(obj)
+            case Group():
+                self.groups.remove(obj)
+            case Footprint():
+                self.footprints.remove(obj)
+            case _:
+                raise TypeError('Can only remove KiCad objects, cannot map generic gerbonara.cad objects for removal')
+
     def add(self, obj):
         match obj:
             case gr.Text():
@@ -325,6 +417,8 @@ class Board:
                 self.zones.append(obj)
             case Group():
                 self.groups.append(obj)
+            case Footprint():
+                self.footprints.append(obj)
             case _:
                 for elem in self.map_gn_cad(obj):
                     self.add(elem)
@@ -471,7 +565,7 @@ class Board:
 
 
     def objects(self, vias=True, text=False, images=False):
-        return chain(self.graphic_objects(text=text, images=images), self.tracks(vias=vias))
+        return chain(self.graphic_objects(text=text, images=images), self.tracks(vias=vias), self.footprints, self.zones, self.groups)
 
 
     def render(self, layer_stack, layer_map, x=0, y=0, rotation=0, text=False, flip=False, variables={}, cache=None):

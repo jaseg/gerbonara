@@ -1,7 +1,8 @@
 
 import textwrap
 
-from dataclasses import MISSING
+import copy
+from dataclasses import MISSING, replace, fields
 from .sexp import *
 
 
@@ -121,9 +122,10 @@ class WrapperType:
             return getattr(self.next_type, '__atoms__', lambda: [])()
 
 class Named(WrapperType):
-    def __init__(self, next_type, name=None):
+    def __init__(self, next_type, name=None, omit_empty=True):
         super().__init__(next_type)
         self.name_atom = Atom(name) if name else None
+        self.omit_empty = omit_empty
 
     def __bind_field__(self, field):
         if self.next_type is not Atom:
@@ -140,8 +142,13 @@ class Named(WrapperType):
 
     def __sexp__(self, value):
         value = sexp(self.next_type, value)
-        if value is not None:
-            yield [self.name_atom, *value]
+        if value is None:
+            return
+
+        if self.omit_empty and not value:
+            return
+
+        yield [self.name_atom, *value]
 
 
 class Rename(WrapperType):
@@ -389,6 +396,16 @@ class _SexpTemplate:
     def sexp(self):
         return next(self.__sexp__(self))
 
+    @staticmethod
+    def __deepcopy__(self, memo):
+        return replace(self, **{f.name: copy.deepcopy(getattr(self, f.name), memo) for f in fields(self) if not f.kw_only})
+
+    @staticmethod
+    def __copy__(self):
+        # Even during a shallow copy, we need to deep copy any fields whose types have a __before_sexp__ method to avoid
+        # those from being called more than once on the same object.
+        return replace(self, **{f.name: copy.copy(getattr(self, f.name)) for f in fields(self) if not f.kw_only and hasattr(f.type, '__before_sexp__')})
+
 
 def sexp_type(name=None):
     def register(cls):
@@ -398,8 +415,10 @@ def sexp_type(name=None):
             if not hasattr(cls, key):
                 setattr(cls, key, classmethod(getattr(_SexpTemplate, key)))
 
-        if not hasattr(cls, 'sexp'):
-            setattr(cls, 'sexp', getattr(_SexpTemplate, 'sexp'))
+        for key in 'sexp', '__deepcopy__', '__copy__':
+            if not hasattr(cls, key):
+                setattr(cls, key, getattr(_SexpTemplate, key))
+
         cls.positional = []
         cls.keys = {}
         for f in fields(cls):

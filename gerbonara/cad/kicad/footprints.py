@@ -402,12 +402,15 @@ class Pad:
     @property
     def abs_pos(self):
         if self.footprint:
-            px, py = self.footprint.at.x, self.footprint.at.y
+            px, py, pr = self.footprint.at.x, self.footprint.at.y, self.footprint.at.rotation
         else:
-            px, py = 0, 0
+            px, py, pr = 0, 0, 0
 
-        x, y = rotate_point(self.at.x, self.at.y, -math.radians(self.at.rotation))
+        x, y = rotate_point(self.at.x, self.at.y, math.radians(pr))
         return x+px, y+py, self.at.rotation, False
+
+    def offset(self, x=0, y=0):
+        self.at = self.at.with_offset(x, y)
 
     def find_connected(self, **filters):
         """ Find footprints connected to the same net as this pad """
@@ -630,7 +633,6 @@ class Footprint:
     _bounding_box: tuple = None
     board: object = None
 
-
     def __after_parse__(self, parent):
         for pad in self.pads:
             pad.footprint = self
@@ -667,7 +669,6 @@ class Footprint:
     def find_pads(self, number=None, net=None):
         for pad in self.pads:
             if number is not None and pad.number == str(number):
-                print('find_pads', number, net, pad.number)
                 yield pad
             elif isinstance(net, str) and fnmatch.fnmatch(pad.net.name, net):
                 yield pad
@@ -684,9 +685,17 @@ class Footprint:
 
         return candidates[0]
 
+    def offset(self, x=0, y=0):
+        self.at = self.at.with_offset(x, y)
+
     @property
     def version(self):
         return self._version
+
+    @version.setter
+    def version(self, value):
+        if value not in SUPPORTED_FILE_FORMAT_VERSIONS:
+            raise FormatError(f'File format version {value} is not supported. Supported versions are {", ".join(map(str, SUPPORTED_FILE_FORMAT_VERSIONS))}.')
 
     @property
     def reference(self):
@@ -708,14 +717,9 @@ class Footprint:
     def value(self):
         return self.property_value('Value')
 
-    @reference.setter
+    @value.setter
     def value(self, value):
         self.set_property('Value', value)
-
-    @version.setter
-    def version(self, value):
-        if value not in SUPPORTED_FILE_FORMAT_VERSIONS:
-            raise FormatError(f'File format version {value} is not supported. Supported versions are {", ".join(map(str, SUPPORTED_FILE_FORMAT_VERSIONS))}.')
 
     def write(self, filename=None):
         with open(filename or self.original_filename, 'w') as f:
@@ -744,6 +748,42 @@ class Footprint:
     @classmethod
     def load(kls, data, *args, **kwargs):
         return kls.parse(data, *args, **kwargs)
+
+    @property
+    def side(self):
+        return 'front' if self.layer == 'F.Cu' else 'back'
+
+    @side.setter
+    def side(self, value):
+        if value not in ('front', 'back'):
+            raise ValueError(f'side must be either "front" or "back", not {side!r}')
+        
+        if self.side != value:
+            self.flip()
+
+    def flip(self):
+        def flip_layer(name):
+            if name.startswith('F.'):
+                return f'B.{name[2:]}'
+            elif name.startswith('B.'):
+                return f'F.{name[2:]}'
+            else:
+                return name
+
+        self.layer = flip_layer(self.layer)
+        for obj in self.objects():
+            if hasattr(obj, 'layer'):
+                obj.layer = flip_layer(obj.layer)
+
+            if hasattr(obj, 'layers'):
+                obj.layers = [flip_layer(name) for name in obj.layers]
+
+        for obj in chain(self.texts, self.text_boxes):
+            obj.effects.justify.mirror = not obj.effects.justify.mirror
+
+        for obj in self.properties:
+            obj.effects.justify.mirror = not obj.effects.justify.mirror
+            obj.layer = flip_layer(obj.layer)
 
     @property
     def single_sided(self):
@@ -786,8 +826,15 @@ class Footprint:
             self.at.y = math.sin(angle)*x + math.cos(angle)*y + cy
 
         self.at.rotation = (self.at.rotation - math.degrees(angle)) % 360
+
         for pad in self.pads:
             pad.at.rotation = (pad.at.rotation - math.degrees(angle)) % 360
+
+        for prop in self.properties:
+            prop.at.rotation = (prop.at.rotation - math.degrees(angle)) % 360
+
+        for text in self.texts:
+            text.at.rotation = (text.at.rotation - math.degrees(angle)) % 360
 
     def set_rotation(self, angle):
         old_deg = self.at.rotation
@@ -797,7 +844,13 @@ class Footprint:
         for pad in self.pads:
             pad.at.rotation = (pad.at.rotation + delta) % 360
 
-    def objects(self, text=False, pads=True):
+        for prop in self.properties:
+            prop.at.rotation = (prop.at.rotation + delta) % 360
+
+        for text in self.texts:
+            text.at.rotation = (text.at.rotation + delta) % 360
+
+    def objects(self, text=False, pads=True, groups=True):
         return chain(
                 (self.texts if text else []),
                 (self.text_boxes if text else []),
@@ -808,7 +861,9 @@ class Footprint:
                 self.polygons,
                 self.curves,
                 (self.dimensions if text else []),
-                (self.pads if pads else []))
+                (self.pads if pads else []),
+                self.zones,
+                self.groups if groups else [])
 
     def render(self, layer_stack, layer_map, x=0, y=0, rotation=0, text=False, flip=False, variables={}, cache=None):
         x += self.at.x

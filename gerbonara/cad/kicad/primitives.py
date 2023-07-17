@@ -49,7 +49,7 @@ class ZoneSmoothing:
 @sexp_type('fill')
 class ZoneFill:
     yes: Flag() = False
-    mode: Flag(atom=Atom.hatched) = False
+    mode: Named(Flag(atom=Atom.hatch)) = False
     thermal_gap: Named(float) = 0.508
     thermal_bridge_width: Named(float) = 0.508
     smoothing: ZoneSmoothing = None
@@ -60,7 +60,7 @@ class ZoneFill:
     hatch_orientation: Named(int) = None
     hatch_smoothing_level: Named(int) = None
     hatch_smoothing_value: Named(float) = None
-    hatch_border_algorithm: Named(int) = None
+    hatch_border_algorithm: Named(AtomChoice(Atom.hatch_thickness, Atom.min_thickness)) = None
     hatch_min_hole_area: Named(float) = None
 
 

@@ -2,11 +2,13 @@ from .sexp import *
 from .sexp_mapper import *
 import time
 
-from dataclasses import field
+from dataclasses import field, replace
 import math
 import uuid
 from contextlib import contextmanager
 from itertools import cycle
+
+from ...utils import rotate_point
 
 
 LAYER_MAP_K2G = {
@@ -144,9 +146,27 @@ class XYCoord:
     x: float = 0
     y: float = 0
 
+    def __init__(self, x=0, y=0):
+        if isinstance(x, XYCoord):
+            self.x, self.y = x.x, x.y
+        elif isinstance(x, (tuple, list)):
+            self.x, self.y = x
+        elif hasattr(x, 'abs_pos'):
+            self.x, self.y, _1, _2 = x.abs_pos
+        elif hasattr(x, 'at'):
+            self.x, self.y = x.at.x, x.at.y
+        else:
+            self.x, self.y = x, y
+
     def isclose(self, other, tol=1e-6):
         return math.isclose(self.x, other.x, tol) and math.isclose(self.y, other.y, tol)
 
+    def with_offset(self, x=0, y=0):
+        return replace(self, x=self.x+x, y=self.y+y)
+
+    def with_rotation(self, angle, cx=0, cy=0):
+        x, y = rotate_point(self.x, self.y, angle, cx, cy)
+        return replace(self, x=x, y=y)
 
 @sexp_type('pts')
 class PointList:
@@ -178,6 +198,10 @@ class AtPos(XYCoord):
     def rotation_rad(self, value):
         self.rotation = math.degrees(value)
 
+    def with_rotation(self, angle, cx=0, cy=0):
+        obj = super().with_rotation(angle, cx, cy)
+        return replace(obj, rotation=self.rotation + angle)
+
 
 @sexp_type('font')
 class FontSpec:
@@ -206,6 +230,9 @@ class TextEffect:
 class Timestamp:
     value: str = field(default_factory=uuid.uuid4)
 
+    def __deepcopy__(self, memo):
+        return Timestamp()
+
     def __after_parse__(self, parent):
         self.value = str(self.value)
 
@@ -219,6 +246,9 @@ class Timestamp:
 class UUID:
     value: str = field(default_factory=uuid.uuid4)
 
+    def __deepcopy__(self, memo):
+        return UUID()
+
     def __after_parse__(self, parent):
         self.value = str(self.value)
 
@@ -231,6 +261,9 @@ class UUID:
 @sexp_type('tedit')
 class EditTime:
     value: str = field(default_factory=time.time)
+
+    def __deepcopy__(self, memo):
+        return EditTime()
 
     def __after_parse__(self, parent):
         self.value = int(str(self.value), 16)

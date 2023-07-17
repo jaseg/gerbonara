@@ -66,6 +66,9 @@ class Text:
             for p1, p2 in zip(out[:-1], out[1:]):
                 yield go.Line(*p1, *p2, aperture=aperture, unit=MM)
 
+    def offset(self, x=0, y=0):
+        self.at = self.at.with_offset(x, y)
+
 
 @sexp_type('gr_text_box')
 class TextBox:
@@ -100,6 +103,10 @@ class TextBox:
 
             yield reg
 
+    def offset(self, x=0, y=0):
+        self.start = self.start.with_offset(x, y)
+        self.end = self.end.with_offset(x, y)
+
 
 @sexp_type('gr_line')
 class Line:
@@ -122,6 +129,10 @@ class Line:
         for x1, y1, x2, y2 in dasher:
             yield go.Line(x1, y1, x2, y2, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
         # FIXME render all primitives using dasher, maybe share code w/ fp_ prefix primitives
+
+    def offset(self, x=0, y=0):
+        self.start = self.start.with_offset(x, y)
+        self.end = self.end.with_offset(x, y)
 
 
 @sexp_type('fill')
@@ -159,6 +170,15 @@ class Rectangle:
             # FIXME stroke support
             yield from rect.outline_objects(aperture=ap.CircleAperture(self.width, unit=MM))
 
+    @property
+    def top_left(self):
+        return ((min(self.start.x, self.end.x), min(self.start.y, self.end.y)),
+                (max(self.start.x, self.end.x), max(self.start.y, self.end.y)))
+
+    def offset(self, x=0, y=0):
+        self.start = self.start.with_offset(x, y)
+        self.end = self.end.with_offset(x, y)
+
 
 @sexp_type('gr_circle')
 class Circle:
@@ -182,6 +202,10 @@ class Circle:
         if self.fill:
             yield arc.to_region()
 
+    def offset(self, x=0, y=0):
+        self.center = self.center.with_offset(x, y)
+        self.end = self.end.with_offset(x, y)
+
 
 @sexp_type('gr_arc')
 class Arc:
@@ -204,6 +228,11 @@ class Arc:
         x2, y2 = self.end.x, self.end.y
         yield go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, aperture=aperture, clockwise=True, unit=MM)
 
+    def offset(self, x=0, y=0):
+        self.start = self.start.with_offset(x, y)
+        self.mid = self.mid.with_offset(x, y)
+        self.end = self.end.with_offset(x, y)
+
 
 @sexp_type('gr_poly')
 class Polygon:
@@ -224,6 +253,9 @@ class Polygon:
         if self.fill:
             yield reg
 
+    def offset(self, x=0, y=0):
+        self.pts = PointList([pt.with_offset(x, y) for pt in self.pts])
+
 
 @sexp_type('gr_curve')
 class Curve:
@@ -235,6 +267,9 @@ class Curve:
     def render(self, variables=None):
         raise NotImplementedError('Bezier rendering is not yet supported. Please raise an issue and provide an example file.')
 
+    def offset(self, x=0, y=0):
+        self.pts = PointList([pt.with_offset(x, y) for pt in self.pts])
+
 
 @sexp_type('gr_bbox')
 class AnnotationBBox:
@@ -243,6 +278,10 @@ class AnnotationBBox:
  
     def render(self, variables=None):
         return []
+
+    def offset(self, x=0, y=0):
+        self.start = self.start.with_offset(x, y)
+        self.end = self.end.with_offset(x, y)
 
 
 @sexp_type('format')
@@ -273,7 +312,7 @@ class Dimension:
     dimension_type: Named(AtomChoice(Atom.aligned, Atom.leader, Atom.center, Atom.orthogonal, Atom.radial), name='type') = Atom.aligned
     layer: Named(str) = 'Dwgs.User'
     tstamp: Timestamp = field(default_factory=Timestamp)
-    pts: Named(Array(XYCoord)) = field(default_factory=list)
+    pts: PointList = field(default_factory=PointList)
     height: Named(float) = None
     orientation: Named(int) = None
     leader_length: Named(float) = None
@@ -284,4 +323,6 @@ class Dimension:
     def render(self, variables=None):
         raise NotImplementedError('Dimension rendering is not yet supported. Please raise an issue.')
 
+    def offset(self, x=0, y=0):
+        self.pts = PointList([pt.with_offset(x, y) for pt in self.pts])
 
