@@ -828,7 +828,7 @@ class LayerStack:
                 warnings.warn(f'Layer "{side} {use}" not found. Found layers: {", ".join(side + " " + use for side, use in self.graphic_layers)}')
                 continue
 
-            layer = self[(side, use)]
+            layer = self[(side, use)].instance
 
             fg, bg = ('white', 'black') if use != 'mask' else ('black', 'white')
             default_fill = {'copper': fg, 'mask': fg, 'silk': 'none', 'paste': fg}[use]
