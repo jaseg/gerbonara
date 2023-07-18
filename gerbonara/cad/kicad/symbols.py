@@ -247,7 +247,7 @@ class Unit:
         if not (m := re.fullmatch(r'(.*)_([0-9]+)_([0-9]+)', self.name)):
             raise FormatError(f'Invalid unit name "{self.name}"')
         sym_name, unit_index, demorgan_style = m.groups()
-        if sym_name != self.symbol.name:
+        if sym_name != self.symbol.raw_name.rpartition(':')[2]:
             raise FormatError(f'Unit name "{self.name}" does not match symbol name "{self.symbol.name}"')
         self.demorgan_style = int(demorgan_style)
         self.unit_index = int(unit_index)
@@ -271,7 +271,7 @@ class Unit:
 
 @sexp_type('symbol')
 class Symbol:
-    name: str = None
+    raw_name: str = None
     extends: Named(str) = None
     power: Wrap(Flag()) = False
     pin_numbers: OmitDefault(PinNumberSpec) = field(default_factory=PinNumberSpec)
@@ -284,10 +284,13 @@ class Symbol:
     styles: {str: {str: Unit}} = None
     global_units: {str: {str: Unit}} = None
     library = None
+    name: str = None
+    library_name: str = None
 
     def __after_parse__(self, parent):
         self.library = parent
 
+        self.library_name, _, self.name = self.raw_name.rpartition(':')
         self.global_units = {}
         self.styles = {}
 

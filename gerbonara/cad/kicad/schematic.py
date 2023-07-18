@@ -34,7 +34,7 @@ class SheetPath:
 
 @sexp_type('junction')
 class Junction:
-    at: AtPos = field(default_factory=AtPos)
+    at: Rename(XYCoord) = field(default_factory=XYCoord)
     diameter: Named(float) = 0
     color: Color = field(default_factory=lambda: Color(0, 0, 0, 0))
     uuid: UUID = field(default_factory=UUID)
@@ -42,7 +42,7 @@ class Junction:
 
 @sexp_type('no_connect')
 class NoConnect:
-    at: AtPos = field(default_factory=AtPos)
+    at: Rename(XYCoord) = field(default_factory=XYCoord)
     uuid: UUID = field(default_factory=UUID)
 
 
@@ -191,36 +191,41 @@ class SubsheetPin:
     uuid: UUID = field(default_factory=UUID)
 
 
+@sexp_type('fill')
+class SubsheetFill:
+    color: Color = field(default_factory=lambda: Color(0, 0, 0, 0))
+
+
 @sexp_type('sheet')
 class Subsheet:
-    at: AtPos = field(default_factory=AtPos)
+    at: Rename(XYCoord) = field(default_factory=XYCoord)
     size: Rename(XYCoord) = field(default_factory=lambda: XYCoord(2.54, 2.54))
     fields_autoplaced: Wrap(Flag()) = True
     stroke: Stroke = field(default_factory=Stroke)
-    fill: gr.FillMode = field(default_factory=gr.FillMode)
+    fill: SubsheetFill = field(default_factory=SubsheetFill)
     uuid: UUID = field(default_factory=UUID)
     _properties: List(DrawnProperty) = field(default_factory=list)
     pins: List(SubsheetPin) = field(default_factory=list)
     # AFAICT this is completely redundant, just like the one in SymbolInstance
     instances: Named(List(SubsheetCrosslinkProject)) = field(default_factory=list)
-    _: KW_ONLY
+    _ : SEXP_END = None
     sheet_name: object = field(default_factory=lambda: DrawnProperty('Sheetname', ''))
     file_name: object = field(default_factory=lambda: DrawnProperty('Sheetfile', ''))
-    parent: object = None
+    schematic: object = None
 
     def __after_parse__(self, parent):
         self.sheet_name, self.file_name = self._properties
-        self.parent = parent
+        self.schematic = parent
 
     def __before_sexp__(self):
         self._properties = [self.sheet_name, self.file_name]
 
     def open(self, search_dir=None, safe=True):
         if search_dir is None:
-            if not self.parent.original_filename:
+            if not self.schematic.original_filename:
                 raise FileNotFoundError('No search path given and path of parent schematic unknown')
             else:
-                search_dir = Path(self.parent.original_filename).parent
+                search_dir = Path(self.schematic.original_filename).parent
         else:
             search_dir = Path(search_dir)
 
@@ -231,15 +236,21 @@ class Subsheet:
         return Schematic.open(resolved)
 
 
-SUPPORTED_FILE_FORMAT_VERSIONS = [20220914]
+@sexp_type('lib_symbols')
+class LocalLibrary:
+    symbols: List(Symbol) = field(default_factory=list)
+
+
+SUPPORTED_FILE_FORMAT_VERSIONS = [20230620]
 @sexp_type('kicad_sch')
 class Schematic:
-    _version: Named(int, name='version') = 20211014
+    _version: Named(int, name='version') = 20230620
     generator: Named(Atom) = Atom.gerbonara
     uuid: UUID = field(default_factory=UUID)
     page_settings: PageSettings = field(default_factory=PageSettings)
-    path: SheetPath = field(default_factory=SheetPath)
-    lib_symbols: Named(Array(Symbol)) = field(default_factory=list)
+    # The doc says this is expected, but eeschema barfs when it's there.
+    # path: SheetPath = field(default_factory=SheetPath)
+    lib_symbols: LocalLibrary = field(default_factory=list)
     junctions: List(Junction) = field(default_factory=list)
     no_connects: List(NoConnect) = field(default_factory=list)
     bus_entries: List(BusEntry) = field(default_factory=list)
@@ -290,4 +301,6 @@ if __name__ == '__main__':
     for subsh in sch.subsheets:
         subsh = subsh.open()
         print('Loaded sub-sheet with', len(subsh.wires), 'wires and', len(subsh.symbols), 'symbols.')
+
+    sch.write('/tmp/test.kicad_sch')
 

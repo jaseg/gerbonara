@@ -62,7 +62,7 @@ def sexp(t, v):
             t, = t
             return [sexp(t, elem) for elem in v]
         else:
-            raise TypeError(f'Python type {t} has no defined s-expression serialization')
+            raise TypeError(f'Python type {t} of value {v!r} has no defined s-expression serialization')
 
     except MappingError as e:
         raise e
