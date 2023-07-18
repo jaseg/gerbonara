@@ -226,6 +226,7 @@ class TextEffect:
     hide: Flag() = False
     justify: OmitDefault(Justify) = field(default_factory=Justify)
 
+
 @sexp_type('tstamp')
 class Timestamp:
     value: str = field(default_factory=uuid.uuid4)
@@ -241,6 +242,7 @@ class Timestamp:
 
     def bump(self):
         self.value = uuid.uuid4()
+
 
 @sexp_type('uuid')
 class UUID:
@@ -258,6 +260,7 @@ class UUID:
     def bump(self):
         self.value = uuid.uuid4()
 
+
 @sexp_type('tedit')
 class EditTime:
     value: str = field(default_factory=time.time)
@@ -273,6 +276,15 @@ class EditTime:
 
     def bump(self):
         self.value = time.time()
+
+
+@sexp_type('paper')
+class PageSettings:
+    page_format: str = 'A4'
+    width: float = None
+    height: float = None
+    portrait: Flag() = False
+
 
 @sexp_type('property')
 class Property:

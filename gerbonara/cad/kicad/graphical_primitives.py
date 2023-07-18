@@ -306,6 +306,18 @@ class DimensionStyle:
     keep_text_aligned: Flag() = False
 
 
+@sexp_type('image')
+class Image:
+    at: AtPos = field(default_factory=AtPos)
+    scale: Named(float) = None
+    layer: Named(str) = None
+    uuid: UUID = field(default_factory=UUID)
+    data: str = ''
+
+    def offset(self, x=0, y=0):
+        self.at = self.at.with_offset(x, y)
+
+
 @sexp_type('dimension')
 class Dimension:
     locked: Flag() = False

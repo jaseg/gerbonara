@@ -414,7 +414,7 @@ SUPPORTED_FILE_FORMAT_VERSIONS = [20211014, 20220914]
 @sexp_type('kicad_symbol_lib')
 class Library:
     _version: Named(int, name='version') = 20211014
-    generator: Named(Atom) = Atom.kicad_library_utils
+    generator: Named(Atom) = Atom.gerbonara
     symbols: List(Symbol) = field(default_factory=list)
     _ : SEXP_END = None
     original_filename: str = None

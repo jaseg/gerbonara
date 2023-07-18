@@ -59,14 +59,6 @@ class GeneralSection:
     thickness: Named(float) = 1.60
 
 
-@sexp_type('paper')
-class PageSettings:
-    page_format: str = 'A4'
-    width: float = None
-    height: float = None
-    portrait: Flag() = False
-
-
 @sexp_type('layers')
 class LayerSettings:
     index: int = 0
@@ -156,18 +148,6 @@ class BoardSetup:
 class Net:
     index: int = 0
     name: str = ''
-
-
-@sexp_type('image')
-class Image:
-    at: AtPos = field(default_factory=AtPos)
-    scale: Named(float) = None
-    layer: Named(str) = None
-    uuid: UUID = field(default_factory=UUID)
-    data: str = ''
-
-    def offset(self, x=0, y=0):
-        self.at = self.at.with_offset(x, y)
 
 
 @sexp_type('segment')
@@ -322,7 +302,7 @@ class Board:
     polygons: List(gr.Polygon) = field(default_factory=list)
     curves: List(gr.Curve) = field(default_factory=list)
     dimensions: List(gr.Dimension) = field(default_factory=list)
-    images: List(Image) = field(default_factory=list)
+    images: List(gr.Image) = field(default_factory=list)
     # Tracks
     track_segments: List(TrackSegment) = field(default_factory=list)
     track_arcs: List(TrackArc) = field(default_factory=list)
@@ -368,7 +348,7 @@ class Board:
                 self.curves.remove(obj)
             case gr.Dimension():
                 self.dimensions.remove(obj)
-            case Image():
+            case gr.Image():
                 self.images.remove(obj)
             case TrackSegment():
                 self.track_segments.remove(obj)
@@ -405,7 +385,7 @@ class Board:
                 self.curves.append(obj)
             case gr.Dimension():
                 self.dimensions.append(obj)
-            case Image():
+            case gr.Image():
                 self.images.append(obj)
             case TrackSegment():
                 self.track_segments.append(obj)
