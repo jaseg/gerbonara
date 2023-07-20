@@ -187,6 +187,10 @@ class LocalLabel(TextMixin):
     effects: TextEffect = field(default_factory=TextEffect)
     uuid: UUID = field(default_factory=UUID)
 
+    @property
+    def _text_offset(self):
+        return (0, -2*self.line_width)
+
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         yield from TextMixin.to_svg(self, colorscheme.text)
 
@@ -283,6 +287,11 @@ class DrawnProperty(TextMixin):
     at: AtPos = field(default_factory=AtPos)
     hide: Flag() = False
     effects: TextEffect = field(default_factory=TextEffect)
+    _: SEXP_END = None
+    parent: object = None
+
+    def __after_parse__(self, parent=None):
+        self.parent = parent
 
     # Alias value for text mixin
     @property
@@ -292,6 +301,10 @@ class DrawnProperty(TextMixin):
     @text.setter
     def text(self, value):
         self.value = value
+
+    @property
+    def rotation(self):
+        return self.parent.rotation + self.at.rotation
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         if not self.hide:
@@ -323,25 +336,38 @@ class SymbolInstance:
     def __after_parse__(self, parent):
         self.schematic = parent
 
+    @property
+    def rotation(self):
+        return self.at.rotation
+
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         children = []
+        rot = self.at.rotation
 
-        for prop in self.properties:
-            children += prop.to_svg()
+        sym = self.schematic.lookup_symbol(self.lib_name, self.lib_id)
 
-        sym = self.schematic.lookup_symbol(self.lib_name, self.lib_id).raw_units[self.unit - 1]
-        for elem in sym.graphical_elements:
-            children += elem.to_svg(colorscheme)
+        name = f'{sym.name}_0_1'
+        if name in sym.global_units.get(1, {}):
+            for elem in sym.global_units[1][name].graphical_elements:
+                children += elem.to_svg(colorscheme)
+
+        name = f'{sym.name}_{self.unit}_1'
+        if name in sym.styles.get(1, {}):
+            for elem in sym.styles[1][name].graphical_elements:
+                children += elem.to_svg(colorscheme)
 
         xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
-        if self.at.rotation:
-            xform = f'rotate({self.at.rotation}) {xform}'
+        if rot:
+            xform += f'rotate({-rot})'
         if self.mirror.x:
-            xform = f'scale(-1 1) {xform}'
-        if self.mirror.y:
-            xform = f'scale(1 -1) {xform}'
+            xform += f'scale(-1 1)'
+        if not self.mirror.y:
+            xform += f'scale(1 -1)'
 
         yield Tag('g', children=children, transform=xform, fill=colorscheme.fill, stroke=colorscheme.lines)
+
+        for prop in self.properties:
+            yield from prop.to_svg()
 
 
 @sexp_type('path')
@@ -398,6 +424,10 @@ class Subsheet:
 
     def __before_sexp__(self):
         self._properties = [self.sheet_name, self.file_name]
+
+    @property
+    def rotation(self):
+        return 0
 
     def open(self, search_dir=None, safe=True):
         if search_dir is None:
@@ -496,18 +526,18 @@ class Schematic:
 
     @property
     def elements(self):
+        yield from self.images
+        yield from self.polylines
+        yield from self.symbols
         yield from self.junctions
         yield from self.no_connects
         yield from self.bus_entries
         yield from self.wires
         yield from self.buses
-        yield from self.images
-        yield from self.polylines
         yield from self.texts
         yield from self.local_labels
         yield from self.global_labels
         yield from self.hierarchical_labels
-        yield from self.symbols
         yield from self.subsheets
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):

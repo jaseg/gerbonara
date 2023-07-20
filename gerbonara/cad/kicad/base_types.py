@@ -80,7 +80,8 @@ class Stroke:
 
         attrs = {'stroke': color,
                 'stroke_linecap': 'round',
-                'stroke_widtj': self.width}
+                'stroke_linejoin': 'round',
+                'stroke_width': self.width or 0.254}
 
         if self.type not in (Atom.default, Atom.solid):
             attrs['stroke_dasharray'] = {
@@ -313,6 +314,14 @@ class TextMixin:
         d = ' '.join(self.svg_path_data())
         yield Tag('path', d=d, fill='none', stroke=color, stroke_width=f'{self.line_width:.3f}', stroke_linecap='round')
 
+    @property
+    def _text_offset(self):
+        return (0, 0)
+
+    @property
+    def rotation(self):
+        return self.at.rotation
+
     def render(self, variables={}):
         if not self.effects or self.effects.hide or not self.effects.font:
             return
@@ -327,17 +336,30 @@ class TextMixin:
         w = max_x - min_x
         h = max_y - min_y
 
-        offx = -min_x + {
+        h_just = self.effects.justify.h if self.effects.justify else None
+        v_just = self.effects.justify.v if self.effects.justify else None
+
+        rot = self.rotation
+        # KiCad already flips h_just in these cases, making the rotation param redundant. 
+        if rot == 180:
+            rot = 0
+
+        if rot == 270 and self.at.rotation != 270:
+            h_just = {Atom.right: Atom.left, Atom.left: Atom.right}.get(h_just, h_just)
+
+        offx, offy = self._text_offset
+
+        offx += -min_x + {
                 None: -w/2,
                 Atom.right: -w,
                 Atom.left: 0
-                }[self.effects.justify.h if self.effects.justify else None]
+                }[h_just]
 
-        offy = {
+        offy += {
                 None: self.size/2,
                 Atom.top: self.size,
                 Atom.bottom: 0
-                }[self.effects.justify.v if self.effects.justify else None]
+                }[v_just]
 
         aperture = ap.CircleAperture(self.line_width or 0.2, unit=MM)
         for stroke in strokes:
@@ -345,7 +367,7 @@ class TextMixin:
 
             for x, y in stroke:
                 x, y = x+offx, y+offy
-                x, y = rotate_point(x, y, math.radians(self.at.rotation or 0))
+                x, y = rotate_point(x, y, math.radians(-rot or 0))
                 x, y = x+self.at.x, y+self.at.y
                 out.append((x, y))
 
@@ -429,6 +451,11 @@ class DrawnProperty(TextMixin):
     hide: Flag() = False
     tstamp: Timestamp = None
     effects: TextEffect = field(default_factory=TextEffect)
+    _ : SEXP_END = None
+    parent: object = None
+
+    def __after_parse(self, parent=None):
+        self.parent = parent
 
     # Alias value for text mixin
     @property

@@ -96,12 +96,12 @@ class Pin:
         return (x1, y1), (x2, y2)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        x1, y1 = self.at.x, self.at.y
-        x2, y2 = x1+self.length, y1
-        xform = {'transform': f'rotate({-self.at.rotation} {x1} {y1})'}
+        x1, y1 = 0, 0
+        x2, y2 = self.length, 0
+        xform = {'transform': f'translate({self.at.x:.3f} {self.at.y:.3f}) rotate({self.at.rotation})'}
         style = {'stroke_width': 0.254, 'stroke': colorscheme.lines, 'stroke_linecap': 'round'}
 
-        yield Tag('path', **xform, **style, d=f'M {x1:.6f} {y1:.6f} L {x2:.6f} {y2:.6f}')
+        yield Tag('path', **xform, **style, d=f'M 0 0 L {self.length:.3f} 0')
 
         eps = 1
         for tag in {
@@ -160,8 +160,6 @@ class Pin:
         else:
             raise ValueError(f'Invalid pin rotation {self.at.rotation}')
 
-            yield f'M {line.x1:.3f} {line.y1:.3f} L {line.x2:.3f} {line.y2:.3f}'
-
         d = []
         for stroke in strokes:
             points = []
@@ -171,7 +169,8 @@ class Pin:
                 x, y = x+self.at.x, y+self.at.y
                 points.append(f'{x:.3f} {y:.3f}')
             d.append('M '+ ' L '.join(points) + ' ')
-        yield Tag('path', d=d, fill='none', stroke=colorscheme.text, stroke_width='0.254', stroke_linecap='round')
+        yield Tag('path', d=' '.join(d), fill='none', stroke=colorscheme.text, stroke_width='0.254', stroke_linecap='round', stroke_linejoin='round')
+        print('name', self.name.value)
 
 
 @sexp_type('fill')
