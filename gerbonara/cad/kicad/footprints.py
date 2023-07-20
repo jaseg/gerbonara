@@ -362,7 +362,7 @@ class Pad:
     type: AtomChoice(Atom.thru_hole, Atom.smd, Atom.connect, Atom.np_thru_hole) = None
     shape: AtomChoice(Atom.circle, Atom.rect, Atom.oval, Atom.trapezoid, Atom.roundrect, Atom.custom) = None
     at: AtPos = field(default_factory=AtPos)
-    locked: Wrap(Flag()) = False
+    locked: Flag() = False
     size: Rename(XYCoord) = field(default_factory=XYCoord)
     drill: Drill = None
     layers: Named(Array(str)) = field(default_factory=list)

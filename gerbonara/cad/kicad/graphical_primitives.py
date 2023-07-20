@@ -18,53 +18,13 @@ class TextLayer:
 
 
 @sexp_type('gr_text')
-class Text:
+class Text(TextMixin):
     text: str = ''
     at: AtPos = field(default_factory=AtPos)
     layer: TextLayer = field(default_factory=TextLayer)
     tstamp: Timestamp = None
     effects: TextEffect = field(default_factory=TextEffect)
     render_cache: RenderCache = None
-
-    def render(self, variables={}):
-        if not self.effects or self.effects.hide or not self.effects.font:
-            return
-
-        font = Newstroke.load()
-        line_width = self.effects.font.thickness
-        text = string.Template(self.text).safe_substitute(variables)
-        strokes = list(font.render(text, size=self.effects.font.size.y))
-        min_x = min(x for st in strokes for x, y in st)
-        min_y = min(y for st in strokes for x, y in st)
-        max_x = max(x for st in strokes for x, y in st)
-        max_y = max(y for st in strokes for x, y in st)
-        w = max_x - min_x
-        h = max_y - min_y
-
-        offx = -min_x + {
-                None: -w/2,
-                Atom.right: -w,
-                Atom.left: 0
-                }[self.effects.justify.h if self.effects.justify else None]
-
-        offy = {
-                None: self.effects.font.size.y/2,
-                Atom.top: self.effects.font.size.y,
-                Atom.bottom: 0
-                }[self.effects.justify.v if self.effects.justify else None]
-
-        aperture = ap.CircleAperture(line_width or 0.2, unit=MM)
-        for stroke in strokes:
-            out = []
-
-            for x, y in stroke:
-                x, y = x+offx, y+offy
-                x, y = rotate_point(x, y, math.radians(self.at.rotation or 0))
-                x, y = x+self.at.x, y+self.at.y
-                out.append((x, y))
-
-            for p1, p2 in zip(out[:-1], out[1:]):
-                yield go.Line(*p1, *p2, aperture=aperture, unit=MM)
 
     def offset(self, x=0, y=0):
         self.at = self.at.with_offset(x, y)

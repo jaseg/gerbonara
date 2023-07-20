@@ -1,14 +1,17 @@
-from .sexp import *
-from .sexp_mapper import *
+import string
 import time
-
 from dataclasses import field, replace
 import math
 import uuid
 from contextlib import contextmanager
 from itertools import cycle
 
-from ...utils import rotate_point
+from .sexp import *
+from .sexp_mapper import *
+from ...newstroke import Newstroke
+from ...utils import rotate_point, Tag, MM
+from ... import apertures as ap
+from ... import graphic_objects as go
 
 
 LAYER_MAP_K2G = {
@@ -46,7 +49,16 @@ class Color:
     r: int = None
     g: int = None
     b: int = None
-    a: int = None
+    a: float = None
+    
+    def __bool__(self):
+        return self.r or self.b or self.g or not math.isclose(self.a, 0, abs_tol=1e-3)
+
+    def svg(self, default=None):
+        if default and not self:
+            return default
+
+        return f'rgba({self.r} {self.g} {self.b} {self.a})'
 
 
 @sexp_type('stroke')
@@ -54,7 +66,32 @@ class Stroke:
     width: Named(float) = 0.254
     type: Named(AtomChoice(Atom.dash, Atom.dot, Atom.dash_dot_dot, Atom.dash_dot, Atom.default, Atom.solid)) = Atom.default
     color: Color = None
+
+    def svg_color(self, default=None):
+        if self.color:
+            return self.color.svg(default)
+        else:
+            return default
     
+    def svg_attrs(self, default_color=None):
+        w = self.width
+        if not (color := self.color or default_color):
+            return {}
+
+        attrs = {'stroke': color,
+                'stroke_linecap': 'round',
+                'stroke_widtj': self.width}
+
+        if self.type not in (Atom.default, Atom.solid):
+            attrs['stroke_dasharray'] = {
+                    Atom.dash: f'{w*5:.3f},{w*5:.3f}',
+                    Atom.dot: f'{w*2:.3f},{w*2:.3f}',
+                    Atom.dash_dot: f'{w*5:.3f},{w*3:.3f}{w:.3f},{w*3:.3f}',
+                    Atom.dash_dot_dot: f'{w*5:.3f},{w*3:.3f}{w:.3f},{w*3:.3f}{w:.3f},{w*3:.3f}',
+                    }[self.type]
+
+        return attrs
+
 
 class Dasher:
     def __init__(self, obj):
@@ -140,6 +177,19 @@ class Dasher:
                     if stroked:
                         yield lx, ly, x2, y2
 
+    def svg(self, **kwargs):
+        if 'fill' not in kwargs:
+            kwargs['fill'] = 'none'
+        if 'stroke' not in kwargs:
+            kwargs['stroke'] = 'black'
+        if 'stroke_width' not in kwargs:
+            kwargs['stroke_width'] = 0.254
+        if 'stroke_linecap' not in kwargs:
+            kwargs['stroke_linecap'] = 'round'
+
+        d = ' '.join(f'M {x1:.3f} {y1:.3f} L {x2:.3f} {y2:.3f}' for x1, y1, x2, y2 in self)
+        return Tag('path', d=d, **kwargs)
+
 
 @sexp_type('xy')
 class XYCoord:
@@ -158,7 +208,7 @@ class XYCoord:
         else:
             self.x, self.y = x, y
 
-    def isclose(self, other, tol=1e-6):
+    def isclose(self, other, tol=1e-3):
         return math.isclose(self.x, other.x, tol) and math.isclose(self.y, other.y, tol)
 
     def with_offset(self, x=0, y=0):
@@ -167,6 +217,7 @@ class XYCoord:
     def with_rotation(self, angle, cx=0, cy=0):
         x, y = rotate_point(self.x, self.y, angle, cx, cy)
         return replace(self, x=x, y=y)
+
 
 @sexp_type('pts')
 class PointList:
@@ -225,6 +276,83 @@ class TextEffect:
     font: FontSpec = field(default_factory=FontSpec)
     hide: Flag() = False
     justify: OmitDefault(Justify) = field(default_factory=Justify)
+
+class TextMixin:
+    @property
+    def size(self):
+        return self.effects.font.size.y or 1.27
+
+    @size.setter
+    def size(self, value):
+        self.effects.font.size.x = self.effects.font.size.y = value
+
+    @property
+    def line_width(self):
+        return self.effects.font.thickness or 0.254
+
+    @line_width.setter
+    def line_width(self, value):
+        self.effects.font.thickness = value
+
+    def bounding_box(self, default=None):
+        if not self.text or not self.text.strip():
+            return default
+
+        lines = list(self.render())
+        x1 = min(min(l.x1, l.x2) for l in lines)
+        y1 = min(min(l.y1, l.y2) for l in lines)
+        x2 = max(max(l.x1, l.x2) for l in lines)
+        y2 = max(max(l.y1, l.y2) for l in lines)
+        r = self.effects.font.thickness/2
+        return (x1-r, y1-r), (x2+r, y2+r)
+    
+    def svg_path_data(self):
+        for line in self.render():
+            yield f'M {line.x1:.3f} {line.y1:.3f} L {line.x2:.3f} {line.y2:.3f}'
+
+    def to_svg(self, color='black'):
+        d = ' '.join(self.svg_path_data())
+        yield Tag('path', d=d, fill='none', stroke=color, stroke_width=f'{self.line_width:.3f}')
+
+    def render(self, variables={}):
+        if not self.effects or self.effects.hide or not self.effects.font:
+            return
+
+        font = Newstroke.load()
+        text = string.Template(self.text).safe_substitute(variables)
+        strokes = list(font.render(text, size=self.size))
+        min_x = min(x for st in strokes for x, y in st)
+        min_y = min(y for st in strokes for x, y in st)
+        max_x = max(x for st in strokes for x, y in st)
+        max_y = max(y for st in strokes for x, y in st)
+        w = max_x - min_x
+        h = max_y - min_y
+
+        offx = -min_x + {
+                None: -w/2,
+                Atom.right: -w,
+                Atom.left: 0
+                }[self.effects.justify.h if self.effects.justify else None]
+
+        offy = {
+                None: self.size/2,
+                Atom.top: self.size,
+                Atom.bottom: 0
+                }[self.effects.justify.v if self.effects.justify else None]
+
+        aperture = ap.CircleAperture(self.line_width or 0.2, unit=MM)
+        for stroke in strokes:
+            out = []
+
+            for x, y in stroke:
+                x, y = x+offx, y+offy
+                x, y = rotate_point(x, y, math.radians(self.at.rotation or 0))
+                x, y = x+self.at.x, y+self.at.y
+                out.append((x, y))
+
+            for p1, p2 in zip(out[:-1], out[1:]):
+                yield go.Line(*p1, *p2, aperture=aperture, unit=MM)
+
 
 
 @sexp_type('tstamp')
@@ -293,7 +421,7 @@ class Property:
 
 
 @sexp_type('property')
-class DrawnProperty:
+class DrawnProperty(TextMixin):
     key: str = None
     value: str = None
     id: Named(int) = None
@@ -302,6 +430,15 @@ class DrawnProperty:
     hide: Flag() = False
     tstamp: Timestamp = None
     effects: TextEffect = field(default_factory=TextEffect)
+
+    # Alias value for text mixin
+    @property
+    def text(self):
+        return self.value
+
+    @text.setter
+    def text(self, value):
+        self.value = value
 
 
 if __name__ == '__main__':

@@ -17,6 +17,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from .sexp import *
 from .sexp_mapper import *
 from .base_types import *
+from ...utils import rotate_point, Tag, arc_bounds
+from ...newstroke import Newstroke
+from .schematic_colors import *
 
 
 PIN_ETYPE = AtomChoice(Atom.input, Atom.output, Atom.bidirectional, Atom.tri_state, Atom.passive, Atom.free,
@@ -60,10 +63,128 @@ class Pin:
     def direction(self, value):
         self.at.rotation = {0: 'R', 90: 'U', 180: 'L', 270: 'D'}[value[0].upper()]
 
+    def bounding_box(self, default=None):
+        font = Newstroke.load()
+        strokes = list(font.render(self.name, size=2.54))
+        min_x = min(x for st in strokes for x, y in st)
+        min_y = min(y for st in strokes for x, y in st)
+        max_x = max(x for st in strokes for x, y in st)
+        max_y = max(y for st in strokes for x, y in st)
+        w, h = max_x - min_x, max_y - min_y
+        l = self.length + 0.2 + w
+
+        x1, y1 = x2, y2 = self.at.x, self.at.y
+        if self.at.rotation == 0:
+            x2 += w
+            y1 -= h/2
+            y2 += h/2
+        if self.at.rotation == 90:
+            y2 += w
+            x1 -= h/2
+            x2 += h/2
+        if self.at.rotation == 180:
+            x1 -= w
+            y1 -= h/2
+            y2 += h/2
+        if self.at.rotation == 270:
+            y1 -= w
+            x1 -= h/2
+            x2 += h/2
+        else:
+            raise ValueError(f'Invalid pin rotation {self.at.rotation}')
+
+        return (x1, y1), (x2, y2)
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        x1, y1 = self.at.x, self.at.y
+        x2, y2 = x1+self.length, y1
+        xform = {'transform': f'rotate({-self.at.rotation} {x1} {y1})'}
+        style = {'stroke_width': 0.254, 'stroke': colorscheme.lines}
+
+        yield Tag('path', **xform, **style, d=f'M {x1:.6f} {y1:.6f} L {x2:.6f} {y2:.6f}')
+
+        eps = 1
+        for tag in {
+                'line': [],
+                'inverted': [
+                    Tag('circle', **xform, **style, cx=x2-eps/3-0.2, cy=y2, r=eps/3)],
+                'clock': [
+                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],  # NOQA: E501
+                'inverted_clock': [
+                    Tag('circle', **xform, **style, cx=x2-eps/3-0.2, cy=y2, r=eps/3),
+                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],  # NOQA: E501
+                'input_low': [
+                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}')],  # NOQA: E501
+                'clock_low': [
+                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}'),  # NOQA: E501
+                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],  # NOQA: E501
+                'output_low': [
+                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps} L {x2-eps} {y2}')],  # NOQA: E501
+                'edge_clock_high': [
+                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}'),  # NOQA: E501
+                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],  # NOQA: E501
+                'non_logic': [
+                    Tag('path', **xform, **style, d=f'M {x2-eps/2} {y2-eps/2} L {x2+eps/2} {y2+eps/2}'),  # NOQA: E501
+                    Tag('path', **xform, **style, d=f'M {x2-eps/2} {y2+eps/2} L {x2+eps/2} {y2-eps/2}')],  # NOQA: E501
+                # FIXME...
+        }.get(self.style, []):
+            yield tag
+
+        if self.at.rotation in (90, 270):
+            t_rot = 90
+        else:
+            t_rot = 0
+
+        size = self.name.effects.font.size.y or 1.27
+        font = Newstroke.load()
+        strokes = list(font.render(self.name.value, size=size))
+        min_x = min(x for st in strokes for x, y in st) if strokes else 0
+        min_y = min(y for st in strokes for x, y in st) if strokes else 0
+        max_x = max(x for st in strokes for x, y in st) if strokes else 0
+        max_y = max(y for st in strokes for x, y in st) if strokes else 0
+        w = max_x - min_x
+        h = max_y - min_y
+
+        if self.at.rotation == 0:
+            offx = -min_x + self.length + 0.2
+            offy = h/2
+        elif self.at.rotation == 180:
+            offx = min_x - self.length - 0.2 - w
+            offy = h/2
+        elif self.at.rotation == 90:
+            offx = -h/2
+            offy = min_x - self.length - 0.2 - w
+        elif self.at.rotation == 270:
+            offx = -h/2
+            offy = -min_x + self.length + 0.2
+        else:
+            raise ValueError(f'Invalid pin rotation {self.at.rotation}')
+
+            yield f'M {line.x1:.3f} {line.y1:.3f} L {line.x2:.3f} {line.y2:.3f}'
+
+        d = []
+        for stroke in strokes:
+            points = []
+            for x, y in stroke:
+                x, y = x+offx, y+offy
+                x, y = rotate_point(x, y, math.radians(self.at.rotation or 0))
+                x, y = x+self.at.x, y+self.at.y
+                points.append(f'{x:.3f} {y:.3f}')
+            d.append('M '+ ' L '.join(points) + ' ')
+        yield Tag('path', d=d, fill='none', stroke=colorscheme.text, stroke_width='0.254')
+
 
 @sexp_type('fill')
 class Fill:
     type: Named(AtomChoice(Atom.none, Atom.outline, Atom.background)) = Atom.none
+
+    def svg(self, fg, bg):
+        if self.type == 'outline':
+            return fg
+        elif self.type == 'background':
+            return bg
+        else:
+            return 'none'
 
 
 @sexp_type('circle')
@@ -72,6 +193,37 @@ class Circle:
     radius: Named(float) = 0.0
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
+
+    def bounding_box(self, default=None):
+        x, y, r = self.center.x, self.center.y, self.radius
+        return (x-r, y-r), (x+r, y+r)
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        yield Tag('circle', cx=f'{self.center.x:.3f}', cy=f'{self.center.y:.3f}', r=f'{self.radius:.3f}',
+                  fill=self.fill.svg(colorscheme.lines, colorscheme.fill),
+                  **self.stroke.svg_attrs(colorscheme.lines))
+
+
+# https://stackoverflow.com/questions/28910718/give-3-points-and-a-plot-circle
+def define_circle(p1, p2, p3):
+    """
+    Returns the center and radius of the circle passing the given 3 points.
+    In case the 3 points form a line, raises a ValueError.
+    """
+    temp = p2[0] * p2[0] + p2[1] * p2[1]
+    bc = (p1[0] * p1[0] + p1[1] * p1[1] - temp) / 2
+    cd = (temp - p3[0] * p3[0] - p3[1] * p3[1]) / 2
+    det = (p1[0] - p2[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p2[1])
+
+    if abs(det) < 1.0e-6:
+        raise ValueError()
+
+    # Center of circle
+    cx = (bc*(p2[1] - p3[1]) - cd*(p1[1] - p2[1])) / det
+    cy = ((p1[0] - p2[0]) * cd - (p2[0] - p3[0]) * bc) / det
+
+    radius = math.sqrt((cx - p1[0])**2 + (cy - p1[1])**2)
+    return ((cx, cy), radius)
 
 
 @sexp_type('arc')
@@ -82,7 +234,30 @@ class Arc:
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
 
-    # TODO add function to calculate center, bounding box
+    def bounding_box(self, default=None):
+        (cx, cy), r = define_circle((self.start.x, self.start.y), (self.mid.x, self.mid.y), (self.end.x, self.end.y))
+        x1, y1 = self.start.x, self.start.y
+        x2, y2 = self.mid.x-x1, self.mid.y-x2
+        x3, y3 = (self.end.x - x1)/2, (self.end.y - y1)/2
+        clockwise = math.atan2(x2*y3-x3*y2, x2*x3+y2*y3) > 0
+        return arc_bounds(x1, y1, self.end.x, self.end.y, cx-x1, cy-y1, clockwise)
+
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        (cx, cy), r = define_circle((self.start.x, self.start.y), (self.mid.x, self.mid.y), (self.end.x, self.end.y))
+
+        x1r = self.start.x - cx
+        y1r = self.start.y - cy
+        x2r = self.end.x - cx
+        y2r = self.end.y - cy
+        a1 = math.atan2(x1r, y1r)
+        a2 = math.atan2(x2r, y2r)
+        da = (a2 - a1 + math.pi) % (2*math.pi) - math.pi
+
+        large_arc = int(da > math.pi)
+        d = f'M {self.start.x:.3f} {self.start.y:.3f} A {r:.3f} {r:.3f} 0 {large_arc} 0 {self.end.x:.3f} {self.end.y:.3f}'
+        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill),
+                  **self.stroke.svg_attrs(colorscheme.lines))
 
 
 @sexp_type('polyline')
@@ -103,54 +278,41 @@ class Polyline:
     def closed(self):
         # if the last and first point are the same, we consider the polyline closed
         # a closed triangle will have 4 points (A-B-C-A) stored in the list of points
-        return len(self.points) > 3 and self.points[0] == self.points[-1]
+        return len(self.points) > 3 and self.points[0].isclose(self.points[-1])
 
-    @property
-    def bbox(self):
+    def bounding_box(self, default=None):
         if not self.points:
-            return (0.0, 0.0, 0.0, 0.0)
+            return default
 
-        return (min(p.x for p in self.points),
-                min(p.y for p in self.points),
-                max(p.x for p in self.points),
-                max(p.y for p in self.points))
+        return (min(p.x for p in self.points), min(p.y for p in self.points)), \
+               (max(p.x for p in self.points), max(p.y for p in self.points))
 
     def as_rectangle(self):
-        (maxx, maxy, minx, miny) = self.get_boundingbox()
-        return Rectangle(
-            minx,
-            maxy,
-            maxx,
-            miny,
-            self.stroke_width,
-            self.stroke_color,
-            self.fill_type,
-            self.fill_color,
-            unit=self.unit,
-            demorgan=self.demorgan,
-        )
+        (maxx, maxy, minx, miny) = self.bbox()
+        return Rectangle(minx, maxy, maxx, miny, self.stroke, self.fill)
 
-    def get_center_of_boundingbox(self):
-        (maxx, maxy, minx, miny) = self.get_boundingbox()
-        return ((minx + maxx) / 2, ((miny + maxy) / 2))
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        p0, *rest = self.points
+        if not rest:
+            return
+
+        d = ' '.join([f'M {p0.x:.3f} {p0.y:.3f}', *(f'L {pn.x:.3f} {pn.y:.3f}' for pn in rest)])
+        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill), **self.stroke.svg_attrs(colorscheme.lines))
 
     def is_rectangle(self):
-        # a rectangle has 5 points and is closed
+        # A rectangle has 5 points and is closed
         if len(self.points) != 5 or not self.is_closed():
             return False
+            
+        # Check that we have all four corners present
+        (x1, y1), (x2, y2) = self.bbox()
+        if not all(any(cand.isclose(pt) for cand in self.points[:-1]) for pt in
+                   [(x1, y1), (x1, y2), (x2, y2), (x2, y1)]):
+            return False
 
-        # construct lines between the points
-        p0 = self.points[0]
-        for p1_idx in range(1, len(self.points)):
-            p1 = self.points[p1_idx]
-            dx = p1.x - p0.x
-            dy = p1.y - p0.y
-            if dx != 0 and dy != 0:
-                # if a line is neither horizontal or vertical its not
-                # part of a rectangle
-                return False
-            # select next point
-            p0 = p1
+        # Check that we only have horizontal or vertical lines
+        if any(x2-x1 and y2-y1 for (x1, y1), (x2,  y2) in zip(self.points[:-1], self.points[1:])):
+            return False
 
         return True
 
@@ -177,39 +339,55 @@ class TextPos(XYCoord):
 
 
 @sexp_type('text')
-class Text:
+class Text(TextMixin):
     text: str = None
     at: TextPos = field(default_factory=TextPos)
     rotation: float = None
     effects: TextEffect = field(default_factory=TextEffect)
 
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        yield from TextMixin.to_svg(self, colorscheme.text)
+
 
 @sexp_type('rectangle')
 class Rectangle:
-    """
-    Some v6 symbols use rectangles, newer ones encode them as polylines.
-    At some point in time we can most likely remove this class since its not used anymore
-    """
+    # Some v6 symbols use rectangles, newer ones encode them as polylines.
+    # At some point in time we can most likely remove this class since its not used anymore
 
     start: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
 
-    def as_polyline(self):
-        x1, y1 = self.start
-        x2, y2 = self.end
-        return Polyline([Point(x1, y1), Point(x2, y1), Point(x2, y2), Point(x1, y2), Point(x1, y1)],
+    def to_polyline(self):
+        x1, y1 = self.start.x, self.start.y
+        x2, y2 = self.end.x, self.end.y
+        return Polyline(PointList([XYCoord(x1, y1), XYCoord(x2, y1), XYCoord(x2, y2), XYCoord(x1, y2), XYCoord(x1, y1)]),
                         self.stroke, self.fill)
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        return self.to_polyline().to_svg(colorscheme)
 
 
 @sexp_type('property')
-class Property:
+class Property(TextMixin):
     name: str = None
     value: str = None
     id: Named(int) = None
     at: AtPos = field(default_factory=AtPos)
     effects: TextEffect = field(default_factory=TextEffect)
+
+    # Alias value for text mixin
+    @property
+    def text(self):
+        return self.value
+
+    @text.setter
+    def text(self, value):
+        self.value = value
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        yield from TextMixin.to_svg(self, colorscheme.text)
 
 
 @sexp_type('pin_numbers')
@@ -253,6 +431,15 @@ class Unit:
         self.unit_index = int(unit_index)
         self.style_global = self._demorgan_style == 0
         self.unit_global = self.unit_index == 0
+
+    @property
+    def graphical_elements(self):
+        yield from self.circles
+        yield from self.arcs
+        yield from self.polylines
+        yield from self.rectangles
+        yield from self.texts
+        yield from self.pins
 
     def __before_sexp__(self):
         self.name = f'{self.symbol.name}_{self.unit_index}_{self.demorgan_style}'
@@ -354,7 +541,7 @@ class Symbol:
         # and is closest to the center
         candidates = {}
         # building a dict with floats as keys.. there needs to be a rule against that^^
-        pl_rects = [i.as_polyline() for i in self.rectangles]
+        pl_rects = [i.to_polyline() for i in self.rectangles]
         pl_rects.extend(pl for pl in self.polylines if pl.is_rectangle())
         for pl in pl_rects:
             if pl.unit in units:
