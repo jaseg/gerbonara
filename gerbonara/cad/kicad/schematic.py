@@ -110,10 +110,10 @@ def _polyline_svg(self, default_color):
     if len(self.points.xy) < 2:
         warnings.warn(f'Schematic {type(self)} with less than two points')
 
-    x0, y0, *rest = self.points.xy
-    da.move(x0, y0)
-    for xn, yn in rest:
-        da.line(xn, yn)
+    p0, *rest = self.points.xy
+    da.move(p0.x, p0.y)
+    for pn in rest:
+        da.line(pn.x, pn.y)
 
     return da.svg(stroke=self.stroke.svg_color(default_color))
 

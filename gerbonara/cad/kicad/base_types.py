@@ -96,7 +96,7 @@ class Stroke:
 class Dasher:
     def __init__(self, obj):
         if obj.stroke:
-            w, t = obj.stroke.width, obj.stroke.type
+            w, t = obj.stroke.width or 0.254, obj.stroke.type
         else:
             w = obj.width or 0
             t = Atom.solid
@@ -150,7 +150,6 @@ class Dasher:
 
         for length, stroked in cycle(zip(self.pattern, cycle([True, False]))):
             length = max(1e-12, length)
-            import sys
             while length > 0:
                 if segment_remaining == 0:
                     try:
@@ -312,7 +311,7 @@ class TextMixin:
 
     def to_svg(self, color='black'):
         d = ' '.join(self.svg_path_data())
-        yield Tag('path', d=d, fill='none', stroke=color, stroke_width=f'{self.line_width:.3f}')
+        yield Tag('path', d=d, fill='none', stroke=color, stroke_width=f'{self.line_width:.3f}', stroke_linecap='round')
 
     def render(self, variables={}):
         if not self.effects or self.effects.hide or not self.effects.font:

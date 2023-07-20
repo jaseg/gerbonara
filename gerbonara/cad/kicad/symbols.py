@@ -99,7 +99,7 @@ class Pin:
         x1, y1 = self.at.x, self.at.y
         x2, y2 = x1+self.length, y1
         xform = {'transform': f'rotate({-self.at.rotation} {x1} {y1})'}
-        style = {'stroke_width': 0.254, 'stroke': colorscheme.lines}
+        style = {'stroke_width': 0.254, 'stroke': colorscheme.lines, 'stroke_linecap': 'round'}
 
         yield Tag('path', **xform, **style, d=f'M {x1:.6f} {y1:.6f} L {x2:.6f} {y2:.6f}')
 
@@ -171,7 +171,7 @@ class Pin:
                 x, y = x+self.at.x, y+self.at.y
                 points.append(f'{x:.3f} {y:.3f}')
             d.append('M '+ ' L '.join(points) + ' ')
-        yield Tag('path', d=d, fill='none', stroke=colorscheme.text, stroke_width='0.254')
+        yield Tag('path', d=d, fill='none', stroke=colorscheme.text, stroke_width='0.254', stroke_linecap='round')
 
 
 @sexp_type('fill')
