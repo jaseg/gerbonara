@@ -104,8 +104,6 @@ class Pin:
         if self.hide:
             return
 
-        if self.name.value in ('PA3', 'QA'):
-            print(self.name.value, self.at, p_rotation)
         psx, psy = (-1 if p_mirror.x else 1), (-1 if p_mirror.y else 1)
         x1, y1 = self.at.x, self.at.y
         x2, y2 = self.at.x+self.length, self.at.y
@@ -113,7 +111,6 @@ class Pin:
         style = {'stroke_width': 0.254, 'stroke': colorscheme.lines, 'stroke_linecap': 'round'}
 
         yield Tag('path', **xform, **style, d=f'M 0 0 L {self.length:.3f} 0')
-        return
 
         eps = 1
         for tag in {
@@ -142,17 +139,23 @@ class Pin:
         }.get(self.style, []):
             yield tag
 
+        rot = self.at.rotation + p_rotation
+        trot = self.at.rotation
+        h_align = 'left'
+
         font = Newstroke.load()
         if self.name.value != '~' and not self.unit.symbol.pin_names.hide:
             yield font.render_svg(self.name.value,
                                   size=self.name.effects.font.size.y or 1.27,
                                   x0=self.length + 0.2,
                                   y0=0,
-                                  h_align='left',
+                                  h_align=h_align,
                                   v_align='middle',
-                                  rotation=self.at.rotation,
+                                  rotation=trot,
                                   stroke=colorscheme.text,
                                   transform=f'translate({self.at.x:.3f} {self.at.y:.3f})',
+                                  scale = (1, -1) if p_mirror.x or p_mirror.y else (1, -1),
+                                  mirror=(p_mirror.x, p_mirror.y),
                                   )
 
         if self.number.value != '~' and not self.unit.symbol.pin_numbers.hide:
@@ -162,7 +165,7 @@ class Pin:
                                   y0=0.4,
                                   h_align='right',
                                   v_align='bottom',
-                                  rotation=self.at.rotation,
+                                  rotation=trot,
                                   stroke=colorscheme.text,
                                   transform=f'translate({self.at.x:.3f} {self.at.y:.3f})',
                                   )

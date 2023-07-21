@@ -45,31 +45,27 @@ class Newstroke:
             h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
             x0, y0 = -x0, y0
 
-        if scale == (1, 1) and rotation == 90:
-            rotation = 270
-            h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
-            v_align = {'top': 'bottom', 'bottom': 'top'}.get(v_align, v_align)
-
-        #if mx:
-        #    x0 = -x0
-        #    if rotation == 90:
-        #        v_align = {'top': 'bottom', 'bottom': 'top'}.get(v_align, v_align)
-        #    else:
-        #        h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
-
-        if my:
-            y0 = -y0
-            if rotation == 0:
-                v_align = {'top': 'bottom', 'bottom': 'top'}.get(v_align, v_align)
-            else:
-                h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
+#        if mx:
+#            y0 = -y0
+#            if rotation == 0:
+#                v_align = {'top': 'bottom', 'bottom': 'top'}.get(v_align, v_align)
+#            else:
+#                h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
 
         x0, y0 = rotate_point(x0, y0, math.radians(-rotation))
 
         alx, aly = 0, 0
+        (minx, miny), (maxx, maxy) = bbox = self.bounding_box(text, size, space_width, char_gap)
+        w = maxx - minx
+
+        if my:
+            if rotation == 0:
+                sx = -1
+                h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
+            else:
+                sy = -sy
+
         if h_align != 'left':
-            (minx, miny), (maxx, maxy) = bbox = self.bounding_box(text, size, space_width, char_gap)
-            w = maxx - minx
             if h_align == 'right':
                 alx = -w
             elif h_align == 'center':
@@ -86,16 +82,16 @@ class Newstroke:
 
         for c in text:
             if c == ' ':
-                x += space_width*size
+                x += space_width
                 continue
 
             width, strokes = self.glyphs.get(c, missing_glyph)
             glyph_w = max(width, max(x for st in strokes for x, _y in st))
 
             for st in strokes:
-                yield self.transform_stroke(st, translate=(x0, y0), offset=(x+alx, aly), rotation=math.radians(-rotation), scale=(sx*size, sy*size))
+                yield [rotate_point((px+x)*sx*size+alx+x0, py*sy*size+aly+y0, math.radians(-rotation), x0, y0) for px, py in st]
 
-            x += glyph_w*size
+            x += glyph_w
 
     def render_svg(self, text, size=1.0, x0=0, y0=0, rotation=0, h_align='left', v_align='bottom', space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP, scale=(1, -1), mirror=(False, False), **svg_attrs):
         if 'stroke_linecap' not in svg_attrs:
@@ -126,14 +122,6 @@ class Newstroke:
             x += glyph_w*size
 
         return (0, -0.2*size), (x, 1.2*size)
-
-    @classmethod
-    def transform_stroke(kls, stroke, translate, offset, scale, rotation=0):
-        x0, y0 = translate
-        sx, sy = scale
-        dx, dy = offset
-        return [rotate_point(x*sx+dx+x0, y*sy+dy+y0, rotation, x0, y0) for x, y in stroke]
-            
 
     def load_font(self, newstroke_cpp):
         e = []
