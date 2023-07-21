@@ -107,7 +107,14 @@ class Pin:
         psx, psy = (-1 if p_mirror.x else 1), (-1 if p_mirror.y else 1)
         x1, y1 = self.at.x, self.at.y
         x2, y2 = self.at.x+self.length, self.at.y
-        xform = {'transform': f'translate({self.at.x:.3f} {self.at.y:.3f}) rotate({self.at.rotation})'}
+        if p_mirror.y:
+            p_xf = f'scale(-1 -1)'
+        elif p_mirror.x:
+            p_xf = f'scale(1 1)'
+        else:
+            p_xf = f'scale(1 -1)'
+        p_xf += f'rotate({p_rotation})'
+        xform = {'transform': f'{p_xf} translate({self.at.x:.3f} {self.at.y:.3f}) rotate({self.at.rotation})'}
         style = {'stroke_width': 0.254, 'stroke': colorscheme.lines, 'stroke_linecap': 'round'}
 
         yield Tag('path', **xform, **style, d=f'M 0 0 L {self.length:.3f} 0')
@@ -141,33 +148,73 @@ class Pin:
 
         rot = self.at.rotation + p_rotation
         trot = self.at.rotation
+        ax, ay = self.length+0.2, 0
+        ax, ay = rotate_point(ax, ay, math.radians(-self.at.rotation))
+
+        lx, ly = self.at.x, -self.at.y
+        lx, ly = rotate_point(lx, ly, math.radians(p_rotation))
+        if p_mirror.y:
+            lx, ly = -lx, ly
+        elif p_mirror.x:
+            lx, ly = lx, -ly
+        yield Tag('circle', cx=lx, cy=ly, r='0.5', stroke='blue', stroke_width='0.1', fill='none', z_index='100')
+
+        lx, ly = self.at.x + ax, -self.at.y - ay
+        lx, ly = rotate_point(lx, ly, math.radians(p_rotation))
+        if p_mirror.y:
+            lx, ly = -lx, ly
+        elif p_mirror.x:
+            lx, ly = lx, -ly
+        yield Tag('circle', cx=lx, cy=ly, r='0.5', stroke='red', stroke_width='0.1', fill='none', z_index='100')
+
         h_align = 'left'
+        if p_mirror.y:
+            if trot in (0, 180):
+                trot = 180 - trot
+        elif p_mirror.x:
+            if p_rotation == 0:
+                if trot in (90, 270):
+                    trot = 360-trot
+            else:
+                if trot in (0, 180):
+                    trot = 180 - trot
+        frot = (trot + p_rotation)%360
+        sx, sy = 1, 1
+
+        if frot == 180:
+            frot = 0
+            h_align = 'right'
+        elif frot == 270:
+            frot = 90
+            h_align = 'right'
 
         font = Newstroke.load()
         if self.name.value != '~' and not self.unit.symbol.pin_names.hide:
             yield font.render_svg(self.name.value,
                                   size=self.name.effects.font.size.y or 1.27,
-                                  x0=self.length + 0.2,
+                                  x0=0,
                                   y0=0,
                                   h_align=h_align,
                                   v_align='middle',
-                                  rotation=trot,
+                                  rotation=-frot,
                                   stroke=colorscheme.text,
-                                  transform=f'translate({self.at.x:.3f} {self.at.y:.3f})',
-                                  scale = (1, -1) if p_mirror.x or p_mirror.y else (1, -1),
-                                  mirror=(p_mirror.x, p_mirror.y),
+                                  transform=f'translate({lx:.3f} {ly:.3f})',
+                                  scale=(sx, sy),
+                                  mirror=(False, False),
                                   )
 
         if self.number.value != '~' and not self.unit.symbol.pin_numbers.hide:
             yield font.render_svg(self.number.value,
                                   size=self.number.effects.font.size.y or 1.27,
-                                  x0=self.length-0.2,
-                                  y0=0.4,
-                                  h_align='right',
+                                  x0=-0.4 if h_align == 'left' else 0.4,
+                                  y0=-0.4,
+                                  h_align={'left': 'right', 'right': 'left'}[h_align],
                                   v_align='bottom',
-                                  rotation=trot,
+                                  rotation=-frot,
                                   stroke=colorscheme.text,
-                                  transform=f'translate({self.at.x:.3f} {self.at.y:.3f})',
+                                  scale=(sx, sy),
+                                  transform=f'translate({lx:.3f} {ly:.3f})',
+                                  mirror=(False, False),
                                   )
 
 

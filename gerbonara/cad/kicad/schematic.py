@@ -400,11 +400,11 @@ class SymbolInstance:
         if self.reference in ('U18',):
             print(self.reference, self.unit, self.at, self.mirror, units)
 
-        xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
+        at_xform = xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
         if self.mirror.y:
             xform += f'scale(-1 -1)'
         elif self.mirror.x:
-            xform += f'scale(-1 1)'
+            xform += f'scale(1 1)'
         else:
             xform += f'scale(1 -1)'
         if rot:
@@ -414,7 +414,7 @@ class SymbolInstance:
         yield Tag('g', children=children, transform=xform, fill=colorscheme.fill, stroke=colorscheme.lines)
 
         children = [foo for unit in units for pin in unit.pins for foo in pin.to_svg(colorscheme, self.mirror, rot)]
-        yield Tag('g', children=children, transform=xform, fill=colorscheme.fill, stroke=colorscheme.lines)
+        yield Tag('g', children=children, transform=at_xform, fill=colorscheme.fill, stroke=colorscheme.lines)
 
         #for prop in self.properties:
         #    yield from prop.to_svg()
