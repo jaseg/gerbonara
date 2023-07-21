@@ -270,12 +270,27 @@ class Justify:
     v: AtomChoice(Atom.top, Atom.bottom) = None
     mirror: Flag() = False
 
+    @property
+    def h_str(self):
+        if self.h is None:
+            return 'center'
+        else:
+            return str(self.h)
+
+    @property
+    def v_str(self):
+        if self.v is None:
+            return 'middle'
+        else:
+            return str(self.v)
+
 
 @sexp_type('effects')
 class TextEffect:
     font: FontSpec = field(default_factory=FontSpec)
     hide: Flag() = False
     justify: OmitDefault(Justify) = field(default_factory=Justify)
+
 
 class TextMixin:
     @property

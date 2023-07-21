@@ -5,9 +5,11 @@ import unicodedata
 import re
 import ast
 from functools import lru_cache
+import math
 from importlib.resources import files
 
 from . import data
+from .utils import rotate_point, Tag
 
 
 STROKE_FONT_SCALE = 1/21
@@ -29,7 +31,68 @@ class Newstroke:
     def load(kls):
         return kls()
 
-    def render(self, text, size=1.0, space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP):
+    def render(self, text, size=1.0, x0=0, y0=0, rotation=0, h_align='left', v_align='bottom', space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP, scale=(1, 1)):
+        text = unicodedata.normalize('NFC', text)
+        missing_glyph = self.glyphs['?']
+        sx, sy = scale
+        x = 0
+        if text in ('VDDA', 'PA9', 'VSS'):
+            print(text, x0, y0, rotation, h_align, v_align, scale)
+
+        if rotation >= 180:
+            rotation -= 180
+            h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
+            x0, y0 = -x0, y0
+
+        x0, y0 = rotate_point(x0, y0, math.radians(-rotation))
+
+        alx, aly = 0, 0
+        if h_align != 'left':
+            (minx, miny), (maxx, maxy) = bbox = self.bounding_box(text, size, space_width, char_gap)
+            w = maxx - minx
+            if h_align == 'right':
+                alx = -w
+            elif h_align == 'center':
+                alx = -w/2
+            else:
+                raise ValueError(f'Invalid h_align value "{h_align}"')
+
+        if v_align == 'top':
+            aly = -1.2*size
+        elif v_align == 'middle':
+            aly = -1.2*size/2
+        elif v_align != 'bottom':
+                raise ValueError(f'Invalid v_align value "{v_align}"')
+
+        for c in text:
+            if c == ' ':
+                x += space_width*size
+                continue
+
+            width, strokes = self.glyphs.get(c, missing_glyph)
+            glyph_w = max(width, max(x for st in strokes for x, _y in st))
+
+            for st in strokes:
+                yield self.transform_stroke(st, translate=(x0, y0), offset=(x+alx, aly), rotation=math.radians(-rotation), scale=(sx*size, sy*size))
+
+            x += glyph_w*size
+
+    def render_svg(self, text, size=1.0, x0=0, y0=0, rotation=0, h_align='left', v_align='bottom', space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP, **svg_attrs):
+        if 'stroke_linecap' not in svg_attrs:
+            svg_attrs['stroke_linecap'] = 'round'
+        if 'stroke_linejoin' not in svg_attrs:
+            svg_attrs['stroke_linejoin'] = 'round'
+        if 'stroke_width' not in svg_attrs:
+            svg_attrs['stroke_width'] = f'{0.2*size:.3f}'
+        svg_attrs['fill'] = 'none'
+
+        strokes = ['M ' + ' L '.join(f'{x:.3f} {y:.3f}' for x, y in stroke)
+                   for stroke in self.render(text, size=size, x0=x0, y0=y0, rotation=rotation, h_align=h_align,
+                                             v_align=v_align, space_width=space_width, char_gap=char_gap,
+                                             scale=(1, -1))]
+        return Tag('path', d=' '.join(strokes), **svg_attrs)
+
+    def bounding_box(self, text, size=1.0, space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP):
         text = unicodedata.normalize('NFC', text)
         missing_glyph = self.glyphs['?']
         x = 0
@@ -40,17 +103,16 @@ class Newstroke:
 
             width, strokes = self.glyphs.get(c, missing_glyph)
             glyph_w = max(width, max(x for st in strokes for x, _y in st))
-
-            for st in strokes:
-                yield self.transform_stroke(st, translate=(x, 0), scale=(size, size))
-
             x += glyph_w*size
 
+        return (0, -0.2*size), (x, 1.2*size)
+
     @classmethod
-    def transform_stroke(kls, stroke, translate, scale):
-        dx, dy = translate
+    def transform_stroke(kls, stroke, translate, offset, scale, rotation=0):
+        x0, y0 = translate
         sx, sy = scale
-        return [(x*sx+dx, y*sy+dy) for x, y in stroke]
+        dx, dy = offset
+        return [rotate_point(x*sx+dx+x0, y*sy+dy+y0, rotation, x0, y0) for x, y in stroke]
             
 
     def load_font(self, newstroke_cpp):

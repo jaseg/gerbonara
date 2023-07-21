@@ -54,6 +54,11 @@ class Pin:
     name: Rename(StyledText) = field(default_factory=StyledText)
     number: Rename(StyledText) = field(default_factory=StyledText)
     alternates: List(AltFunction) = field(default_factory=list)
+    _: SEXP_END = None
+    unit: object = None
+
+    def __after_parse__(self, parent=None):
+        self.unit = parent
 
     @property
     def direction(self):
@@ -96,6 +101,9 @@ class Pin:
         return (x1, y1), (x2, y2)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
+        if self.hide:
+            return
+
         x1, y1 = 0, 0
         x2, y2 = self.length, 0
         xform = {'transform': f'translate({self.at.x:.3f} {self.at.y:.3f}) rotate({self.at.rotation})'}
@@ -109,68 +117,52 @@ class Pin:
                 'inverted': [
                     Tag('circle', **xform, **style, cx=x2-eps/3-0.2, cy=y2, r=eps/3)],
                 'clock': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],  # NOQA: E501
+                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],
                 'inverted_clock': [
                     Tag('circle', **xform, **style, cx=x2-eps/3-0.2, cy=y2, r=eps/3),
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],  # NOQA: E501
+                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],
                 'input_low': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}')],  # NOQA: E501
+                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}')],
                 'clock_low': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}'),  # NOQA: E501
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],  # NOQA: E501
+                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}'),
+                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],
                 'output_low': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps} L {x2-eps} {y2}')],  # NOQA: E501
+                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps} L {x2-eps} {y2}')],
                 'edge_clock_high': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}'),  # NOQA: E501
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],  # NOQA: E501
+                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}'),
+                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],
                 'non_logic': [
-                    Tag('path', **xform, **style, d=f'M {x2-eps/2} {y2-eps/2} L {x2+eps/2} {y2+eps/2}'),  # NOQA: E501
-                    Tag('path', **xform, **style, d=f'M {x2-eps/2} {y2+eps/2} L {x2+eps/2} {y2-eps/2}')],  # NOQA: E501
+                    Tag('path', **xform, **style, d=f'M {x2-eps/2} {y2-eps/2} L {x2+eps/2} {y2+eps/2}'),
+                    Tag('path', **xform, **style, d=f'M {x2-eps/2} {y2+eps/2} L {x2+eps/2} {y2-eps/2}')],
                 # FIXME...
         }.get(self.style, []):
             yield tag
 
-        if self.at.rotation in (90, 270):
-            t_rot = 90
-        else:
-            t_rot = 0
-
-        size = self.name.effects.font.size.y or 1.27
         font = Newstroke.load()
-        strokes = list(font.render(self.name.value, size=size))
-        min_x = min(x for st in strokes for x, y in st) if strokes else 0
-        min_y = min(y for st in strokes for x, y in st) if strokes else 0
-        max_x = max(x for st in strokes for x, y in st) if strokes else 0
-        max_y = max(y for st in strokes for x, y in st) if strokes else 0
-        w = max_x - min_x
-        h = max_y - min_y
+        if self.name.value != '~' and not self.unit.symbol.pin_names.hide:
+            yield font.render_svg(self.name.value,
+                                  size=self.name.effects.font.size.y or 1.27,
+                                  x0=self.length + 0.2,
+                                  y0=0,
+                                  h_align='left',
+                                  v_align='middle',
+                                  rotation=self.at.rotation,
+                                  stroke=colorscheme.text,
+                                  transform=f'translate({self.at.x:.3f} {self.at.y:.3f})',
+                                  )
 
-        if self.at.rotation == 0:
-            offx = -min_x + self.length + 0.2
-            offy = h/2
-        elif self.at.rotation == 180:
-            offx = min_x - self.length - 0.2 - w
-            offy = h/2
-        elif self.at.rotation == 90:
-            offx = -h/2
-            offy = min_x - self.length - 0.2 - w
-        elif self.at.rotation == 270:
-            offx = -h/2
-            offy = -min_x + self.length + 0.2
-        else:
-            raise ValueError(f'Invalid pin rotation {self.at.rotation}')
+        if self.number.value != '~' and not self.unit.symbol.pin_numbers.hide:
+            yield font.render_svg(self.number.value,
+                                  size=self.number.effects.font.size.y or 1.27,
+                                  x0=self.length-0.2,
+                                  y0=0.4,
+                                  h_align='right',
+                                  v_align='bottom',
+                                  rotation=self.at.rotation,
+                                  stroke=colorscheme.text,
+                                  transform=f'translate({self.at.x:.3f} {self.at.y:.3f})',
+                                  )
 
-        d = []
-        for stroke in strokes:
-            points = []
-            for x, y in stroke:
-                x, y = x+offx, y+offy
-                x, y = rotate_point(x, y, math.radians(self.at.rotation or 0))
-                x, y = x+self.at.x, y+self.at.y
-                points.append(f'{x:.3f} {y:.3f}')
-            d.append('M '+ ' L '.join(points) + ' ')
-        yield Tag('path', d=' '.join(d), fill='none', stroke=colorscheme.text, stroke_width='0.254', stroke_linecap='round', stroke_linejoin='round')
-        print('name', self.name.value)
 
 
 @sexp_type('fill')
