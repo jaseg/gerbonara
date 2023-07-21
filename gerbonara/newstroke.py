@@ -58,9 +58,9 @@ class Newstroke:
                 raise ValueError(f'Invalid h_align value "{h_align}"')
 
         if v_align == 'top':
-            aly = -1.2*size
+            aly = sy*1.2*size
         elif v_align == 'middle':
-            aly = -1.2*size/2
+            aly = sy*1.2*size/2
         elif v_align != 'bottom':
                 raise ValueError(f'Invalid v_align value "{v_align}"')
 
@@ -77,7 +77,7 @@ class Newstroke:
 
             x += glyph_w*size
 
-    def render_svg(self, text, size=1.0, x0=0, y0=0, rotation=0, h_align='left', v_align='bottom', space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP, **svg_attrs):
+    def render_svg(self, text, size=1.0, x0=0, y0=0, rotation=0, h_align='left', v_align='bottom', space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP, scale=(1, -1), **svg_attrs):
         if 'stroke_linecap' not in svg_attrs:
             svg_attrs['stroke_linecap'] = 'round'
         if 'stroke_linejoin' not in svg_attrs:
@@ -89,7 +89,7 @@ class Newstroke:
         strokes = ['M ' + ' L '.join(f'{x:.3f} {y:.3f}' for x, y in stroke)
                    for stroke in self.render(text, size=size, x0=x0, y0=y0, rotation=rotation, h_align=h_align,
                                              v_align=v_align, space_width=space_width, char_gap=char_gap,
-                                             scale=(1, -1))]
+                                             scale=scale)]
         return Tag('path', d=' '.join(strokes), **svg_attrs)
 
     def bounding_box(self, text, size=1.0, space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP):

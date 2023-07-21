@@ -325,9 +325,33 @@ class TextMixin:
         for line in self.render():
             yield f'M {line.x1:.3f} {line.y1:.3f} L {line.x2:.3f} {line.y2:.3f}'
 
-    def to_svg(self, color='black'):
-        d = ' '.join(self.svg_path_data())
-        yield Tag('path', d=d, fill='none', stroke=color, stroke_width=f'{self.line_width:.3f}', stroke_linecap='round')
+    @property
+    def default_v_align(self):
+        return 'bottom'
+
+    @property
+    def h_align(self):
+        return 'left' if self.effects.justify.h else 'center'
+
+    def to_svg(self, color='black', variables={}):
+        if not self.effects or self.effects.hide or not self.effects.font:
+            return
+
+        font = Newstroke.load()
+        text = string.Template(self.text).safe_substitute(variables)
+        aperture = ap.CircleAperture(self.line_width or 0.2, unit=MM)
+        if text == 'H3LIS100DL':
+            print(text, self.rotation, self.at, self.effects)
+        yield font.render_svg(text,
+                              size=self.size or 1.27,
+                              rotation=self.rotation,
+                              h_align=self.h_align,
+                              v_align=self.effects.justify.v or self.default_v_align,
+                              stroke=color,
+                              stroke_width=f'{self.line_width:.3f}',
+                              scale=(1,1),
+                              transform=f'translate({self.at.x:.3f} {self.at.y:.3f})',
+                              )
 
     @property
     def _text_offset(self):
@@ -343,50 +367,23 @@ class TextMixin:
 
         font = Newstroke.load()
         text = string.Template(self.text).safe_substitute(variables)
-        strokes = list(font.render(text, size=self.size))
-        min_x = min(x for st in strokes for x, y in st)
-        min_y = min(y for st in strokes for x, y in st)
-        max_x = max(x for st in strokes for x, y in st)
-        max_y = max(y for st in strokes for x, y in st)
-        w = max_x - min_x
-        h = max_y - min_y
-
-        h_just = self.effects.justify.h if self.effects.justify else None
-        v_just = self.effects.justify.v if self.effects.justify else None
-
-        rot = self.rotation
-        # KiCad already flips h_just in these cases, making the rotation param redundant. 
-        if rot == 180:
-            rot = 0
-
-        if rot == 270 and self.at.rotation != 270:
-            h_just = {Atom.right: Atom.left, Atom.left: Atom.right}.get(h_just, h_just)
-
-        offx, offy = self._text_offset
-
-        offx += -min_x + {
-                None: -w/2,
-                Atom.right: -w,
-                Atom.left: 0
-                }[h_just]
-
-        offy += {
-                None: self.size/2,
-                Atom.top: self.size,
-                Atom.bottom: 0
-                }[v_just]
-
         aperture = ap.CircleAperture(self.line_width or 0.2, unit=MM)
-        for stroke in strokes:
-            out = []
+        for stroke in font.render(text, 
+                                  x0=self.at.x, y=self.at.y,
+                                  size=self.size or 1.27,
+                                  h_align=self.effects.justify.h_str,
+                                  v_align=self.effects.justify.v_str,
+                                  rotation=self.at.rotation,
+                                  ):
 
+            points = []
             for x, y in stroke:
                 x, y = x+offx, y+offy
                 x, y = rotate_point(x, y, math.radians(-rot or 0))
                 x, y = x+self.at.x, y+self.at.y
-                out.append((x, y))
+                points.append((x, y))
 
-            for p1, p2 in zip(out[:-1], out[1:]):
+            for p1, p2 in zip(points[:-1], points[1:]):
                 yield go.Line(*p1, *p2, aperture=aperture, unit=MM)
 
 

@@ -303,8 +303,25 @@ class DrawnProperty(TextMixin):
         self.value = value
 
     @property
+    def default_v_align(self):
+        return 'middle'
+
+    @property
+    def h_align(self):
+        return self.effects.justify.h_str
+
+    @property
     def rotation(self):
-        return self.parent.rotation + self.at.rotation
+        rot = -self.at.rotation
+        rot += getattr(self.parent.at, 'rotation', 0)
+        if getattr(self.parent, 'reference', None) == 'C13':
+            print(self.value, self.at, self.parent.at, self.parent.mirror)
+        if hasattr(self.parent, 'mirror'):
+            if self.parent.mirror.y and rot in (90, 270):
+                rot = (rot+180)%360
+            if self.parent.mirror.x and rot in (0, 180):
+                rot = (rot+180)%360
+        return rot%360
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         if not self.hide:
@@ -335,6 +352,35 @@ class SymbolInstance:
 
     def __after_parse__(self, parent):
         self.schematic = parent
+
+    @property
+    def reference(self):
+        return self['Reference'].value
+
+    @reference.setter
+    def reference(self, value):
+        self['Reference'].value = value
+
+    @property
+    def value(self):
+        return self['Value'].value
+
+    @value.setter
+    def value(self, value):
+        self['Value'].value = value
+
+    @property
+    def footprint(self):
+        return self['Footprint'].value
+
+    @footprint.setter
+    def footprint(self, value):
+        self['Footprint'].value = value
+
+    def __getitem__(self, key):
+        for prop in self.properties:
+            if prop.key == key:
+                return prop
 
     @property
     def rotation(self):
