@@ -344,18 +344,31 @@ class TextMixin:
         font = Newstroke.load()
         text = string.Template(self.text).safe_substitute(variables)
         aperture = ap.CircleAperture(self.line_width or 0.2, unit=MM)
-        if text == 'H3LIS100DL':
-            print(text, self.rotation, self.at, self.effects)
+        rot = self.rotation
+        h_align = self.h_align
+        mx, my = self.mirrored
+        if rot in (90, 270):
+            rot = (rot+180)%360
+        elif rot == 180:
+            rot = 0
+            h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
+
+        if my and rot in (0, 180):
+            h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
+            rot = (rot+180)%360
+        if mx and rot in (90, 270):
+            h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
+            rot = (rot+180)%360
+
         yield font.render_svg(text,
                               size=self.size or 1.27,
-                              h_align=self.h_align,
+                              h_align=h_align,
                               v_align=self.effects.justify.v or self.default_v_align,
                               stroke=color,
                               stroke_width=f'{self.line_width:.3f}',
                               scale=(1,1),
-                              rotation=self.rotation,
-                              mirror=self.mirrored,
-                              transform=f'translate({self.at.x:.3f} {self.at.y:.3f})',
+                              rotation=0,
+                              transform=f'translate({self.at.x:.3f} {self.at.y:.3f}) rotate({rot})',
                               )
 
     @property

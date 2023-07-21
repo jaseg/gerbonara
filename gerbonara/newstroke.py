@@ -37,8 +37,6 @@ class Newstroke:
         sx, sy = scale
         mx, my = mirror
         x = 0
-        if text in ('VDDA', 'PA9', 'VSS', 'FB3'):
-            print(text, x0, y0, rotation, h_align, v_align, scale)
 
         if rotation >= 180:
             rotation -= 180

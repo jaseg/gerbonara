@@ -79,8 +79,9 @@ class NoConnect:
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         r = 0.635
-        yield Tag('path', d=f'M {-r:.3f} {-r:.3f} L {r:.3f} {r:.3f} M {-r:.3f} {r:.3f} L {r:.3f} {-r:.3f}',
-                   fill='none', stroke_width='0.1', stroke=colorscheme.no_connect)
+        x, y = self.at.x, self.at.y
+        yield Tag('path', d=f'M {x-r:.3f} {y-r:.3f} L {x+r:.3f} {y+r:.3f} M {x-r:.3f} {y+r:.3f} L {x+r:.3f} {y-r:.3f}',
+                   fill='none', stroke_width='0.254', stroke=colorscheme.no_connect)
 
 
 @sexp_type('bus_entry')
@@ -312,11 +313,14 @@ class DrawnProperty(TextMixin):
 
     @property
     def h_align(self):
-        return self.effects.justify.h_str
+        align = self.effects.justify.h_str
+        if self.rotation in (90, 270):
+            align = {'left': 'right', 'right': 'left'}.get(align, align)
+        return align
 
     @property
     def rotation(self):
-        rot = -self.at.rotation
+        rot = self.at.rotation
         rot += getattr(self.parent.at, 'rotation', 0)
         return rot%360
 
@@ -397,9 +401,6 @@ class SymbolInstance:
 
         units = [unit for unit in sym.units if unit.unit_global or unit.unit_index == self.unit]
 
-        if self.reference in ('U18',):
-            print(self.reference, self.unit, self.at, self.mirror, units)
-
         at_xform = xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
         if self.mirror.y:
             xform += f'scale(-1 -1)'
@@ -416,8 +417,8 @@ class SymbolInstance:
         children = [foo for unit in units for pin in unit.pins for foo in pin.to_svg(colorscheme, self.mirror, rot)]
         yield Tag('g', children=children, transform=at_xform, fill=colorscheme.fill, stroke=colorscheme.lines)
 
-        #for prop in self.properties:
-        #    yield from prop.to_svg()
+        for prop in self.properties:
+            yield from prop.to_svg()
 
 
 @sexp_type('path')

@@ -151,13 +151,13 @@ class Pin:
         ax, ay = self.length+0.2, 0
         ax, ay = rotate_point(ax, ay, math.radians(-self.at.rotation))
 
-        lx, ly = self.at.x, -self.at.y
-        lx, ly = rotate_point(lx, ly, math.radians(p_rotation))
-        if p_mirror.y:
-            lx, ly = -lx, ly
-        elif p_mirror.x:
-            lx, ly = lx, -ly
-        yield Tag('circle', cx=lx, cy=ly, r='0.5', stroke='blue', stroke_width='0.1', fill='none', z_index='100')
+        #lx, ly = self.at.x, -self.at.y
+        #lx, ly = rotate_point(lx, ly, math.radians(p_rotation))
+        #if p_mirror.y:
+        #    lx, ly = -lx, ly
+        #elif p_mirror.x:
+        #    lx, ly = lx, -ly
+        #yield Tag('circle', cx=lx, cy=ly, r='0.5', stroke='blue', stroke_width='0.1', fill='none', z_index='100')
 
         lx, ly = self.at.x + ax, -self.at.y - ay
         lx, ly = rotate_point(lx, ly, math.radians(p_rotation))
@@ -165,7 +165,7 @@ class Pin:
             lx, ly = -lx, ly
         elif p_mirror.x:
             lx, ly = lx, -ly
-        yield Tag('circle', cx=lx, cy=ly, r='0.5', stroke='red', stroke_width='0.1', fill='none', z_index='100')
+        #yield Tag('circle', cx=lx, cy=ly, r='0.5', stroke='red', stroke_width='0.1', fill='none', z_index='100')
 
         h_align = 'left'
         if p_mirror.y:
