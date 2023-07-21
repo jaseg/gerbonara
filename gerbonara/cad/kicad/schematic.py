@@ -3,6 +3,7 @@ Library for handling KiCad's schematic files (`*.kicad_sch`).
 """
 
 import math
+import string
 from pathlib import Path
 from dataclasses import field, KW_ONLY
 from itertools import chain
@@ -296,7 +297,10 @@ class DrawnProperty(TextMixin):
     # Alias value for text mixin
     @property
     def text(self):
-        return self.value
+        if self.key == 'Reference' and self.parent.unit > 0:
+            return f'{self.value}{string.ascii_uppercase[self.parent.unit-1]}'
+        else:
+            return self.value
 
     @text.setter
     def text(self, value):
@@ -308,24 +312,19 @@ class DrawnProperty(TextMixin):
 
     @property
     def h_align(self):
-        j = self.effects.justify.h_str
-        if False: #self.at.rotation in (270):
-            return {'left': 'right', 'right': 'left'}.get(j, j)
-        else:
-            return j
+        return self.effects.justify.h_str
 
     @property
     def rotation(self):
         rot = -self.at.rotation
         rot += getattr(self.parent.at, 'rotation', 0)
-        if getattr(self.parent, 'reference', None) == 'C13':
-            print(self.value, self.at, self.parent.at, self.parent.mirror)
-        if hasattr(self.parent, 'mirror'):
-            if self.parent.mirror.y and rot in (90, 270):
-                rot = (rot+180)%360
-            if self.parent.mirror.x and rot in (0, 180):
-                rot = (rot+180)%360
         return rot%360
+
+    @property
+    def mirrored(self):
+        if hasattr(self.parent, 'mirror'):
+            return self.parent.mirror.x, self.parent.mirror.y
+        return False, False
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         if not self.hide:
@@ -396,28 +395,29 @@ class SymbolInstance:
 
         sym = self.schematic.lookup_symbol(self.lib_name, self.lib_id)
 
-        name = f'{sym.name}_0_1'
-        if name in sym.global_units.get(1, {}):
-            for elem in sym.global_units[1][name].graphical_elements:
-                children += elem.to_svg(colorscheme)
+        units = [unit for unit in sym.units if unit.unit_global or unit.unit_index == self.unit]
 
-        name = f'{sym.name}_{self.unit}_1'
-        if name in sym.styles.get(1, {}):
-            for elem in sym.styles[1][name].graphical_elements:
-                children += elem.to_svg(colorscheme)
+        if self.reference in ('U18',):
+            print(self.reference, self.unit, self.at, self.mirror, units)
 
         xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
-        if rot:
-            xform += f'rotate({-rot})'
-        if self.mirror.x:
+        if self.mirror.y:
+            xform += f'scale(-1 -1)'
+        elif self.mirror.x:
             xform += f'scale(-1 1)'
-        if not self.mirror.y:
+        else:
             xform += f'scale(1 -1)'
+        if rot:
+            xform += f'rotate({rot})'
 
+        children = [foo for unit in units for elem in unit.graphical_elements for foo in elem.to_svg(colorscheme)]
         yield Tag('g', children=children, transform=xform, fill=colorscheme.fill, stroke=colorscheme.lines)
 
-        for prop in self.properties:
-            yield from prop.to_svg()
+        children = [foo for unit in units for pin in unit.pins for foo in pin.to_svg(colorscheme, self.mirror, rot)]
+        yield Tag('g', children=children, transform=xform, fill=colorscheme.fill, stroke=colorscheme.lines)
+
+        #for prop in self.properties:
+        #    yield from prop.to_svg()
 
 
 @sexp_type('path')

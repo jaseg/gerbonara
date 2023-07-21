@@ -31,18 +31,38 @@ class Newstroke:
     def load(kls):
         return kls()
 
-    def render(self, text, size=1.0, x0=0, y0=0, rotation=0, h_align='left', v_align='bottom', space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP, scale=(1, 1)):
+    def render(self, text, size=1.0, x0=0, y0=0, rotation=0, h_align='left', v_align='bottom', space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP, scale=(1, 1), mirror=(False, False)):
         text = unicodedata.normalize('NFC', text)
         missing_glyph = self.glyphs['?']
         sx, sy = scale
+        mx, my = mirror
         x = 0
-        if text in ('VDDA', 'PA9', 'VSS'):
+        if text in ('VDDA', 'PA9', 'VSS', 'FB3'):
             print(text, x0, y0, rotation, h_align, v_align, scale)
 
         if rotation >= 180:
             rotation -= 180
             h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
             x0, y0 = -x0, y0
+
+        if scale == (1, 1) and rotation == 90:
+            rotation = 270
+            h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
+            v_align = {'top': 'bottom', 'bottom': 'top'}.get(v_align, v_align)
+
+        #if mx:
+        #    x0 = -x0
+        #    if rotation == 90:
+        #        v_align = {'top': 'bottom', 'bottom': 'top'}.get(v_align, v_align)
+        #    else:
+        #        h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
+
+        if my:
+            y0 = -y0
+            if rotation == 0:
+                v_align = {'top': 'bottom', 'bottom': 'top'}.get(v_align, v_align)
+            else:
+                h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
 
         x0, y0 = rotate_point(x0, y0, math.radians(-rotation))
 
@@ -77,7 +97,7 @@ class Newstroke:
 
             x += glyph_w*size
 
-    def render_svg(self, text, size=1.0, x0=0, y0=0, rotation=0, h_align='left', v_align='bottom', space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP, scale=(1, -1), **svg_attrs):
+    def render_svg(self, text, size=1.0, x0=0, y0=0, rotation=0, h_align='left', v_align='bottom', space_width=DEFAULT_SPACE_WIDTH, char_gap=DEFAULT_CHAR_GAP, scale=(1, -1), mirror=(False, False), **svg_attrs):
         if 'stroke_linecap' not in svg_attrs:
             svg_attrs['stroke_linecap'] = 'round'
         if 'stroke_linejoin' not in svg_attrs:
@@ -88,7 +108,7 @@ class Newstroke:
 
         strokes = ['M ' + ' L '.join(f'{x:.3f} {y:.3f}' for x, y in stroke)
                    for stroke in self.render(text, size=size, x0=x0, y0=y0, rotation=rotation, h_align=h_align,
-                                             v_align=v_align, space_width=space_width, char_gap=char_gap,
+                                             v_align=v_align, mirror=mirror, space_width=space_width, char_gap=char_gap,
                                              scale=scale)]
         return Tag('path', d=' '.join(strokes), **svg_attrs)
 

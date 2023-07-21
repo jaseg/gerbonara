@@ -100,16 +100,20 @@ class Pin:
 
         return (x1, y1), (x2, y2)
 
-    def to_svg(self, colorscheme=Colorscheme.KiCad):
+    def to_svg(self, colorscheme, p_mirror, p_rotation):
         if self.hide:
             return
 
-        x1, y1 = 0, 0
-        x2, y2 = self.length, 0
+        if self.name.value in ('PA3', 'QA'):
+            print(self.name.value, self.at, p_rotation)
+        psx, psy = (-1 if p_mirror.x else 1), (-1 if p_mirror.y else 1)
+        x1, y1 = self.at.x, self.at.y
+        x2, y2 = self.at.x+self.length, self.at.y
         xform = {'transform': f'translate({self.at.x:.3f} {self.at.y:.3f}) rotate({self.at.rotation})'}
         style = {'stroke_width': 0.254, 'stroke': colorscheme.lines, 'stroke_linecap': 'round'}
 
         yield Tag('path', **xform, **style, d=f'M 0 0 L {self.length:.3f} 0')
+        return
 
         eps = 1
         for tag in {
@@ -403,7 +407,6 @@ class Unit:
     pins: List(Pin) = field(default_factory=list)
     unit_name: Named(str) = None
     _ : SEXP_END = None
-    global_units: list = field(default_factory=list)
     unit_global: Flag() = False
     style_global: Flag() = False
     demorgan_style: int = 1
@@ -420,7 +423,7 @@ class Unit:
             raise FormatError(f'Unit name "{self.name}" does not match symbol name "{self.symbol.name}"')
         self.demorgan_style = int(demorgan_style)
         self.unit_index = int(unit_index)
-        self.style_global = self._demorgan_style == 0
+        self.style_global = self.demorgan_style == 0
         self.unit_global = self.unit_index == 0
 
     @property
@@ -430,15 +433,9 @@ class Unit:
         yield from self.polylines
         yield from self.rectangles
         yield from self.texts
-        yield from self.pins
 
     def __before_sexp__(self):
         self.name = f'{self.symbol.name}_{self.unit_index}_{self.demorgan_style}'
-
-    def __getattr__(self, name):
-        if name.startswith('all_'):
-            name = name[4:]
-            return itertools.chain(getattr(self.global_units, name, []), getattr(self, name, []))
 
     def pin_stacks(self):
         stacks = defaultdict(lambda: set())
@@ -457,10 +454,8 @@ class Symbol:
     in_bom: Named(YesNoAtom()) = True
     on_board: Named(YesNoAtom()) = True
     properties: List(Property) = field(default_factory=list)
-    raw_units: List(Unit) = field(default_factory=list)
+    units: List(Unit) = field(default_factory=list)
     _ : SEXP_END = None
-    styles: {str: {str: Unit}} = None
-    global_units: {str: {str: Unit}} = None
     library = None
     name: str = None
     library_name: str = None
@@ -469,8 +464,6 @@ class Symbol:
         self.library = parent
 
         self.library_name, _, self.name = self.raw_name.rpartition(':')
-        self.global_units = {}
-        self.styles = {}
 
         if self.extends:
             self.in_bom = None
@@ -480,29 +473,7 @@ class Symbol:
         if (prop := self.properties.get('ki_fp_filters')):
             prop.value = prop.value.split() if prop.value else []
 
-        for unit in self.raw_units:
-            if unit.unit_global or unit.style_global:
-                d = self.global_units.get(unit.demorgan_style, {})
-                d[unit.name] = unit
-                self.global_units[unit.demorgan_style] = d
-
-                for other in self.raw_units:
-                    if other.unit_global or other.style_global or other == unit:
-                        continue
-                    if not (unit.unit_global or other.name == unit.name):
-                        continue
-                    if not (unit.style_global or other.demorgan_style == unit.demorgan_style):
-                        continue
-                    other.global_units.append(unit)
-
-            else:
-                d = self.styles.get(unit.demorgan_style, {})
-                d[unit.name] = unit
-                self.styles[unit.demorgan_style] = d
-
     def __before_sexp__(self):
-        self.raw_units = ([unit for style in self.global_units.values() for unit in style.values()] +
-                            [unit for style in self.styles.values() for unit in style.values()])
         if (prop := self.properties.get('ki_fp_filters')):
             if not isinstance(prop.value, str):
                 prop.value = ' '.join(prop.value)
@@ -521,30 +492,11 @@ class Symbol:
             ]):
             self.properties[name] = Property(name=name, value=value, id=i, effects=TextEffect(hide=hide))
 
-    def units(self, demorgan_style=None):
+    def resolve(self):
         if self.extends:
-            return self.library[self.extends].units(demorgan_style)
+            return self.library[self.extends]
         else:
-            return self.styles.get(demorgan_style or 'default', {})
-
-    def get_center_rectangle(self, units):
-        # return a polyline for the requested unit that is a rectangle
-        # and is closest to the center
-        candidates = {}
-        # building a dict with floats as keys.. there needs to be a rule against that^^
-        pl_rects = [i.to_polyline() for i in self.rectangles]
-        pl_rects.extend(pl for pl in self.polylines if pl.is_rectangle())
-        for pl in pl_rects:
-            if pl.unit in units:
-                # extract the center, calculate the distance to origin
-                (x, y) = pl.get_center_of_boundingbox()
-                dist = math.sqrt(x * x + y * y)
-                candidates[dist] = pl
-
-        if candidates:
-            # sort the list return the first (smallest) item
-            return candidates[sorted(candidates.keys())[0]]
-        return None
+            return self
 
     def is_graphic_symbol(self):
         return self.extends is None and (
@@ -564,10 +516,6 @@ class Symbol:
             for pin in unit.all_pins:
                 pins[pin.number].add(pin)
         return pins
-
-    def __getattr__(self, name):
-        if name.startswith('all_'):
-            return itertools.chain(getattr(unit, name) for unit in self.raw_units)
 
     def filter_pins(self, name=None, direction=None, electrical_type=None):
         for pin in self.all_pins:

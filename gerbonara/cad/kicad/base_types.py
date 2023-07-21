@@ -333,6 +333,10 @@ class TextMixin:
     def h_align(self):
         return 'left' if self.effects.justify.h else 'center'
 
+    @property
+    def mirrored(self):
+        return False, False
+
     def to_svg(self, color='black', variables={}):
         if not self.effects or self.effects.hide or not self.effects.font:
             return
@@ -344,12 +348,13 @@ class TextMixin:
             print(text, self.rotation, self.at, self.effects)
         yield font.render_svg(text,
                               size=self.size or 1.27,
-                              rotation=self.rotation,
                               h_align=self.h_align,
                               v_align=self.effects.justify.v or self.default_v_align,
                               stroke=color,
                               stroke_width=f'{self.line_width:.3f}',
                               scale=(1,1),
+                              rotation=self.rotation,
+                              mirror=self.mirrored,
                               transform=f'translate({self.at.x:.3f} {self.at.y:.3f})',
                               )
 
