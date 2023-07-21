@@ -308,7 +308,11 @@ class DrawnProperty(TextMixin):
 
     @property
     def h_align(self):
-        return self.effects.justify.h_str
+        j = self.effects.justify.h_str
+        if False: #self.at.rotation in (270):
+            return {'left': 'right', 'right': 'left'}.get(j, j)
+        else:
+            return j
 
     @property
     def rotation(self):
