@@ -478,10 +478,10 @@ class Unit:
 
     @property
     def graphical_elements(self):
+        yield from self.rectangles
+        yield from self.polylines
         yield from self.circles
         yield from self.arcs
-        yield from self.polylines
-        yield from self.rectangles
         yield from self.texts
 
     def __before_sexp__(self):

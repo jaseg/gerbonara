@@ -207,17 +207,17 @@ def label_shape_path_d(shape, w, h):
     r = h/2
 
     if l == '[':
-        d = 'M {r:.3f} {r:.3f} L 0 {r:.3f} L 0 {-r:.3f} L {r:.3f} {-r:.3f}'
+        d = f'M {r:.3f} {r:.3f} L 0 {r:.3f} L 0 {-r:.3f} L {r:.3f} {-r:.3f}'
     else:
-        d = 'M {r:.3f} {r:.3f} L 0 0 L {r:.3f} {-r:.3f}'
+        d = f'M {r:.3f} {r:.3f} L 0 0 L {r:.3f} {-r:.3f}'
 
     e = w+r
-    d += ' L {e:.3f} {-r:.3f}'
+    d += f' L {e:.3f} {-r:.3f}'
 
     if l == '[':
-        return d + 'L {e+r:.3f} {-r:.3f} L {e+r:.3f} {r:.3f} L {e:.3f} {r:.3f} Z'
+        return d + f'L {e+r:.3f} {-r:.3f} L {e+r:.3f} {r:.3f} L {e:.3f} {r:.3f} Z'
     else:
-        return d + 'L {e+r:.3f} {0:.3f} L {e:.3f} {r:.3f} Z'
+        return d + f'L {e+r:.3f} {0:.3f} L {e:.3f} {r:.3f} Z'
 
 
 @sexp_type('global_label')
@@ -446,6 +446,33 @@ class SubsheetPin:
     def __after_parse__(self, parent):
         self.subsheet = parent
 
+    def to_svg(self):
+        size = self.effects.font.size.y or 1.27
+        yield Tag('path', fill='none', d=label_shape_path_d(self.shape, 0, size+0.5),
+                  transform=f'translate({self.at.x:.3f} {self.at.y:.3f}) rotate({180-self.at.rotation})')
+
+        lx, ly = self.at.x, self.at.y
+        dx, dy = rotate_point(-(size+1), 0, math.radians(self.at.rotation))
+        lx += dx
+        ly += dy
+        frot = self.at.rotation
+        h_align = 'right'
+        if frot == 180:
+            frot = 0
+            h_align = 'left'
+
+        font = Newstroke.load()
+        yield font.render_svg(self.name,
+                              size=size,
+                              x0=0,
+                              y0=0,
+                              h_align=h_align,
+                              v_align='middle',
+                              rotation=-frot,
+                              transform=f'translate({lx:.3f} {ly:.3f})',
+                              scale=(1, 1),
+                              mirror=(False, False),
+                              )
 
 @sexp_type('fill')
 class SubsheetFill:
@@ -499,14 +526,18 @@ class Subsheet:
         children = []
 
         for prop in self._properties:
-            children += prop.to_svg(colorscheme)
+            yield from prop.to_svg(colorscheme)
 
-        # FIXME
-        #for elem in self.pins:
-        #    children += pin.to_svg(colorscheme)
+        yield Tag('rect', x=f'{self.at.x:.3f}', y=f'{self.at.y:.3f}',
+                  width=f'{self.size.x:.3f}', height=f'{self.size.y:.3f}',
+                  **self.stroke.svg_attrs(colorscheme.lines), fill=self.fill.color.svg(colorscheme.fill))
 
-        xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
-        yield Tag('g', children=children, transform=xform,
+        children = []
+        for pin in self.pins:
+            children += pin.to_svg()
+
+        #xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
+        yield Tag('g', children=children, #transform=xform,
                   fill=self.fill.color.svg(colorscheme.fill),
                   **self.stroke.svg_attrs(colorscheme.lines))
 
@@ -577,6 +608,7 @@ class Schematic:
 
     @property
     def elements(self):
+        yield from self.subsheets
         yield from self.images
         yield from self.polylines
         yield from self.symbols
@@ -589,7 +621,6 @@ class Schematic:
         yield from self.local_labels
         yield from self.global_labels
         yield from self.hierarchical_labels
-        yield from self.subsheets
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         children = []
