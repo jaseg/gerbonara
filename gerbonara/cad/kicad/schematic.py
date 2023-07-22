@@ -60,11 +60,11 @@ class Junction:
     uuid: UUID = field(default_factory=UUID)
 
     def bounding_box(self, default=None):
-        r = (self.diameter/2 or 0.635)
+        r = (self.diameter/2 or 0.5)
         return (self.at.x - r, self.at.y - r), (self.at.x + r, self.at.y + r)
     
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield Tag('circle', cx=f'{self.at.x:.3f}', cy=f'{self.at.y:.3f}', r=(self.diameter/2 or 0.635),
+        yield Tag('circle', cx=f'{self.at.x:.3f}', cy=f'{self.at.y:.3f}', r=(self.diameter/2 or 0.5),
                    fill=self.color.svg(colorscheme.wire))
 
 
