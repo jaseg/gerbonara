@@ -1,6 +1,7 @@
 
 from xml.etree import ElementTree
 import base64
+import json
 from pathlib import Path
 
 def _map_primitive(element):
@@ -31,17 +32,9 @@ def parse_shitty_json(data):
     root = ElementTree.fromstring(data)
     return _map_primitive(root[0])
 
-class TmThemeSchematic:
-    def __init__(self, data):
-        self.theme = parse_shitty_json(data)
-        s = self.theme['settings'][0]['settings']
-        by_scope = {}
-        for elem in self.theme['settings']:
-            if 'scope' not in elem:
-                continue
-            for scope in elem['scope'].split(','):
-                by_scope[scope.strip()] = elem.get('settings', {})
 
+class _SublimeColorschemeSuper:
+    def __init__(self, s, by_scope):
         def lookup(default, *scopes):
             for scope in scopes:
                 if not (elem := by_scope.get(scope)):
@@ -54,16 +47,41 @@ class TmThemeSchematic:
             return default
 
         self.background = s.get('background', 'white')
-        self.bus = lookup('black', 'constant.other', 'storage.type')
-        self.wire = self.lines = lookup('black', 'constant.other')
-        self.no_connect = lookup('black', 'constant.language', 'variable')
-        self.text = lookup('black', 'constant.numeric', 'constant.numeric.hex', 'storage.type.number')
-        self.pin_numbers = lookup('black', 'constant.character', 'constant.other')
-        self.pin_names = lookup('black', 'constant.character.format.placeholder', 'constant.other.placeholder')
-        self.values = lookup('black', 'constant.character.format.placeholder', 'constant.other.placeholder')
-        self.labels = lookup('black', 'constant.numeric', 'constant.numeric.hex', 'storage.type.number')
+        fg = s.get('foreground', 'black')
+        self.bus = lookup(fg, 'constant.other', 'storage.type')
+        self.wire = self.lines = lookup(fg, 'constant.other')
+        self.no_connect = lookup(fg, 'constant.language', 'variable')
+        self.text = lookup(fg, 'constant.numeric', 'constant.numeric.hex', 'storage.type.number')
+        self.pin_names = lookup(fg, 'constant.character', 'constant.other')
+        self.pin_numbers = fg
+        self.values = lookup(fg, 'constant.character.format.placeholder', 'constant.other.placeholder', 'entity.name.tag', 'support.type', 'support.class', 'entity.other.inherited-class')
+        self.labels = lookup(fg, 'constant.numeric', 'constant.numeric.hex', 'storage.type.number')
         self.fill = s.get('background')
-        print(f'{self.background=} {self.wire=} {self.bus=} {self.lines=} {self.no_connect=} {self.labels=} {self.fill=}')
+
+
+class TmThemeSchematic(_SublimeColorschemeSuper):
+    def __init__(self, data):
+        self.theme = parse_shitty_json(data)
+        s = self.theme['settings'][0]['settings']
+        by_scope = {}
+        for elem in self.theme['settings']:
+            if 'scope' not in elem:
+                continue
+            for scope in elem['scope'].split(','):
+                by_scope[scope.strip()] = elem.get('settings', {})
+        super().__init__(s, by_scope)
+
+
+class SublimeSchematic(_SublimeColorschemeSuper):
+    def __init__(self, data):
+        self.theme = json.loads(data)
+        s = self.theme['globals']
+        by_scope = {}
+        for elem in self.theme['rules']:
+            for scope in elem['scope'].split(','):
+                by_scope[scope.strip()] = elem
+        super().__init__(s, by_scope)
+
 
 if __name__ == '__main__':
     print(parse_shitty_json(Path('/tmp/witchhazelhypercolor.tmTheme').read_text()))
