@@ -523,6 +523,7 @@ def setup_svg(tags, bounds, margin=0, arg_unit=MM, svg_unit=MM, pagecolor='white
     return tag('svg', tags,
             width=f'{w}{svg_unit}', height=f'{h}{svg_unit}',
             viewBox=f'{min_x} {min_y} {w} {h}',
+            style=f'background-color:{pagecolor}',
             **namespaces,
             root=True)
 

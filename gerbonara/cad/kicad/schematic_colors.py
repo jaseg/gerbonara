@@ -9,4 +9,5 @@ class Colorscheme:
         values = 'black'
         labels = 'black'
         fill = '#cccccc'
+        background = 'white'
 

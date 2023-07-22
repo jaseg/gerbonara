@@ -194,7 +194,7 @@ class LocalLabel(TextMixin):
         return (0, -2*self.line_width)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield from TextMixin.to_svg(self, colorscheme.text)
+        yield from TextMixin.to_svg(self, colorscheme.labels)
 
 
 def label_shape_path_d(shape, w, h):
@@ -231,7 +231,7 @@ class GlobalLabel(TextMixin):
     properties: List(Property) = field(default_factory=list)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        text = super(TextMixin, self).to_svg(colorscheme.text),
+        text = super(TextMixin, self).to_svg(colorscheme.labels),
         text.attrs['transform'] = f'translate({self.size*0.6:.3f} 0)'
         (x1, y1), (x2, y2) = self.bounding_box()
         frame = Tag('path', fill='none', stroke_width=0.254, stroke=colorscheme.lines,
@@ -249,7 +249,7 @@ class HierarchicalLabel(TextMixin):
     uuid: UUID = field(default_factory=UUID)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        text, = TextMixin.to_svg(self, colorscheme.text),
+        text, = TextMixin.to_svg(self, colorscheme.labels),
         text.attrs['transform'] = f'translate({self.size*1.2:.3f} 0)'
         frame = Tag('path', fill='none', stroke_width=0.254, stroke=colorscheme.lines,
             d=label_shape_path_d(self.shape, self.size, self.size))
@@ -332,7 +332,7 @@ class DrawnProperty(TextMixin):
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         if not self.hide:
-            yield from TextMixin.to_svg(self, colorscheme.text)
+            yield from TextMixin.to_svg(self, colorscheme.values)
 
 
 @sexp_type('symbol')
@@ -418,7 +418,7 @@ class SymbolInstance:
         yield Tag('g', children=children, transform=at_xform, fill=colorscheme.fill, stroke=colorscheme.lines)
 
         for prop in self.properties:
-            yield from prop.to_svg()
+            yield from prop.to_svg(colorscheme)
 
 
 @sexp_type('path')
@@ -627,12 +627,13 @@ class Schematic:
         for elem in self.elements:
             children += elem.to_svg(colorscheme)
         w, h = KICAD_PAPER_SIZES[self.page_settings.page_format]
-        return setup_svg(children, ((0, 0), (w, h)))
+        return setup_svg(children, ((0, 0), (w, h)), pagecolor=colorscheme.background)
 
 
 if __name__ == '__main__':
     import sys
     from ...layers import LayerStack
+    from .tmtheme import TmThemeSchematic
     sch = Schematic.open(sys.argv[1])
     print('Loaded schematic with', len(sch.wires), 'wires and', len(sch.symbols), 'symbols.')
     for subsh in sch.subsheets:
@@ -640,5 +641,5 @@ if __name__ == '__main__':
         print('Loaded sub-sheet with', len(subsh.wires), 'wires and', len(subsh.symbols), 'symbols.')
 
     sch.write('/tmp/test.kicad_sch')
-    Path('/tmp/test.svg').write_text(str(sch.to_svg()))
+    Path('/tmp/test.svg').write_text(str(sch.to_svg(TmThemeSchematic(Path('/tmp/witchhazelhypercolor.tmTheme').read_text()))))
 
