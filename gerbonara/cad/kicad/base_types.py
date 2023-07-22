@@ -348,6 +348,7 @@ class TextMixin:
         h_align = self.h_align
         mx, my = self.mirrored
         if rot in (90, 270):
+            h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
             rot = (rot+180)%360
         elif rot == 180:
             rot = 0
@@ -359,6 +360,12 @@ class TextMixin:
         if mx and rot in (90, 270):
             h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
             rot = (rot+180)%360
+        if rot == 180:
+            rot = 0
+            h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
+        if rot == 90:
+            rot = 270
+            h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
 
         yield font.render_svg(text,
                               size=self.size or 1.27,
