@@ -196,16 +196,20 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
         print(f'Clipping via diameter from {via_diameter:.2f} mm to trace width of {trace_width:.2f} mm.', file=sys.stderr)
         via_diameter = trace_width
 
+    if via_offset is None:
+        via_offset = max(0, (via_diameter-trace_width)/2)
+        print(f'Autocalculated via offset {via_offset:.2f} mm', file=sys.stderr)
+
     inner_via_ring_radius = inner_radius - via_offset
-    print(f'{inner_radius=} {via_offset=} {via_diameter=}', file=sys.stderr)
+    #print(f'{inner_radius=} {via_offset=} {via_diameter=}', file=sys.stderr)
     inner_via_angle = 2*asin((via_diameter + clearance)/2 / inner_via_ring_radius)
 
     outer_via_ring_radius = outer_radius + via_offset
     outer_via_angle = 2*asin((via_diameter + clearance)/2 / outer_via_ring_radius)
 
-    print(f'Inner via ring @ {inner_via_ring_radius:.2f} mm (from {inner_radius:.2f} mm)', file=sys.stderr)
+    print(f'Inner via ring @r={inner_via_ring_radius:.2f} mm (from {inner_radius:.2f} mm)', file=sys.stderr)
     print(f'    {degrees(inner_via_angle):.1f} deg / via', file=sys.stderr)
-    print(f'Outer via ring @ {outer_via_ring_radius:.2f} mm (from {outer_radius:.2f} mm)', file=sys.stderr)
+    print(f'Outer via ring @r={outer_via_ring_radius:.2f} mm (from {outer_radius:.2f} mm)', file=sys.stderr)
     print(f'    {degrees(outer_via_angle):.1f} deg / via', file=sys.stderr)
 
     if inner_via_angle*twists > 2*pi:
@@ -319,6 +323,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
 
         xn, yn = x0, y0
         points = [(x0, y0)]
+        dists = []
         for i in range(fn+1):
             r, g, b, _a = mpl.cm.plasma(start_frac + (end_frac - start_frac)/fn * (i + 0.5))
             path = SVGPath(fill='none', stroke=f'#{round(r*255):02x}{round(g*255):02x}{round(b*255):02x}', stroke_width=trace_width, stroke_linejoin='round', stroke_linecap='round')
@@ -330,6 +335,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
             path.move(xp, yp)
             path.line(xn, yn)
             points.append((xn, yn))
+            dists.append(dist((xp, yp), (xn, yn)))
             #lines.append(make_line(xp, yp, xn, yn, layer_pair[layer]))
 
         arcs.extend(arc_approximate(points, layer_pair[layer], arc_tolerance))
@@ -341,11 +347,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
                              text_anchor='middle',
                              style=f'font: 1px bold sans-serif; fill: {rainbow[layer%len(rainbow)]}'))
 
-        return (x0, y0), (xn, yn)
-
-    if via_offset is None:
-        via_offset = max(0, (via_diameter-trace_width)/2)
-        print(f'Autocalculated {via_offset=}', file=sys.stderr)
+        return (x0, y0), (xn, yn), sum(dists)
 
     sector_angle = 2*pi / twists
     total_angle = twists*2*sweeping_angle
@@ -362,7 +364,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
         end_angle = fold_angle + sweeping_angle
 
         x = inverse[i]*floor(2*sweeping_angle / (2*pi)) * 2*pi
-        (x0, y0), (xn, yn) = do_spiral(0, outer_radius, inner_radius, start_angle, fold_angle, (x + start_angle)/total_angle, (x + fold_angle)/total_angle)
+        (x0, y0), (xn, yn), clen = do_spiral(0, outer_radius, inner_radius, start_angle, fold_angle, (x + start_angle)/total_angle, (x + fold_angle)/total_angle)
         do_spiral(1, inner_radius, outer_radius, fold_angle, end_angle, (x + fold_angle)/total_angle, (x + end_angle)/total_angle)
 
         xv, yv = inner_via_ring_radius*cos(fold_angle), inner_via_ring_radius*sin(fold_angle)
@@ -381,6 +383,8 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
                 lines.append(make_line(x0, y0, xv, yv, layer_pair[1]))
             svg_vias.append(Tag('circle', cx=xv, cy=yv, r=via_diameter/2, stroke='none', fill='white'))
             svg_vias.append(Tag('circle', cx=xv, cy=yv, r=via_drill/2, stroke='none', fill='black'))
+
+    print(f'Approximate track length: {clen*twists*2:.2f} mm')
 
     pads.append(make_pad(1, [layer_pair[0]], outer_radius, 0))
     pads.append(make_pad(2, [layer_pair[1]], outer_radius, 0))
