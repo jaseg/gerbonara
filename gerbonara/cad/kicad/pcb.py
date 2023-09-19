@@ -4,7 +4,7 @@ Library for handling KiCad's PCB files (`*.kicad_mod`).
 
 import math
 from pathlib import Path
-from dataclasses import field, KW_ONLY
+from dataclasses import field, KW_ONLY, fields
 from itertools import chain
 import re
 import fnmatch
@@ -14,6 +14,7 @@ from .base_types import *
 from .primitives import *
 from .footprints import Footprint
 from . import graphical_primitives as gr
+import rtree.index
 
 from .. import primitives as cad_pr
 
@@ -164,6 +165,10 @@ class TrackSegment:
         self.start = XYCoord(self.start)
         self.end = XYCoord(self.end)
 
+    @property
+    def layer_mask(self):
+        return layer_mask([self.layer])
+
     def render(self, variables=None, cache=None):
         if not self.width:
             return
@@ -193,29 +198,18 @@ class TrackArc:
     locked: Flag() = False
     net: Named(int) = 0
     tstamp: Timestamp = field(default_factory=Timestamp)
-    _: KW_ONLY
+    _: SEXP_END = None
     center: XYCoord = None
 
     def __post_init__(self):
         self.start = XYCoord(self.start)
         self.end = XYCoord(self.end)
-        if self.center is not None:
-            # Convert normal p1/p2/center notation to the insanity that is kicad's midpoint notation
-            center = XYCoord(self.center)
-            cx, cy = center.x, center.y
-            x1, y1 = self.start.x - cx, self.start.y - cy
-            x2, y2 = self.end.x - cx, self.end.y - cy
-            # Get a vector pointing towards the middle between "start" and "end"
-            dx, dy = (x1 + x2)/2, (y1 + y2)/2
-            # normalize vector, and multiply by radius to get final point
-            r = math.hypot(x1, y1)
-            l = math.hypot(dx, dy)
-            mx = cx + dx / l * r
-            my = cy + dy / l * r
-            self.mid = XYCoord(mx, my)
-            self.center = None
-        else:
-            self.mid = XYCoord(self.mid)
+        self.mid = XYCoord(self.mid) if self.mid else center_arc_to_kicad_mid(XYCoord(self.center), self.start, self.end)
+        self.center = None
+
+    @property
+    def layer_mask(self):
+        return layer_mask([self.layer])
 
     def render(self, variables=None, cache=None):
         if not self.width:
@@ -228,9 +222,6 @@ class TrackArc:
         yield go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, aperture=aperture, clockwise=True, unit=MM)
 
     def rotate(self, angle, cx=None, cy=None):
-        if cx is None or cy is None:
-            cx, cy = self.mid.x, self.mid.y
-
         self.start.x, self.start.y = rotate_point(self.start.x, self.start.y, angle, cx, cy)
         self.mid.x, self.mid.y = rotate_point(self.mid.x, self.mid.y, angle, cx, cy)
         self.end.x, self.end.y = rotate_point(self.end.x, self.end.y, angle, cx, cy)
@@ -258,6 +249,14 @@ class Via:
     @property
     def abs_pos(self):
         return self.at.x, self.at.y, 0, False
+
+    @property
+    def layer_mask(self):
+        return layer_mask(self.layers)
+
+    @property
+    def width(self):
+        return self.size
 
     def __post_init__(self):
         self.at = XYCoord(self.at)
@@ -314,7 +313,46 @@ class Board:
     _ : SEXP_END = None
     original_filename: str = None
     _bounding_box: tuple = None
+    _trace_index: rtree.index.Index = None
+    _trace_index_map: dict = None
 
+
+    def rebuild_trace_index(self):
+        idx = self._trace_index = rtree.index.Index()
+        id_map = self._trace_index_map = {}
+        for obj in chain(self.track_segments, self.track_arcs):
+            for field in ('start', 'end'):
+                obj_id = id(obj)
+                coord = getattr(obj, field)
+                _trace_index_map[obj_id] = obj, field, obj.width, obj.layer_mask
+                idx.insert(obj_id, (coord.x, coord.x, coord.y, coord.y))
+
+        for fp in self.footprints:
+            for pad in fp.pads:
+                obj_id = id(pad)
+                _trace_index_map[obj_id] = pad, 'at', 0, pad.layer_mask
+                idx.insert(obj_id, (pad.at.x, pad.at.x, pad.at.y, pad.at.y))
+
+        for via in self.vias:
+            obj_id = id(via)
+            _trace_index_map[obj_id] = via, 'at', via.size, via.layer_mask
+            idx.insert(obj_id, (via.at.x, via.at.x, via.at.y, via.at.y))
+    
+    def query_trace_index(self, point, layers='*.Cu', n=5):
+        if self._trace_index is None:
+            self.rebuild_trace_index()
+
+        if isinstance(layers, str):
+            layers = [l.strip() for l in layers.split(',')]
+
+        if not isinstance(layers, int):
+            layers = layer_mask(layers)
+
+        x, y = point
+        for obj_id in self._trace_index.nearest((x, x, y, y), n):
+            entry = obj, attr, size, mask = _trace_index_map[obj_id]
+            if layers & mask:
+                yield entry
 
     def __after_parse__(self, parent):
         self.properties = {prop.key: prop.value for prop in self.properties}
@@ -364,6 +402,12 @@ class Board:
                 self.footprints.remove(obj)
             case _:
                 raise TypeError('Can only remove KiCad objects, cannot map generic gerbonara.cad objects for removal')
+
+    def remove_many(self, iterable):
+        iterable = {id(obj) for obj in iterable}
+        for field in fields(self):
+            if field.default_factory is list and field.name not in ('nets', 'properties'):
+                setattr(self, field.name, [obj for obj in getattr(self, field.name) if id(obj) not in iterable])
 
     def add(self, obj):
         match obj:
@@ -480,6 +524,13 @@ class Board:
             if sheetfile and not match_filter(sheetfile, fp.sheetfile):
                 continue
             yield fp
+
+    def find_traces(self, net=None, include_vias=True):
+        net_id = self.net_id(net, create=False)
+        match = lambda obj: obj.net == net_id
+        for obj in chain(self.track_segments, self.track_arcs, self.vias):
+            if obj.net == net_id:
+                yield obj
 
     @property
     def version(self):

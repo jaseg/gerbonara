@@ -633,7 +633,7 @@ class Schematic:
     
 # From: https://jakevdp.github.io/blog/2012/10/07/xkcd-style-plots-in-matplotlib/
 #def xkcd_line(x, y, xlim=None, ylim=None, mag=1.0, f1=30, f2=0.05, f3=15):
-def xkcd_line(x, y, xlim=None, ylim=None, mag=1.0, f1=10, f2=0.10, f3=5):
+def xkcd_line(x, y, xlim=None, ylim=None, mag=1.0, f1=10, f2=0.05, f3=5):
     """
     Mimic a hand-drawn line from (x, y) data
 
@@ -745,9 +745,10 @@ def wonkify(path):
             for p0, p1, p2 in zip(pts[0::], pts[1::], pts[2::]):
                 dx1, dy1 = p1[0] - p0[0], p1[1] - p0[1]
                 dx2, dy2 = p2[0] - p1[0], p2[1] - p1[1]
+                l1, l2 = math.hypot(dx1, dy1), math.hypot(dx2, dy2)
                 a1, a2 = math.atan2(dy1, dx1), math.atan2(dy2, dx2)
                 da = (a2 - a1 + math.pi) % (2*math.pi) - math.pi
-                if abs(da) > math.pi/4:
+                if abs(da) > math.pi/4 and l1+l2 > 3:
                     seg.append(p1)
                     seg = [p1, p2]
                     segs.append(seg)

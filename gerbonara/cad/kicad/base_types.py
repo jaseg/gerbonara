@@ -208,6 +208,9 @@ class XYCoord:
         else:
             self.x, self.y = x, y
 
+    def within_distance(self, x, y, dist):
+        return math.dist((x, y), (self.x, self.y)) < dist
+
     def isclose(self, other, tol=1e-3):
         return math.isclose(self.x, other.x, tol) and math.isclose(self.y, other.y, tol)
 

@@ -1,5 +1,6 @@
 
 import enum
+import math
 import re
 
 from .sexp import *
@@ -12,11 +13,44 @@ def unfuck_layers(layers):
     else:
         return layers
 
+
 def fuck_layers(layers):
     if layers and 'F.Cu' in layers and 'B.Cu' in layers and not any(re.match(r'^In[0-9]+\.Cu$', l) for l in layers):
         return ['F&B.Cu', *(l for l in layers if l not in ('F.Cu', 'B.Cu'))]
     else:
         return layers
+
+
+def layer_mask(layers):
+    mask = 0
+    for layer in layers:
+        match layer:
+            case '*.Cu':
+                return 0xff
+            case 'F.Cu':
+                mask |= 1<<0
+            case 'B.Cu':
+                mask |= 1<<31
+            case _:
+                if (m := re.match(f'In([0-9]+)\.Cu', layer)):
+                    mask |= 1<<int(m.group(1))
+    return mask
+
+
+def center_arc_to_kicad_mid(center, start, end):
+    # Convert normal p1/p2/center notation to the insanity that is kicad's midpoint notation
+    cx, cy = center.x, center.y
+    x1, y1 = start.x - cx, start.y - cy
+    x2, y2 = end.x - cx, end.y - cy
+    # Get a vector pointing from the center to the "mid" point.
+    dx, dy = x1 - x2, y1 - y2 # Get a vector pointing from "end" to "start"
+    dx, dy = -dy, dx # rotate by 90 degrees counter-clockwise
+    # normalize vector, and multiply by radius to get final point
+    r = math.hypot(x1, y1)
+    l = math.hypot(dx, dy)
+    mx = cx + dx / l * r
+    my = cy + dy / l * r
+    return XYCoord(mx, my)
 
 
 @sexp_type('hatch')

@@ -78,6 +78,10 @@ class Line:
     stroke: Stroke = field(default_factory=Stroke)
     tstamp: Timestamp = None
 
+    def rotate(self, angle, cx=None, cy=None):
+        self.start.x, self.start.y = rotate_point(self.start.x, self.start.y, angle, cx, cy)
+        self.end.x, self.end.y = rotate_point(self.end.x, self.end.y, angle, cx, cy)
+
     def render(self, variables=None):
         if self.angle:
             raise NotImplementedError('Angles on lines are not implemented. Please raise an issue and provide an example file.')
@@ -176,6 +180,19 @@ class Arc:
     width: Named(float) = None
     stroke: Stroke = field(default_factory=Stroke)
     tstamp: Timestamp = None
+    _: SEXP_END = None
+    center: XYCoord = None
+
+    def __post_init__(self):
+        self.start = XYCoord(self.start)
+        self.end = XYCoord(self.end)
+        self.mid = XYCoord(self.mid) if self.mid else center_arc_to_kicad_mid(XYCoord(self.center), self.start, self.end)
+        self.center = None
+
+    def rotate(self, angle, cx=None, cy=None):
+        self.start.x, self.start.y = rotate_point(self.start.x, self.start.y, angle, cx, cy)
+        self.mid.x, self.mid.y = rotate_point(self.mid.x, self.mid.y, angle, cx, cy)
+        self.end.x, self.end.y = rotate_point(self.end.x, self.end.y, angle, cx, cy)
 
     def render(self, variables=None):
         # FIXME stroke support

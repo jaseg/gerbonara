@@ -142,12 +142,17 @@ def cli():
               rules and use only rules given by --input-map''')
 @click.option('--force-zip', is_flag=True, help='''Force treating input path as a zip file (default: guess file type
               from extension and contents)''')
-@click.option('--top/--bottom', default=True, help='Which side of the board to render')
+@click.option('--top', 'side', flag_value='top', help='Render top side')
+@click.option('--bottom', 'side', flag_value='bottom', help='Render top side')
 @click.option('--command-line-units', type=Unit(), help='''Units for values given in other options. Default:
               millimeter''')
 @click.option('--margin', type=float, default=0.0, help='Add space around the board inside the viewport')
 @click.option('--force-bounds', help='Force SVG bounding box to value given as "min_x,min_y,max_x,max_y"')
 @click.option('--inkscape/--standard-svg', default=True, help='Export in Inkscape SVG format with layers and stuff.')
+@click.option('--pretty/--no-filters', default=True, help='''Export pseudo-realistic render using filters (default) or
+              just stack up layers using given colorscheme. In "--no-filters" mode, by default all layers are exported
+              unless either "--top" or "--bottom" is given.''')
+@click.option('--drills/--no-drills', default=True, help='''Include (default) or exclude drills ("--no-filters" only!)''')
 @click.option('--colorscheme', type=click.Path(exists=True, path_type=Path), help='''Load colorscheme from given JSON
               file. The JSON file must contain a single dict with keys copper, silk, mask, paste, drill and outline.
               Each key must map to a string containing either a normal 6-digit hex color with leading hash sign, or an
@@ -155,8 +160,8 @@ def cli():
               with FF being completely opaque, and 00 being invisibly transparent.''')
 @click.argument('inpath', type=click.Path(exists=True))
 @click.argument('outfile', type=click.File('w'), default='-')
-def render(inpath, outfile, format_warnings, input_map, use_builtin_name_rules, force_zip, top, command_line_units,
-           margin, force_bounds, inkscape, colorscheme):
+def render(inpath, outfile, format_warnings, input_map, use_builtin_name_rules, force_zip, side, drills,
+           command_line_units, margin, force_bounds, inkscape, pretty, colorscheme):
     """ Render a gerber file, or a directory or zip of gerber files into an SVG file. """
 
     overrides = json.loads(input_map.read_bytes()) if input_map else None
@@ -174,9 +179,14 @@ def render(inpath, outfile, format_warnings, input_map, use_builtin_name_rules, 
     if colorscheme:
         colorscheme = json.loads(colorscheme.read_text())
 
-    outfile.write(str(stack.to_pretty_svg(side='top' if top else 'bottom', margin=margin,
-                                          arg_unit=(command_line_units or MM),
-                      svg_unit=MM, force_bounds=force_bounds, inkscape=inkscape, colors=colorscheme)))
+    if pretty:
+        svg = stack.to_pretty_svg(side='bottom' if side == 'bottom' else 'top', margin=margin,
+                                              arg_unit=(command_line_units or MM),
+                          svg_unit=MM, force_bounds=force_bounds, inkscape=inkscape, colors=colorscheme)
+    else:
+        svg = stack.to_svg(side_re=side or '.*', margin=margin, drills=drills, arg_unit=(command_line_units or MM),
+                          svg_unit=MM, force_bounds=force_bounds, colors=colorscheme)
+    outfile.write(str(svg))
 
 
 @cli.command()

@@ -409,12 +409,47 @@ class Pad:
         x, y = rotate_point(self.at.x, self.at.y, math.radians(pr))
         return x+px, y+py, self.at.rotation, False
 
+    @property
+    def layer_mask(self):
+        return layer_mask(self.layers)
+
     def offset(self, x=0, y=0):
         self.at = self.at.with_offset(x, y)
 
-    def find_connected(self, **filters):
+    def find_connected_footprints(self, **filters):
         """ Find footprints connected to the same net as this pad """
         return self.footprint.board.find_footprints(net=self.net.name, **filters)
+
+    def find_same_net(self, include_vias=True):
+        """ Find traces and vias of the same net as this pad. """ 
+        return self.footprint.board.find_traces(self.net.name, include_vias=include_vias)
+
+    def find_connected_traces(self, consider_candidates=5):
+        board = self.footprint.board
+
+        found = set()
+        search_frontier = [(self.at, 0, self.layer_mask)]
+        while search_frontier:
+            coord, size, layers = search_frontier.pop()
+            x, y = coord.x, coord.y
+
+            for cand, attr, cand_size in self.footprint.board.query_trace_index((x, x, y, y), layers,
+                                                               n=consider_candidates):
+                if cand in found:
+                    continue
+
+                cand_coord = getattr(cand, attr)
+                cand_x, cand_y = cand_coord.x, cand_coord.y
+                if math.dist((x, y), (cand_x, cand_y)) <= size/2 + cand_size/2:
+                    found.add(cand)
+                    yield cand
+
+                    if hasattr(cand, 'at'): # via or pad
+                        search_frontier.append((cand.at, getattr(cand, 'size', 0), cand.layer_mask))
+                    else:
+                        mask = cand.layer_mask
+                        search_frontier.append((cand.start, cand.width, mask))
+                        search_frontier.append((cand.end, cand.width, mask))
     
     def render(self, variables=None, margin=None, cache=None):
         #if self.type in (Atom.connect, Atom.np_thru_hole):

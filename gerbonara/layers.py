@@ -699,7 +699,7 @@ class LayerStack:
     def __repr__(self):
         return str(self)
 
-    def to_svg(self, margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, color_map=None, tag=Tag):
+    def to_svg(self, margin=0, side_re='.*', drills=True, arg_unit=MM, svg_unit=MM, force_bounds=None, colors=None, tag=Tag):
         """ Convert this layer stack to a plain SVG string. This is intended for use cases where the resulting SVG will
         be processed by other tools, and thus styling with colors or extra markup like Inkscape layer information are
         unwanted. If you want to instead generate a nice-looking preview image for display or graphical editing in tools
@@ -709,6 +709,9 @@ class LayerStack:
         mirrored vertically.
 
         :param margin: Export SVG file with given margin around the board's bounding box.
+        :param side_re: A regex, such as ``'top'``, ``'bottom'``, or ``'.*'`` (default). Selects which layers to export.
+                        The default includes inner layers.
+        :param drills: :py:obj:`bool` setting if drills are included (default) or not. 
         :param arg_unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit ``margin`` and
                          ``force_bounds`` are specified in. Default: mm
         :param svg_unit: :py:class:`.LengthUnit` or str (``'mm'`` or ``'inch'``). Which unit to use inside the SVG file.
@@ -716,6 +719,7 @@ class LayerStack:
         :param force_bounds: Use bounds given as :py:obj:`((min_x, min_y), (max_x, max_y))` tuple for the output SVG
                              file instead of deriving them from this board's bounding box and ``margin``. Note that this
                              will not scale or move the board, but instead will only crop the viewport.
+        :param colors: Dict mapping ``f'{side} {use}'`` strings to SVG colors.
         :param tag: Extension point to support alternative XML serializers in addition to the built-in one.
         :rtype: :py:obj:`str`
         """
@@ -726,29 +730,29 @@ class LayerStack:
 
         stroke_attrs = {'stroke_linejoin': 'round', 'stroke_linecap': 'round'}
         
-        if color_map is None:
-            color_map = default_dict(lambda: 'black')
+        if colors is None:
+            colors = defaultdict(lambda: 'black')
         
         tags = []
+        layer_transform = f'translate(0 {bounds[0][1] + bounds[1][1]}) scale(1 -1)'
         for (side, use), layer in reversed(self.graphic_layers.items()):
-            fg = color_map[(side, use)]
-            tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
-                    **stroke_attrs, id=f'l-{side}-{use}'))
+            if re.match(side_re, side) and (fg := colors.get(f'{side} {use}')):
+                tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
+                        **stroke_attrs, id=f'l-{side}-{use}', transform=layer_transform))
 
-        if self.drill_pth:
-            fg = color_map[('drill', 'pth')]
-            tags.append(tag('g', list(self.drill_pth.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
-                    **stroke_attrs, id=f'l-drill-pth'))
+        if drills:
+            if self.drill_pth and (fg := colors.get('drill pth')):
+                tags.append(tag('g', list(self.drill_pth.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
+                        **stroke_attrs, id=f'l-drill-pth', transform=layer_transform))
 
-        if self.drill_npth:
-            fg = color_map[('drill', 'npth')]
-            tags.append(tag('g', list(self.drill_npth.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
-                    **stroke_attrs, id=f'l-drill-npth'))
+            if self.drill_npth and (fg := colors.get('drill npth')):
+                tags.append(tag('g', list(self.drill_npth.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
+                        **stroke_attrs, id=f'l-drill-npth', transform=layer_transform))
 
-        for i, layer in enumerate(self._drill_layers):
-            fg = color_map[('drill', 'unknown')]
-            tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
-                    **stroke_attrs, id=f'l-drill-{i}'))
+            if (fg := colors.get('drill unknown')):
+                for i, layer in enumerate(self._drill_layers):
+                    tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
+                            **stroke_attrs, id=f'l-drill-{i}', transform=layer_transform))
 
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, tag=tag)
 
@@ -819,6 +823,7 @@ class LayerStack:
 
         inkscape_attrs = lambda label: dict(inkscape__groupmode='layer', inkscape__label=label) if inkscape else {}
         stroke_attrs = {'stroke_linejoin': 'round', 'stroke_linecap': 'round'}
+        layer_transform=f'translate(0 {bounds[0][1] + bounds[1][1]}) scale(1 -1)'
         
         use_defs = []
 
@@ -862,18 +867,19 @@ class LayerStack:
                 objects.insert(0, tag('path', id='outline-path', d=self.outline_svg_d(unit=svg_unit), fill='white'))
             layers.append(tag('g', objects, id=f'l-{side}-{use}', filter=f'url(#f-{use})',
                               fill=default_fill, stroke=default_stroke, **stroke_attrs,
-                              **inkscape_attrs(f'{side} {use}')))
+                              **inkscape_attrs(f'{side} {use}'), transform=layer_transform))
 
         for i, layer in enumerate(self.drill_layers):
             layers.append(tag('g', list(layer.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
-                id=f'l-drill-{i}', filter=f'url(#f-drill)', **stroke_attrs, **inkscape_attrs(f'drill-{i}')))
+                id=f'l-drill-{i}', filter=f'url(#f-drill)', **stroke_attrs, **inkscape_attrs(f'drill-{i}'),
+                transform=layer_transform))
 
         if self.outline:
             layers.append(tag('g', list(self.outline.instance.svg_objects(svg_unit=svg_unit, fg='white', bg='black', tag=Tag)),
-                id=f'l-mechanical-outline', **stroke_attrs, **inkscape_attrs(f'outline')))
+                id=f'l-mechanical-outline', **stroke_attrs, **inkscape_attrs(f'outline'),
+                transform=layer_transform))
 
-        layer_group = tag('g', layers, transform=f'translate(0 {bounds[0][1] + bounds[1][1]}) scale(1 -1)')
-        tags = [tag('defs', filter_defs + use_defs), layer_group]
+        tags = [tag('defs', filter_defs + use_defs), *layers]
         return setup_svg(tags, bounds, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit, pagecolor="white", tag=tag, inkscape=inkscape)
 
     def bounding_box(self, unit=MM, default=None):
