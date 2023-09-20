@@ -95,6 +95,10 @@ class Line:
     locked: Flag() = False
     tstamp: Timestamp = None
 
+    def to_graphical_primitive(self, flip=False):
+        # FIXME flip
+        return gr.Line(self.start, self.end, self.layer, self.width, self.stroke, self.tstamp)
+
     def render(self, variables=None, cache=None):
         dasher = Dasher(self)
         dasher.move(self.start.x, self.start.y)
@@ -183,6 +187,9 @@ class Arc:
     locked: Flag() = False
     tstamp: Timestamp = None
 
+    def to_graphical_primitive(self, flip=False):
+        # FIXME flip
+        return gr.Arc(self.start, self.mid, self.end, self.layer, self.width, self.stroke, self.tstamp)
 
     def render(self, variables=None, cache=None):
         mx, my = self.mid.x, self.mid.y

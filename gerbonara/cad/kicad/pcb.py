@@ -95,8 +95,8 @@ TFBool = YesNoAtom(yes=Atom.true, no=Atom.false)
 
 @sexp_type('pcbplotparams')
 class ExportSettings:
-    layerselection: Named(Atom) = 0
-    plot_on_all_layers_selection: Named(Atom) = 0
+    layerselection: Named(Atom) = None
+    plot_on_all_layers_selection: Named(Atom) = None
     disableapertmacros: Named(TFBool) = False
     usegerberextensions: Named(TFBool) = True
     usegerberattributes: Named(TFBool) = True
@@ -246,6 +246,24 @@ class Via:
     net: Named(int) = 0
     tstamp: Timestamp = field(default_factory=Timestamp)
 
+    @classmethod
+    def from_pad(kls, pad):
+        if pad.type != Atom.thru_hole or pad.shape != Atom.circle:
+            raise ValueError('Can only convert circular through-hole pads to vias.')
+
+        if pad.drill and (pad.drill.oval or pad.drill.offset):
+            raise ValueError('Can only convert pads with centered, circular drills to vias.')
+
+        x, y, rot, _flip = pad.abs_pos
+        return kls(locked=pad.locked,
+                   at=XYCoord(x, y),
+                   size=max(pad.size.x, pad.size.y),
+                   drill=pad.drill.diameter if pad.drill else 0,
+                   layers=[l for l in pad.layers if l.endswith('.Cu')],
+                   free=True,
+                   net=pad.net.number if pad.net else 0,
+                   tstamp=pad.tstamp)
+
     @property
     def abs_pos(self):
         return self.at.x, self.at.y, 0, False
@@ -282,10 +300,10 @@ class Via:
 SUPPORTED_FILE_FORMAT_VERSIONS = [20210108, 20211014, 20221018, 20230517]
 @sexp_type('kicad_pcb')
 class Board:
-    _version: Named(int, name='version') = 20210108
+    _version: Named(int, name='version') = 20230517
     generator: Named(Atom) = Atom.gerbonara
-    general: GeneralSection = field(default_factory=GeneralSection)
-    page: PageSettings = field(default_factory=PageSettings)
+    general: GeneralSection = None
+    page: PageSettings = None
     layers: Named(Array(Untagged(LayerSettings))) = field(default_factory=list)
     setup: BoardSetup = field(default_factory=BoardSetup)
     properties: List(Property) = field(default_factory=list)
@@ -316,6 +334,49 @@ class Board:
     _trace_index: rtree.index.Index = None
     _trace_index_map: dict = None
 
+
+    @classmethod
+    def empty_board(kls, inner_layers=0, **kwargs):
+        if 'setup' not in kwargs:
+            kwargs['setup'] = None
+        b = Board(**kwargs)
+        b.init_default_layers(inner_layers)
+        b.__after_parse__(None)
+        return b
+
+    def init_default_layers(self, inner_layers=0):
+        inner = [(i, f'In{i}.Cu', 'signal', None) for i in range(1, inner_layers+1)]
+        self.layers = [LayerSettings(idx, name, Atom(ltype)) for idx, name, ltype, cname in [
+            (0, 'F.Cu', 'signal', None),
+            *inner,
+            (31, 'B.Cu', 'signal', None),
+            (32, 'B.Adhes', 'user', 'B.Adhesive'),
+            (33, 'F.Adhes', 'user', 'F.Adhesive'),
+            (34, 'B.Paste', 'user', None),
+            (35, 'F.Paste', 'user', None),
+            (36, 'B.SilkS', 'user', 'B.Silkscreen'),
+            (37, 'F.SilkS', 'user', 'F.Silkscreen'),
+            (38, 'B.Mask', 'user', None),
+            (39, 'F.Mask', 'user', None),
+            (40, 'Dwgs.User', 'user', 'User.Drawings'),
+            (41, 'Cmts.User', 'user', 'User.Comments'),
+            (42, 'Eco1.User', 'user', 'User.Eco1'),
+            (43, 'Eco2.User', 'user', 'User.Eco2'),
+            (44, 'Edge.Cuts', 'user', None),
+            (45, 'Margin', 'user', None),
+            (46, 'B.CrtYd', 'user', 'B.Courtyard'),
+            (47, 'F.CrtYd', 'user', 'F.Courtyard'),
+            (48, 'B.Fab', 'user', None),
+            (49, 'F.Fab', 'user', None),
+            (50, 'User.1', 'user', None),
+            (51, 'User.2', 'user', None),
+            (52, 'User.3', 'user', None),
+            (53, 'User.4', 'user', None),
+            (54, 'User.5', 'user', None),
+            (55, 'User.6', 'user', None),
+            (56, 'User.7', 'user', None),
+            (57, 'User.8', 'user', None),
+            (58, 'User.9', 'user', None)]]
 
     def rebuild_trace_index(self):
         idx = self._trace_index = rtree.index.Index()
@@ -473,7 +534,7 @@ class Board:
                                 net=self.net_id(net_name))
 
             case cad_pr.Via(pad_stack=cad_pr.ThroughViaStack(hole, dia, unit=st_unit)):
-                x, y, _a, _f = obj.abs_pos()
+                x, y, _a, _f = obj.abs_pos
                 x, y = MM(x, st_unit), MM(y, obj.unit)
                 yield Via(
                     locked=locked,
@@ -484,7 +545,7 @@ class Board:
                     net=self.net_id(net_name))
 
             case cad_pr.Text(_x, _y, text, font_size, stroke_width, h_align, v_align, layer, dark):
-                x, y, a, flip = obj.abs_pos()
+                x, y, a, flip = obj.abs_pos
                 x, y = MM(x, st_unit), MM(y, st_unit)
                 size = MM(size, unit)
                 yield gr.Text(
