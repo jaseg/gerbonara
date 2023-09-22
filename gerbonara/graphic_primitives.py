@@ -19,7 +19,7 @@
 import math
 import itertools
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, field
 
 from .utils import *
 
@@ -79,6 +79,10 @@ class Circle(GraphicPrimitive):
         color = fg if self.polarity_dark else bg
         return tag('circle', cx=prec(self.x), cy=prec(self.y), r=prec(self.r), fill=color)
 
+    def to_arc_poly(self):
+        return ArcPoly([(self.x-self.r, self.y), (self.x+self.r, self.y)],
+                       [(True, (self.x, self.y)), (True, (self.x, self.y))])
+
 
 @dataclass(frozen=True)
 class ArcPoly(GraphicPrimitive):
@@ -88,28 +92,51 @@ class ArcPoly(GraphicPrimitive):
     #: connected.
     outline : list
     #: Must be either None (all segments are straight lines) or same length as outline.
-    #: Straight line segments have None entry.
-    arc_centers : list = None
+    #: Straight line segments have None entry. Arc segments have (clockwise, (cx, cy)) tuple with cx, cy being absolute
+    #: coords.
+    arc_centers : list = field(default_factory=list)
 
     @property
     def segments(self):
         """ Return an iterator through all *segments* of this polygon. For each outline segment (line or arc), this
-        iterator will yield a ``(p1, p2, center)`` tuple. If the segment is a straight line, ``center`` will be
-        ``None``.
+        iterator will yield a ``(p1, p2, (clockwise, center))`` tuple. If the segment is a straight line, ``clockwise``
+        will be ``None``.
         """
-        ol = self.outline
-        return itertools.zip_longest(ol, ol[1:] + [ol[0]], self.arc_centers or [])
+        for points, arc in itertools.zip_longest(itertools.pairwise(self.outline), self.arc_centers):
+            if arc:
+                if points:
+                    yield *points, arc
+                else:
+                    yield self.outline[-1], self.outline[0], arc
+                    return
+            else:
+                if not points:
+                    break
+                yield *points, (None, (None, None))
+
+        # Close outline if necessary.
+        if math.dist(self.outline[0], self.outline[-1]) > 1e-6:
+            yield self.outline[-1], self.outline[0], (None, (None, None))
+
+    def approximate_arcs(self, max_error=1e-2, clip_max_error=True):
+        outline = []
+        for p1, p2, (clockwise, center) in self.segments():
+            if clockwise is None:
+                outline.append(p1)
+            else:
+                outline.extend(approximate_arc(cx, cy, x1, y1, x2, y2, clockwise,
+                                               max_error=max_error, clip_max_error=clip_max_error))
+                outline.pop() # remove arc end point
+        return type(self)(outline)
 
     def bounding_box(self):
         bbox = (None, None), (None, None)
-        for (x1, y1), (x2, y2), arc in self.segments:
-            if arc:
-                clockwise, (cx, cy) = arc
-                bbox = add_bounds(bbox, arc_bounds(x1, y1, x2, y2, cx, cy, clockwise))
-
-            else:
+        for (x1, y1), (x2, y2), (clockwise, (cx, cy)) in self.segments:
+            if clockwise is None:
                 line_bounds = (min(x1, x2), min(y1, y2)), (max(x1, x2), max(y1, y2))
                 bbox = add_bounds(bbox, line_bounds)
+            else:
+                bbox = add_bounds(bbox, arc_bounds(x1, y1, x2, y2, cx, cy, clockwise))
         return bbox
 
     @classmethod
@@ -148,6 +175,9 @@ class ArcPoly(GraphicPrimitive):
     def to_svg(self, fg='black', bg='white', tag=Tag):
         color = fg if self.polarity_dark else bg
         return tag('path', d=' '.join(self.path_d()), fill=color)
+
+    def to_arc_poly(self):
+        return self
 
 
 @dataclass(frozen=True)
@@ -191,6 +221,24 @@ class Line(GraphicPrimitive):
         return tag('path', d=f'M {float(self.x1):.6} {float(self.y1):.6} L {float(self.x2):.6} {float(self.y2):.6}',
                 fill='none', stroke=color, stroke_width=str(width))
 
+    def to_arc_poly(self):
+        l = math.dist((self.x1, self.y1), (self.x2, self.y2))
+        dx, dy = self.x2-self.x1, self.y2-self.y1
+        nx, ny = -dy/l, dx/l
+        rx, ry = nx*self.width/2, ny*self.width/2
+        return ArcPoly([
+                    (self.x1+rx, self.y1+ry),
+                    (self.x1-rx, self.y1-ry),
+                    (self.x2-rx, self.y2-ry),
+                    (self.x2+rx, self.y2+ry),
+                ], [
+                    (True, (self.x1, self.y1)),
+                    None,
+                    (True, (self.x2, self.y2)),
+                    None,
+                ])
+
+
 @dataclass(frozen=True)
 class Arc(GraphicPrimitive):
     """ Circular arc with line width ``width`` going from ``(x1, y1)`` to ``(x2, y2)`` around center at ``(cx, cy)``. """
@@ -202,9 +250,9 @@ class Arc(GraphicPrimitive):
     x2 : float
     #: End Y coodinate
     y2 : float
-    #: Center X coordinate relative to ``x1``
+    #: Center X coordinate (absolute)
     cx : float
-    #: Center Y coordinate relative to ``y1``
+    #: Center Y coordinate (absolute)
     cy : float
     #: ``True`` if this arc is clockwise from start to end. Selects between the large arc and the small arc given this
     #: start, end and center
@@ -214,11 +262,10 @@ class Arc(GraphicPrimitive):
 
     @property
     def is_circle(self):
-        return math.isclose(self.x1, self.x2) and math.isclose(self.y1, self.y2)
+        return math.isclose(self.x1, self.x2, abs_tol=1e-6) and math.isclose(self.y1, self.y2, abs_tol=1e-6)
 
     def flip(self):
-        return replace(self, x1=self.x2, y1=self.y2, x2=self.x1, y2=self.y1,
-            cx=(self.x1 + self.cx) - self.x2, cy=(self.y1 + self.cy) - self.y2, clockwise=not self.clockwise)
+        return replace(self, x1=self.x2, y1=self.y2, x2=self.x1, y2=self.y1, clockwise=not self.clockwise)
 
     def bounding_box(self):
         r = self.width/2
@@ -231,6 +278,25 @@ class Arc(GraphicPrimitive):
         width = f'{self.width:.6}' if not math.isclose(self.width, 0) else '0.01mm'
         return tag('path', d=f'M {float(self.x1):.6} {float(self.y1):.6} {arc}',
                 fill='none', stroke=color, stroke_width=width)
+
+    def to_arc_poly(self):
+        r = math.dist((self.x1, self.y1), (self.cx, self.cy))
+        dx1, dy1 = self.x1-self.cx, self.y1-self.cy
+        nx1, ny1 = dx1/r * self.width/2, dy1/r * self.width/2
+        dx2, dy2 = self.x2-self.cx, self.y2-self.cy
+        nx2, ny2 = dx2/r * self.width/2, dy2/r * self.width/2
+        return ArcPoly([
+                    (self.x1+nx1, self.y1+nx1),
+                    (self.x1-nx1, self.y1-nx1),
+                    (self.x2-nx2, self.y2-nx2),
+                    (self.x2+nx2, self.y2+nx2),
+                ], [
+                    (self.clockwise, (self.x1, self.y1)),
+                    (self.clockwise, (self.cx, self.cy)),
+                    (self.clockwise, (self.x2, self.y2)),
+                    (self.clockwise, (self.cx, self.cy)),
+                ])
+
 
 @dataclass(frozen=True)
 class Rectangle(GraphicPrimitive):

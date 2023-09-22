@@ -142,7 +142,7 @@ def _parse_path_d(path):
                     cx = mx - nx*nl
                     cy = my - ny*nl
 
-            (min_x, min_y), (max_x, max_y) = arc_bounds(last_x, last_y, ax, ay, cx-last_x, cy-last_y, clockwise=(not sweep))
+            (min_x, min_y), (max_x, max_y) = arc_bounds(last_x, last_y, ax, ay, cx, cy, clockwise=(not sweep))
             min_x -= sr
             min_y -= sr
             max_x += sr

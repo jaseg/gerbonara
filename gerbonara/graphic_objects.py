@@ -19,9 +19,9 @@
 import math
 import copy
 from dataclasses import dataclass, astuple, field, fields
-from itertools import zip_longest
+from itertools import zip_longest, pairwise, islice, cycle
 
-from .utils import MM, InterpMode, to_unit, rotate_point, sum_bounds
+from .utils import MM, InterpMode, to_unit, rotate_point, sum_bounds, approximate_arc, sweep_angle
 from . import graphic_primitives as gp
 from .aperture_macros import primitive as amp
 
@@ -278,9 +278,15 @@ class Region(GraphicObject):
      * A region is always exactly one connected component.
      * A region must not overlap itself anywhere.
      * A region cannot have holes.
+     * The last outline point of the region must be equal to the first.
 
     There is one exception from the last two rules: To emulate a region with a hole in it, *cut-ins* are allowed. At a
     cut-in, the region is allowed to touch (but never overlap!) itself.
+
+    When ``arc_centers`` is empty, this region has only straight outline segments. When ``arc_centers`` is not empty,
+    the i-th entry defines the i-th outline segment, with a ``None`` entry designating a straight line segment.
+    An arc is defined by a ``(clockwise, (cx, cy))`` tuple, where ``clockwise`` can be ``True`` for a clockwise arc, or
+    ``False`` for a counter-clockwise arc. ``cx`` and ``cy`` are the absolute coordinates of the arc's center. 
     """
 
     def __init__(self, outline=None, arc_centers=None, *, unit=MM, polarity_dark=True):
@@ -304,8 +310,8 @@ class Region(GraphicObject):
     def _rotate(self, angle, cx=0, cy=0):
         self.outline = [ gp.rotate_point(x, y, angle, cx, cy) for x, y in self.outline ]
         self.arc_centers = [
-                (arc[0], gp.rotate_point(*arc[1], angle, cx-p[0], cy-p[1])) if arc else None
-                for p, arc in zip_longest(self.outline, self.arc_centers) ]
+                (arc[0], gp.rotate_point(*arc[1], angle, cx, cy)) if arc else None
+                for arc in self.arc_centers ]
 
     def _scale(self, factor):
         self.outline = [ (x*factor, y*factor) for x, y in self.outline ]
@@ -322,6 +328,10 @@ class Region(GraphicObject):
             (x, y+h),
             ], unit=unit)
 
+    @classmethod
+    def from_arc_poly(kls, arc_poly, polarity_dark=True, unit=MM):
+        return kls(arc_poly.outline, arc_poly.arc_centers, polarity_dark=polarity_dark, unit=unit)
+
     def append(self, obj):
         if obj.unit != self.unit:
             obj = obj.converted(self.unit)
@@ -331,48 +341,49 @@ class Region(GraphicObject):
         self.outline.append(obj.p2)
 
         if isinstance(obj, Arc):
-            self.arc_centers.append((obj.clockwise, obj.center_relative))
+            self.arc_centers.append((obj.clockwise, obj.center))
         else:
             self.arc_centers.append(None)
 
-    def close(self):
-        if not self.outline:
-            return
+    def iter_segments(self, tolerance=1e-6):
+        for points, arc in zip_longest(pairwise(self.outline), self.arc_centers):
+            if arc:
+                if points:
+                    yield *points, arc
+                else:
+                    yield self.outline[-1], self.outline[0], arc
+                    return
+            else:
+                if not points:
+                    break
+                yield *points, (None, (None, None))
 
-        if self.outline[-1] != self.outline[0]:
-            self.outline.append(self.outline[0])
+        # Close outline if necessary.
+        if math.dist(self.outline[0], self.outline[-1]) > tolerance:
+            yield self.outline[-1], self.outline[0], (None, (None, None))
 
     def outline_objects(self, aperture=None):
-        for p1, p2, arc in zip_longest(self.outline, self.outline[1:] + self.outline[:1], self.arc_centers):
-            if arc:
-                clockwise, pc  = arc
-                yield Arc(*p1, *p2, *pc, clockwise, aperture=aperture, unit=self.unit, polarity_dark=self.polarity_dark)
+        for p1, p2, (clockwise, center) in self.iter_segments():
+            if center:
+                yield Arc(*p1, *p2, *center, clockwise, aperture=aperture, unit=self.unit, polarity_dark=self.polarity_dark)
             else:
                 yield Line(*p1, *p2, aperture=aperture, unit=self.unit, polarity_dark=self.polarity_dark)
 
-    def _aperture_macro_primitives(self, max_error=1e-2, unit=MM):
+    def _aperture_macro_primitives(self, max_error=1e-2, clip_max_error=True, unit=MM):
         # unit is only for max_error, the resulting primitives will always be in MM
         
         if len(self.outline) < 2:
             return
 
-        points = [self.outline[0]]
-        for p1, p2, arc in zip_longest(self.outline[:-1], self.outline[1:], self.arc_centers):
-            if arc:
-                clockwise, pc  = arc
-                #r = math.hypot(*pc) # arc center is relative to p1.
-                #d = math.dist(p1, p2)
-                #err = r - math.sqrt(r**2 - (d/(2*n))**2)
-                #n = math.ceil(1/(2*math.sqrt(r**2 - (r - max_err)**2)/d))
-                arc = Arc(*p1, *p2, *pc, clockwise, unit=self.unit, polarity_dark=self.polarity_dark, aperture=None)
-                for line in arc.approximate(max_error=max_error, unit=unit):
-                    points.append(line.p2)
-
+        points = []
+        for p1, p2, (clockwise, center) in self.iter_segments():
+            if center:
+                for p in approximate_arc(*center, *p1, *p2, clockwise,
+                                             max_error=max_error, clip_max_error=clip_max_error):
+                    points.append(p)
+                    points.pop()
             else:
-                points.append(p2)
-
-        if points[-1] != points[0]:
-            points.append(points[0])
+                points.append(p1)
 
         yield amp.Outline(self.unit, int(self.polarity_dark), len(points)-1, tuple(coord for p in points for coord in p))
 
@@ -389,6 +400,9 @@ class Region(GraphicObject):
             yield gp.ArcPoly(conv_outline, conv_arc, polarity_dark=self.polarity_dark)
 
     def to_statements(self, gs):
+        if len(self.outline) < 3:
+            return
+
         yield from gs.set_polarity(self.polarity_dark)
         yield 'G36*'
         # Repeat interpolation mode at start of region statement to work around gerbv bug. Without this, gerbv will
@@ -398,32 +412,24 @@ class Region(GraphicObject):
 
         yield from gs.set_current_point(self.outline[0], unit=self.unit)
 
-        for point, arc_center in zip_longest(self.outline[1:], self.arc_centers):
-            if point is None and arc_center is None:
+        for previous_point, point, (clockwise, center) in self.iter_segments():
+            if point is None and center is None:
                 break
 
-            if arc_center is None:
-                yield from gs.set_interpolation_mode(InterpMode.LINEAR)
+            x = gs.file_settings.write_gerber_value(point[0], self.unit)
+            y = gs.file_settings.write_gerber_value(point[1], self.unit)
 
-                x = gs.file_settings.write_gerber_value(point[0], self.unit)
-                y = gs.file_settings.write_gerber_value(point[1], self.unit)
+            if clockwise is None:
+                yield from gs.set_interpolation_mode(InterpMode.LINEAR)
                 yield f'X{x}Y{y}D01*'
 
-                gs.update_point(*point, unit=self.unit)
-
             else:
-                clockwise, (cx, cy) = arc_center
-                x2, y2 = point
                 yield from gs.set_interpolation_mode(InterpMode.CIRCULAR_CW if clockwise else InterpMode.CIRCULAR_CCW)
-
-                x = gs.file_settings.write_gerber_value(x2, self.unit)
-                y = gs.file_settings.write_gerber_value(y2, self.unit)
-                # TODO are these coordinates absolute or relative now?!
-                i = gs.file_settings.write_gerber_value(cx, self.unit)
-                j = gs.file_settings.write_gerber_value(cy, self.unit)
+                i = gs.file_settings.write_gerber_value(center[0]-previous_point[0], self.unit)
+                j = gs.file_settings.write_gerber_value(center[1]-previous_point[1], self.unit)
                 yield f'X{x}Y{y}I{i}J{j}D01*'
 
-                gs.update_point(x2, y2, unit=self.unit)
+            gs.update_point(*point, unit=self.unit)
 
         yield 'G37*'
 
@@ -605,22 +611,8 @@ class Arc(GraphicObject):
         :returns: Angle in clockwise radian between ``0`` and ``2*math.pi``
         :rtype: float
         """
-        cx, cy = self.cx + self.x1, self.cy + self.y1
-        x1, y1 = self.x1 - cx, self.y1 - cy
-        x2, y2 = self.x2 - cx, self.y2 - cy
 
-        a1, a2 = math.atan2(y1, x1), math.atan2(y2, x2)
-        f = abs(a2 - a1)
-        if not self.clockwise:
-            if a2 > a1:
-                return a2 - a1
-            else:
-                return 2*math.pi - abs(a2 - a1)
-        else:
-            if a1 > a2:
-                return a1 - a2
-            else:
-                return 2*math.pi - abs(a1 - a2)
+        return sweep_angle(self.cx+self.x1, self.cy+self.y1, self.x1, self.y1, self.x2, self.y2, self.clockwise)
 
     @property
     def p1(self):
@@ -677,34 +669,16 @@ class Arc(GraphicObject):
         :returns: list of :py:class:`~.graphic_objects.Line` instances.
         :rtype: list
         """
-        # TODO the max_angle calculation below is a bit off -- we over-estimate the error, and thus produce finer
-        # results than necessary. Fix this.
-            
-        r = math.hypot(self.cx, self.cy)
 
         max_error = self.unit(max_error, unit)
-        if clip_max_error:
-            # 1 - math.sqrt(1 - 0.5*math.sqrt(2))
-            max_error = min(max_error, r*0.4588038998538031)
-
-        elif max_error >= r:
-            return [Line(*self.p1, *self.p2, aperture=self.aperture, polarity_dark=self.polarity_dark, unit=self.unit)]
-
-        # see https://www.mathopenref.com/sagitta.html
-        l = math.sqrt(r**2 - (r - max_error)**2)
-
-        angle_max = math.asin(l/r)
-        sweep_angle = self.sweep_angle()
-        num_segments = math.ceil(sweep_angle / angle_max)
-        angle = sweep_angle / num_segments
-
-        if not self.clockwise:
-            angle = -angle
-
-        cx, cy = self.center
-        points = [ rotate_point(self.x1, self.y1, i*angle, cx, cy) for i in range(num_segments + 1) ]
-        return [ Line(*p1, *p2, aperture=self.aperture, polarity_dark=self.polarity_dark, unit=self.unit)
-                for p1, p2 in zip(points[0::], points[1::]) ]
+        return [Line(*p1, *p2, aperture=self.aperture, polarity_dark=self.polarity_dark, unit=self.unit)
+                for p1, p2 in pairwise(approximate_arc(
+                    self.cx+self.x1, self.cy+self.y1,
+                    self.x1, self.y1,
+                    self.x2, self.y2,
+                    self.clockwise,
+                    max_error=max_error,
+                    clip_max_error=clip_max_error))]
 
     def _rotate(self, rotation, cx=0, cy=0):
         # rotate center first since we need old x1, y1 here
@@ -726,7 +700,7 @@ class Arc(GraphicObject):
         w = self.aperture.equivalent_width(unit) if self.aperture else 0
         return gp.Arc(x1=conv.x1, y1=conv.y1,
                 x2=conv.x2, y2=conv.y2,
-                cx=conv.cx, cy=conv.cy,
+                cx=conv.cx+conv.x1, cy=conv.cy+conv.y1,
                 clockwise=self.clockwise,
                 width=w,
                 polarity_dark=self.polarity_dark)

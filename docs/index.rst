@@ -48,6 +48,7 @@ Features
 
     cli
     api-concepts
+    examples
     file-api
     object-api
     apertures
@@ -73,6 +74,8 @@ Then, you are ready to read and write gerber files:
     stack = LayerStack.from_directory('output/gerber')
     w, h = stack.outline.size('mm')
     print(f'Board size is {w:.1f} mm x {h:.1f} mm')
+
+You can find some more elaborate examples in this doc's :ref:`Examples section<examples-doc>`.
 
 Command-Line Interface
 ======================

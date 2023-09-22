@@ -244,6 +244,59 @@ def rotate_point(x, y, angle, cx=0, cy=0):
             cy + (x - cx) * math.sin(-angle) + (y - cy) * math.cos(-angle))
 
 
+def sweep_angle(cx, cy, x1, y1, x2, y2, clockwise):
+    """ Calculate absolute sweep angle of arc. This is always a positive number.
+
+    :returns: Angle in clockwise radian between ``0`` and ``2*math.pi``
+    :rtype: float
+    """
+    x1, y1 = x1-cx, y1-cy
+    x2, y2 = x2-cx, y2-cy
+
+    a1, a2 = math.atan2(y1, x1), math.atan2(y2, x2)
+    f = abs(a2 - a1)
+    if not clockwise:
+        if a2 > a1:
+            return a2 - a1
+        else:
+            return 2*math.pi - abs(a2 - a1)
+    else:
+        if a1 > a2:
+            return a1 - a2
+        else:
+            return 2*math.pi - abs(a1 - a2)
+
+
+def approximate_arc(cx, cy, x1, y1, x2, y2, clockwise, max_error=1e-2, clip_max_error=True):
+    # TODO the max_angle calculation below is a bit off -- we over-estimate the error, and thus produce finer
+    # results than necessary. Fix this.
+        
+    r = math.dist((x1, y1), (cx, cy))
+
+    if clip_max_error:
+        # 1 - math.sqrt(1 - 0.5*math.sqrt(2))
+        max_error = min(max_error, r*0.4588038998538031)
+
+    elif max_error >= r:
+        yield (x1, y1)
+        yield (x2, y2)
+        return
+
+    # see https://www.mathopenref.com/sagitta.html
+    l = math.sqrt(r**2 - (r - max_error)**2)
+
+    angle_max = math.asin(l/r)
+    sweep_angle = sweep_angle(cx, cy, x1, y1, x2, y2, clockwise)
+    num_segments = math.ceil(sweep_angle / angle_max)
+    angle = sweep_angle / num_segments
+
+    if not clockwise:
+        angle = -angle
+
+    for i in range(num_segments + 1):
+        yield rotate_point(x1, y1, i*angle, cx, cy)
+
+
 def min_none(a, b):
     """ Like the ``min(..)`` builtin, but if either value is ``None``, returns the other. """
     if a is None:
@@ -340,11 +393,9 @@ def arc_bounds(x1, y1, x2, y2, cx, cy, clockwise):
     # This solution manages to handle circular arcs given in gerber format (with explicit center and endpoints, plus
     # sweep direction instead of a format with e.g. angles and radius) without any trigonometric functions (e.g. atan2).
     #
-    # cx, cy are relative to p1.
+    # cx, cy are in absolute coordinates.
 
     # Center arc on cx, cy
-    cx += x1
-    cy += y1
     x1 -= cx
     x2 -= cx
     y1 -= cy
@@ -461,25 +512,25 @@ def point_line_distance(l1, l2, p):
 
 
 def svg_arc(old, new, center, clockwise):
-    """ Format an SVG circular arc "A" path data entry given an arc in Gerber notation (i.e. with center relative to
-    first point).
+    """ Format an SVG circular arc "A" path data entry given an arc in Gerber notation (but with center in absolute
+    coordinates).
 
     :rtype: str
     """
-    r = float(math.hypot(*center))
+    r = float(math.dist(old, center))
     # invert sweep flag since the svg y axis is mirrored
     sweep_flag = int(not clockwise)
     # In the degenerate case where old == new, we always take the long way around. To represent this "full-circle arc"
     # in SVG, we have to split it into two.
     if math.isclose(math.dist(old, new), 0):
-        intermediate = old[0] + 2*center[0], old[1] + 2*center[1]
+        intermediate = old[0] + 2*(center[0]-old[0]), old[1] + 2*(center[1]-old[1])
         # Note that we have to preserve the sweep flag to avoid causing self-intersections by flipping the direction of
         # a circular cutin
         return f'A {r:.6} {r:.6} 0 1 {sweep_flag} {float(intermediate[0]):.6} {float(intermediate[1]):.6} ' +\
                f'A {r:.6} {r:.6} 0 1 {sweep_flag} {float(new[0]):.6} {float(new[1]):.6}'
 
     else: # normal case
-        d = point_line_distance(old, new, (old[0]+center[0], old[1]+center[1]))
+        d = point_line_distance(old, new, center[0], center[1])
         large_arc = int((d < 0) == clockwise)
         return f'A {r:.6} {r:.6} 0 {large_arc} {sweep_flag} {float(new[0]):.6} {float(new[1]):.6}'
 

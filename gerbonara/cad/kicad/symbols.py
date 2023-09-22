@@ -285,7 +285,7 @@ class Arc:
         x2, y2 = self.mid.x-x1, self.mid.y-x2
         x3, y3 = (self.end.x - x1)/2, (self.end.y - y1)/2
         clockwise = math.atan2(x2*y3-x3*y2, x2*x3+y2*y3) > 0
-        return arc_bounds(x1, y1, self.end.x, self.end.y, cx-x1, cy-y1, clockwise)
+        return arc_bounds(x1, y1, self.end.x, self.end.y, cx, cy, clockwise)
 
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
