@@ -275,6 +275,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
                      clearance=clearance, 
                      zone_connect=0)
 
+    use_arcs = not pcb
     pads = []
     lines = []
     arcs = []
@@ -337,9 +338,11 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
             path.line(xn, yn)
             points.append((xn, yn))
             dists.append(dist((xp, yp), (xn, yn)))
-            #lines.append(make_line(xp, yp, xn, yn, layer_pair[layer]))
+            if not use_arcs:
+                lines.append(make_line(xp, yp, xn, yn, layer_pair[layer]))
 
-        arcs.extend(arc_approximate(points, layer_pair[layer], arc_tolerance))
+        if use_arcs:
+            arcs.extend(arc_approximate(points, layer_pair[layer], arc_tolerance))
 
         svg_stuff.append(Tag('text',
                              [label],
@@ -385,7 +388,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
             svg_vias.append(Tag('circle', cx=xv, cy=yv, r=via_diameter/2, stroke='none', fill='white'))
             svg_vias.append(Tag('circle', cx=xv, cy=yv, r=via_drill/2, stroke='none', fill='black'))
 
-    print(f'Approximate track length: {clen*twists*2:.2f} mm')
+    print(f'Approximate track length: {clen*twists*2:.2f} mm', file=sys.stderr)
 
     pads.append(make_pad(1, [layer_pair[0]], outer_radius, 0))
     pads.append(make_pad(2, [layer_pair[1]], outer_radius, 0))
@@ -454,9 +457,12 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
     if pcb:
         obj = kicad_pcb.Board.empty_board(
                 zones=zones,
-                lines=[line.to_graphical_primitive() for line in lines],
-                arcs=[arc.to_graphical_primitive() for arc in arcs],
+                track_segments=[kicad_pcb.TrackSegment.from_footprint_line(line) for line in lines],
                 vias=[kicad_pcb.Via.from_pad(pad) for pad in pads if pad.type == kicad_pcb.Atom.thru_hole])
+        obj.rebuild_trace_index()
+        seg = obj.track_segments[-1]
+        for e in obj.find_connected_traces(seg, layers=seg.layer_mask):
+            print(getattr(e, 'layer', ''), str(e)[:80], file=sys.stderr)
 
     else:
         obj = kicad_fp.Footprint(

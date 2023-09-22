@@ -22,6 +22,12 @@ def fuck_layers(layers):
 
 
 def layer_mask(layers):
+    if isinstance(layers, int):
+        return layers
+
+    if isinstance(layers, str):
+        layers = [l.strip() for l in layers.split(',')]
+
     mask = 0
     for layer in layers:
         match layer:

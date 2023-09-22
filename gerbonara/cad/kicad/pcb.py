@@ -8,11 +8,12 @@ from dataclasses import field, KW_ONLY, fields
 from itertools import chain
 import re
 import fnmatch
+import functools
 
 from .sexp import *
 from .base_types import *
 from .primitives import *
-from .footprints import Footprint
+from .footprints import Footprint, Pad
 from . import graphical_primitives as gr
 import rtree.index
 
@@ -160,6 +161,11 @@ class TrackSegment:
     locked: Flag() = False
     net: Named(int) = 0
     tstamp: Timestamp = field(default_factory=Timestamp)
+
+    @classmethod
+    def from_footprint_line(kls, line, flip=False):
+        # FIXME flip
+        return kls(line.start, line.end, line.width or line.stroke.width, line.layer, line.locked, tstamp=line.tstamp)
 
     def __post_init__(self):
         self.start = XYCoord(self.start)
@@ -385,35 +391,142 @@ class Board:
             for field in ('start', 'end'):
                 obj_id = id(obj)
                 coord = getattr(obj, field)
-                _trace_index_map[obj_id] = obj, field, obj.width, obj.layer_mask
-                idx.insert(obj_id, (coord.x, coord.x, coord.y, coord.y))
+                id_map[obj_id] = obj, field, obj.width, obj.layer_mask
+                idx.insert(obj_id, (coord.x, coord.y, coord.x, coord.y))
 
         for fp in self.footprints:
             for pad in fp.pads:
                 obj_id = id(pad)
-                _trace_index_map[obj_id] = pad, 'at', 0, pad.layer_mask
-                idx.insert(obj_id, (pad.at.x, pad.at.x, pad.at.y, pad.at.y))
+                id_map[obj_id] = pad, 'at', 0, pad.layer_mask
+                idx.insert(obj_id, (pad.at.x, pad.at.y, pad.at.x, pad.at.y))
 
         for via in self.vias:
             obj_id = id(via)
-            _trace_index_map[obj_id] = via, 'at', via.size, via.layer_mask
-            idx.insert(obj_id, (via.at.x, via.at.x, via.at.y, via.at.y))
+            id_map[obj_id] = via, 'at', via.size, via.layer_mask
+            idx.insert(obj_id, (via.at.x, via.at.y, via.at.x, via.at.y))
     
-    def query_trace_index(self, point, layers='*.Cu', n=5):
-        if self._trace_index is None:
-            self.rebuild_trace_index()
+    @staticmethod
+    def _require_trace_index(fun):
+        @functools.wraps(fun)
+        def wrapper(self, *args, **kwargs):
+            if self._trace_index is None:
+                self.rebuild_trace_index()
 
-        if isinstance(layers, str):
-            layers = [l.strip() for l in layers.split(',')]
+            return fun(self, *args, **kwargs)
+        return wrapper
 
-        if not isinstance(layers, int):
-            layers = layer_mask(layers)
+    @_require_trace_index
+    def query_trace_index_nearest(self, point, layers='*.Cu', n=1):
+        layers = layer_mask(layers)
 
         x, y = point
-        for obj_id in self._trace_index.nearest((x, x, y, y), n):
-            entry = obj, attr, size, mask = _trace_index_map[obj_id]
+        for obj_id in self._trace_index.nearest((x, y, x, y), n):
+            entry = obj, attr, size, mask = self._trace_index_map[obj_id]
             if layers & mask:
                 yield entry
+
+    @_require_trace_index
+    def query_trace_index_tolerance(self, point, layers='*.Cu', tol=10e-6):
+        layers = layer_mask(layers)
+
+        x, y = point
+        for obj_id in self._trace_index.intersection((x-tol, y-tol, x+tol, y+tol)):
+            entry = obj, attr, size, mask = self._trace_index_map[obj_id]
+            attr = getattr(obj, attr)
+            if layers & mask and math.dist((attr.x, attr.y), (x, y)) <= tol:
+                yield entry
+
+    def find_connected_traces(self, obj, layers='*.Cu', tol=10e-6):
+        search_frontier = []
+        visited = set()
+        def enqueue(obj):
+            visited.add(id(obj))
+
+            if isinstance(obj, (TrackSegment, TrackArc)):
+                search_frontier.append((obj.start, obj.width, obj.layer_mask))
+                search_frontier.append((obj.end, obj.width, obj.layer_mask))
+
+            elif isinstance(obj, Via):
+                search_frontier.append((obj.at, obj.size, obj.layer_mask))
+
+            elif isinstance(obj, Pad):
+                search_frontier.append((obj.at, max(obj.size.x, obj.size.y), obj.layer_mask))
+
+            elif isinstance(obj, (Footprint)):
+                for pad in obj.pads:
+                    search_frontier.append((pad.at, max(pad.size.x, pad.size.y), pad.layer_mask))
+
+            else:
+                raise TypeError(f'Finding connected traces for {type(obj)} objects is not (yet) supported.')
+
+        enqueue(obj)
+
+        filter_layers = layer_mask(layers)
+        while search_frontier:
+            coord, size, layers = search_frontier.pop()
+            x, y = coord.x, coord.y
+
+            # First, find all bounding box intersections
+            found = []
+            for cand, attr, cand_size, cand_mask in self.query_trace_index_tolerance((x, y), layers&filter_layers, size):
+                cand_coord = getattr(cand, attr)
+                dist = math.dist((x, y), (cand_coord.x, cand_coord.y))
+                if dist <= size/2 + cand_size/2 and layers&cand_mask:
+                    found.append((dist, cand))
+
+            if not found:
+                continue
+
+            # Second, filter to match only objects that are within tolerance of closest
+            min_dist = min(e[0] for e in found)
+            for dist, cand in found:
+                if dist < min_dist+tol and id(cand) not in visited:
+                    enqueue(cand)
+                    yield cand
+
+    def track_skeleton(self, start, tol=10e-6):
+        search_frontier = []
+        visited = set()
+        def enqueue(obj):
+            visited.add(id(obj))
+
+            if isinstance(obj, (TrackSegment, TrackArc)):
+                search_frontier.append((obj.start, obj.width, obj.layer_mask))
+                search_frontier.append((obj.end, obj.width, obj.layer_mask))
+
+            elif isinstance(obj, Via):
+                search_frontier.append((obj.at, obj.size, obj.layer_mask))
+
+            elif isinstance(obj, Pad):
+                search_frontier.append((obj.at, max(obj.size.x, obj.size.y), obj.layer_mask))
+
+            else:
+                raise TypeError(f'Track skeleton starting at {type(obj)} objects is not (yet) supported.')
+
+        enqueue(start)
+
+        while search_frontier:
+            coord, size, layers = search_frontier.pop()
+            x, y = coord.x, coord.y
+
+            # First, find all bounding box intersections
+            found = []
+            for cand, attr, cand_size, cand_mask in self.query_trace_index_tolerance((x, y), layers, size):
+                cand_coord = getattr(cand, attr)
+                dist = math.dist((x, y), (cand_coord.x, cand_coord.y))
+                if dist <= size/2 + cand_size/2 and layers&cand_mask:
+                    found.append((dist, cand))
+
+            if not found:
+                continue
+
+            # Second, filter to match only objects that are within tolerance of closest
+            min_dist = min(e[0] for e in found)
+            for dist, cand in found:
+                if dist < min_dist+tol and id(cand) not in visited:
+                    enqueue(cand)
+                    yield cand
+
 
     def __after_parse__(self, parent):
         self.properties = {prop.key: prop.value for prop in self.properties}
