@@ -2,12 +2,10 @@
 Library for handling KiCad's PCB files (`*.kicad_mod`).
 """
 
-import sys
 import math
 from pathlib import Path
 from dataclasses import field, KW_ONLY, fields
 from itertools import chain
-from collections import defaultdict
 import re
 import fnmatch
 import functools
@@ -352,6 +350,7 @@ class Board:
         b.__after_parse__(None)
         return b
 
+
     def init_default_layers(self, inner_layers=0):
         inner = [(i, f'In{i}.Cu', 'signal', None) for i in range(1, inner_layers+1)]
         self.layers = [LayerSettings(idx, name, Atom(ltype)) for idx, name, ltype, cname in [
@@ -386,12 +385,13 @@ class Board:
             (57, 'User.8', 'user', None),
             (58, 'User.9', 'user', None)]]
 
+
     def rebuild_trace_index(self):
         idx = self._trace_index = rtree.index.Index()
         id_map = self._trace_index_map = {}
         for obj in chain(self.track_segments, self.track_arcs):
-            for field in ('start', 'end'):
-                obj_id = id(obj)
+            for i, field in enumerate(('start', 'end')):
+                obj_id = id(obj) + i
                 coord = getattr(obj, field)
                 id_map[obj_id] = obj, field, obj.width, obj.layer_mask
                 idx.insert(obj_id, (coord.x, coord.y, coord.x, coord.y))
@@ -407,6 +407,7 @@ class Board:
             id_map[obj_id] = via, 'at', via.size, via.layer_mask
             idx.insert(obj_id, (via.at.x, via.at.y, via.at.x, via.at.y))
     
+
     @staticmethod
     def _require_trace_index(fun):
         @functools.wraps(fun)
@@ -416,6 +417,7 @@ class Board:
 
             return fun(self, *args, **kwargs)
         return wrapper
+
 
     @_require_trace_index
     def query_trace_index_nearest(self, point, layers='*.Cu', n=1):
@@ -427,10 +429,10 @@ class Board:
             if layers & mask:
                 yield entry
 
+
     @_require_trace_index
     def query_trace_index_tolerance(self, point, layers='*.Cu', tol=10e-6):
         layers = layer_mask(layers)
-        print(f'query {layers:08x}', file=sys.stderr)
 
         x, y = point
         for obj_id in self._trace_index.intersection((x-tol, y-tol, x+tol, y+tol)):
@@ -438,6 +440,7 @@ class Board:
             attr = getattr(obj, attr)
             if layers & mask and math.dist((attr.x, attr.y), (x, y)) <= tol:
                 yield entry
+
 
     def find_connected_traces(self, obj, layers='*.Cu', tol=10e-6):
         search_frontier = []
@@ -463,100 +466,30 @@ class Board:
                 raise TypeError(f'Finding connected traces for {type(obj)} objects is not (yet) supported.')
 
         enqueue(obj)
+        yield obj
 
         filter_layers = layer_mask(layers)
         while search_frontier:
             coord, size, layers = search_frontier.pop()
             x, y = coord.x, coord.y
 
-            for cand in self.find_conductors_at(x, y, layers & filter_layers, size):
-                if id(cand) not in visited:
+            # First, find all bounding box intersections
+            found = []
+            for cand, attr, cand_size, cand_mask in self.query_trace_index_tolerance((x, y), layers&filter_layers, size):
+                cand_coord = getattr(cand, attr)
+                dist = math.dist((x, y), (cand_coord.x, cand_coord.y))
+                if dist <= size/2 + cand_size/2 and layers&cand_mask:
+                    found.append((dist, cand))
+
+            if not found:
+                continue
+
+            # Second, filter to match only objects that are within tolerance of closest
+            min_dist = min(e[0] for e in found)
+            for dist, cand in found:
+                if dist < min_dist+tol and id(cand) not in visited:
                     enqueue(cand)
                     yield cand
-
-    def track_skeleton(self, start, tol=10e-6):
-        search_frontier = []
-        def enqueue(obj, arr):
-            if isinstance(obj, (TrackSegment, TrackArc)):
-                search_frontier.append((id(obj), arr, False, obj.start, obj.width, obj.layer_mask))
-                search_frontier.append((id(obj), arr, False, obj.end, obj.width, obj.layer_mask))
-
-            elif isinstance(obj, Via):
-                search_frontier.append((id(obj), arr, True, obj.at, obj.size, obj.layer_mask))
-
-            elif isinstance(obj, Pad):
-                search_frontier.append((id(obj), arr, True, obj.at, max(obj.size.x, obj.size.y), obj.layer_mask))
-
-            else:
-                raise TypeError(f'Track skeleton starting at {type(obj)} objects is not (yet) supported.')
-
-        first_edge = []
-        enqueue(start, first_edge)
-        nodes = {id(start): 1}
-        edges = {1: [first_edge]}
-
-        i = 0
-        while search_frontier:
-            obj_id, edge, force_node, coord, size, layers = search_frontier.pop()
-            print(f'current entry {obj_id} {force_node} {coord} {size} {layers:08x}', file=sys.stderr)
-            x, y = coord.x, coord.y
-
-            candidates = [cand for cand in self.find_conductors_at(x, y, layers, size) if id(cand) != obj_id]
-
-            if force_node or len(candidates) > 1:
-                for cand in candidates:
-                    if node_id := nodes.get(id(cand)):
-                        edge.append(node_id)
-                        break
-
-                else:
-                    node_id = nodes[obj_id] = len(nodes) + 1
-                    edge.append(node_id)
-                    edges[node_id] = arrs = []
-                    for cand in candidates:
-                        a = [cand]
-                        arrs.append(a)
-                        enqueue(cand, a)
-
-            elif len(candidates) == 1:
-                next_obj, = candidates
-                edge.append(next_obj)
-                if id(next_obj) not in nodes:
-                    enqueue(next_obj, edge)
-
-            i += 1
-            print(f'~ Step {i}', file=sys.stderr)
-            print(f'~   Candidates:', file=sys.stderr)
-            for e in candidates:
-                print(f'~     {e}', file=sys.stderr)
-
-            print(f'~   Nodes:', file=sys.stderr)
-            for k, v in nodes.items():
-                print(f'~     {k} = {v}', file=sys.stderr)
-
-            print(f'~   Current edge:', file=sys.stderr)
-            for e in edge:
-                print(f'~     {e}', file=sys.stderr)
-
-        return nodes, edges
-
-    def find_conductors_at(self, x, y, layers, size, tol=1e-6):
-        # First, find all bounding box intersections
-        found = {}
-        for cand, attr, cand_size, cand_mask in self.query_trace_index_tolerance((x, y), layers, size):
-            cand_coord = getattr(cand, attr)
-            dist = math.dist((x, y), (cand_coord.x, cand_coord.y))
-            if dist <= size/2 + cand_size/2 and layers&cand_mask:
-                found[id(cand)] = dist, cand
-
-        if not found:
-            return
-
-        # Second, filter to match only objects that are within tolerance of closest
-        min_dist = min(e[0] for e in found.values())
-        for dist, cand in found.values():
-            if dist < min_dist+tol:
-                yield cand
 
 
     def __after_parse__(self, parent):
@@ -567,9 +500,11 @@ class Board:
 
         self.nets = {net.index: net.name for net in self.nets}
 
+
     def __before_sexp__(self):
         self.properties = [Property(key, value) for key, value in self.properties.items()]
         self.nets = [Net(index, name) for index, name in self.nets.items()]
+
 
     def remove(self, obj):
         match obj:
@@ -608,11 +543,13 @@ class Board:
             case _:
                 raise TypeError('Can only remove KiCad objects, cannot map generic gerbonara.cad objects for removal')
 
+
     def remove_many(self, iterable):
         iterable = {id(obj) for obj in iterable}
         for field in fields(self):
             if field.default_factory is list and field.name not in ('nets', 'properties'):
                 setattr(self, field.name, [obj for obj in getattr(self, field.name) if id(obj) not in iterable])
+
 
     def add(self, obj):
         match obj:
@@ -651,6 +588,7 @@ class Board:
             case _:
                 for elem in self.map_gn_cad(obj):
                     self.add(elem)
+
 
     def map_gn_cad(self, obj, locked=False, net_name=None):
         match obj:
@@ -703,9 +641,11 @@ class Board:
                                         v=Atom(v_align) if v_align != 'middle' else None,
                                         mirror=flip)))
 
+
     def unfill_zones(self):
         for zone in self.zones:
             zone.unfill()
+
 
     def find_pads(self, net=None):
         for fp in self.footprints:
@@ -713,6 +653,7 @@ class Board:
                 if net and not match_filter(net, pad.net.name):
                     continue
                 yield pad
+
 
     def find_footprints(self, value=None, reference=None, name=None, net=None, sheetname=None, sheetfile=None):
         for fp in self.footprints:
@@ -730,6 +671,7 @@ class Board:
                 continue
             yield fp
 
+
     def find_traces(self, net=None, include_vias=True):
         net_id = self.net_id(net, create=False)
         match = lambda obj: obj.net == net_id
@@ -737,33 +679,41 @@ class Board:
             if obj.net == net_id:
                 yield obj
 
+
     @property
     def version(self):
         return self._version
+
 
     @version.setter
     def version(self, value):
         if value not in SUPPORTED_FILE_FORMAT_VERSIONS:
             raise FormatError(f'File format version {value} is not supported. Supported versions are {", ".join(map(str, SUPPORTED_FILE_FORMAT_VERSIONS))}.')
 
+
     def write(self, filename=None):
         with open(filename or self.original_filename, 'w') as f:
             f.write(self.serialize())
 
+
     def serialize(self):
         return build_sexp(sexp(type(self), self)[0])
+
 
     @classmethod
     def open(kls, pcb_file, *args, **kwargs):
         return kls.load(Path(pcb_file).read_text(), *args, **kwargs, original_filename=pcb_file)
 
+
     @classmethod
     def load(kls, data, *args, **kwargs):
         return kls.parse(data, *args, **kwargs)
 
+
     @property
     def single_sided(self):
         raise NotImplementedError()
+
 
     def net_id(self, name, create=True):
         if name is None:
@@ -780,6 +730,7 @@ class Board:
 
         else:
             raise IndexError(f'No such net: "{name}"')
+
 
 # FIXME vvv
     def graphic_objects(self, text=False, images=False):

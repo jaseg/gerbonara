@@ -14,6 +14,7 @@ from gerbonara.cad.kicad import footprints as kicad_fp
 from gerbonara.cad.kicad import graphical_primitives as kicad_gr
 from gerbonara.cad.kicad import primitives as kicad_pr
 from gerbonara.utils import Tag
+from gerbonara import graphic_primitives as gp
 import click
 
 
@@ -45,6 +46,95 @@ def angle_between_vectors(va, vb):
     if angle < 0:
         angle += 2*pi
     return angle
+
+
+def traces_to_gmsh(traces, mesh_out, bbox, model_name='gerbonara_board', log=True, copper_thickness=35e-6, board_thickness=0.8, air_box_margin=5.0):
+    import gmsh
+    occ = gmsh.model.occ
+    eps = 1e-6
+
+    board_thickness -= 2*copper_thickness
+
+    gmsh.initialize()
+    gmsh.model.add('gerbonara_board')
+    if log:
+        gmsh.logger.start()
+
+    trace_tags = {}
+    trace_ends = set()
+    render_cache = {}
+    for i, tr in enumerate(traces):
+        layer = tr[1].layer
+        z0 = 0 if layer == 'F.Cu' else -(board_thickness+copper_thickness)
+
+        prims = [prim
+                 for elem in tr
+                 for obj in elem.render(cache=render_cache)
+                 for prim in obj.to_primitives()]
+
+        tags = []
+        for prim in prims:
+            if isinstance(prim, gp.Line):
+                length = dist((prim.x1, prim.y1), (prim.x2, prim.y2))
+                box_tag = occ.addBox(0, -prim.width/2, 0, length, prim.width, copper_thickness)
+                angle = atan2(prim.y2 - prim.y1, prim.x2 - prim.x1)
+                occ.rotate([(3, box_tag)], 0, 0, 0, 0, 0, 1, angle)
+                occ.translate([(3, box_tag)], prim.x1, prim.y1, z0)
+                tags.append(box_tag)
+
+                for x, y in ((prim.x1, prim.y1), (prim.x2, prim.y2)):
+                    disc_id = (round(x, 3), round(y, 3), round(z0, 3), round(prim.width, 3))
+                    if disc_id  in trace_ends:
+                        continue
+
+                    trace_ends.add(disc_id)
+                    cylinder_tag = occ.addCylinder(x, y, z0, 0, 0, copper_thickness, prim.width/2)
+                    tags.append(cylinder_tag)
+        print('fusing', tags)
+        tags, tag_map = occ.fuse([(3, tags[0])], [(3, tag) for tag in tags[1:]])
+        print(tags)
+        assert len(tags) == 1
+        (_dim, tag), = tags
+        trace_tags[i] = tag
+
+    (x1, y1), (x2, y2) = bbox
+    substrate = occ.addBox(x1, y1, -board_thickness, x2-x1, y2-y1, board_thickness)
+
+    x1, y1 = x1-air_box_margin, y1-air_box_margin
+    x2, y2 = x2+air_box_margin, y2+air_box_margin
+    w, d = x2-x1, y2-y1
+    z0 = -board_thickness-air_box_margin
+    ab_h = board_thickness + 2*air_box_margin
+    airbox = occ.addBox(x1, y1, z0, w, d, ab_h)
+
+    print('Cutting airbox')
+    occ.cut([(3, airbox)], [(3, tag) for tag in trace_tags.values()], removeObject=True, removeTool=False)
+    print('Fragmenting')
+    fragment_tags, fragment_hierarchy = occ.fragment([(3, airbox)], [(3, substrate)] + [(3, tag) for tag in trace_tags.values()])
+
+    print('Synchronizing')
+    occ.synchronize()
+    substrate_physical = gmsh.model.add_physical_group(3, [substrate], name='substrate')
+    airbox_physical = gmsh.model.add_physical_group(3, [airbox], name='airbox')
+    trace_physical_surfaces = [
+            gmsh.model.add_physical_group(2, list(gmsh.model.getAdjacencies(3, tag)[1]), name=f'trace{i}')
+            for i, tag in trace_tags.items()]
+    
+    airbox_adjacent = set(gmsh.model.getAdjacencies(3, airbox)[1])
+    in_bbox = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=22)}
+    airbox_physical_surface = gmsh.model.add_physical_group(2, list(airbox_adjacent - in_bbox), name='airbox_surface')
+
+    gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 90)
+    gmsh.option.setNumber('Mesh.Smoothing', 10)
+    gmsh.option.setNumber('Mesh.Algorithm3D', 10)
+    gmsh.option.setNumber('Mesh.MeshSizeMax', 0.2e-3)
+    gmsh.option.setNumber('General.NumThreads', 12)
+
+    print('Meshing')
+    gmsh.model.mesh.generate(dim=3)
+    print('Writing')
+    gmsh.write(str(mesh_out))
+
 
 class SVGPath:
     def __init__(self, **attrs):
@@ -143,12 +233,13 @@ def print_valid_twists(ctx, param, value):
 @click.option('--show-twists', callback=print_valid_twists, expose_value=False, type=int, is_eager=True, help='Calculate and show valid --twists counts for the given number of turns. Takes the number of turns as a value.')
 @click.option('--clearance', type=float, default=None)
 @click.option('--arc-tolerance', type=float, default=0.02)
+@click.option('--mesh-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
 @click.option('--clipboard/--no-clipboard', help='Use clipboard integration (requires wl-clipboard)')
 @click.option('--counter-clockwise/--clockwise', help='Direction of generated spiral. Default: clockwise when wound from the inside.')
 @click.version_option()
 def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_drill, via_offset, trace_width, clearance,
              footprint_name, layer_pair, twists, clipboard, counter_clockwise, keepout_zone, keepout_margin,
-             arc_tolerance, pcb):
+             arc_tolerance, pcb, mesh_out):
     if 'WAYLAND_DISPLAY' in os.environ:
         copy, paste, cliputil = ['wl-copy'], ['wl-paste'], 'xclip'
     else:
@@ -156,6 +247,9 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
 
     if gcd(twists, turns) != 1:
         raise click.ClickException('For the geometry to work out, the --twists parameter must be co-prime to --turns, i.e. the two must have 1 as their greatest common divisor. You can print valid values for --twists by running this command with --show-twists [turns number].')
+
+    if mesh_out and not pcb:
+        raise click.ClickException('--pcb is required when --mesh-out is used.')
 
     outer_radius = outer_diameter/2
     inner_radius = inner_diameter/2
@@ -326,13 +420,13 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
         xn, yn = x0, y0
         points = [(x0, y0)]
         dists = []
-        for i in range(fn+1):
+        for i in range(fn):
             r, g, b, _a = mpl.cm.plasma(start_frac + (end_frac - start_frac)/fn * (i + 0.5))
             path = SVGPath(fill='none', stroke=f'#{round(r*255):02x}{round(g*255):02x}{round(b*255):02x}', stroke_width=trace_width, stroke_linejoin='round', stroke_linecap='round')
             svg_stuff.append(path)
             xp, yp = xn, yn
-            r = r1 + i*(r2-r1)/fn
-            a = a1 + i*(a2-a1)/fn
+            r = r1 + (i+1)*(r2-r1)/fn
+            a = a1 + (i+1)*(a2-a1)/fn
             xn, yn = cos(a)*r, sin(a)*r
             path.move(xp, yp)
             path.line(xn, yn)
@@ -358,7 +452,6 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
 
     inverse = {}
     for i in range(twists):
-        #print(i, i*turns % twists, file=sys.stderr)
         inverse[i*turns%twists] = i
 
     svg_vias = []
@@ -373,7 +466,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
 
         xv, yv = inner_via_ring_radius*cos(fold_angle), inner_via_ring_radius*sin(fold_angle)
         pads.append(make_via(xv, yv, layer_pair))
-        if via_offset > 0:
+        if not isclose(via_offset, 0, abs_tol=1e-6):
             lines.append(make_line(xn, yn, xv, yv, layer_pair[0]))
             lines.append(make_line(xn, yn, xv, yv, layer_pair[1]))
         svg_vias.append(Tag('circle', cx=xv, cy=yv, r=via_diameter/2, stroke='none', fill='white'))
@@ -382,7 +475,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
         if i > 0:
             xv, yv = outer_via_ring_radius*cos(start_angle), outer_via_ring_radius*sin(start_angle)
             pads.append(make_via(xv, yv, layer_pair))
-            if via_offset > 0:
+            if not isclose(via_offset, 0, abs_tol=1e-6):
                 lines.append(make_line(x0, y0, xv, yv, layer_pair[0]))
                 lines.append(make_line(x0, y0, xv, yv, layer_pair[1]))
             svg_vias.append(Tag('circle', cx=xv, cy=yv, r=via_diameter/2, stroke='none', fill='white'))
@@ -390,8 +483,10 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
 
     print(f'Approximate track length: {clen*twists*2:.2f} mm', file=sys.stderr)
 
-    pads.append(make_pad(1, [layer_pair[0]], outer_radius, 0))
-    pads.append(make_pad(2, [layer_pair[1]], outer_radius, 0))
+    top_pad = make_pad(1, [layer_pair[0]], outer_radius, 0)
+    pads.append(top_pad)
+    bottom_pad = make_pad(2, [layer_pair[1]], outer_radius, 0)
+    pads.append(bottom_pad)
 
     svg_stuff += svg_vias
 
@@ -461,8 +556,38 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
                 vias=[kicad_pcb.Via.from_pad(pad) for pad in pads if pad.type == kicad_pcb.Atom.thru_hole])
         obj.rebuild_trace_index()
         seg = obj.track_segments[-1]
-        for e in obj.find_connected_traces(seg, layers=seg.layer_mask):
-            print(getattr(e, 'layer', ''), str(e)[:80], file=sys.stderr)
+        traces = []
+        end = top_pad
+        layer = 'F.Cu'
+        while True:
+            tr = list(obj.find_connected_traces(end, layers=[layer]))
+            traces.append(tr)
+            if not isinstance(tr[-1], kicad_pcb.Via):
+                break
+            layer = 'B.Cu' if layer == 'F.Cu' else 'F.Cu'
+            end = tr[-1]
+        # remove start pad
+        traces[0] = traces[0][1:]
+
+        r = outer_diameter/2 + 20
+        traces_to_gmsh(traces, mesh_out, ((-r, -r), (r, r)))
+
+#        for trace in traces:
+#            print(f'Trace {i}', file=sys.stderr)
+#            print(f'  Length: {len(trace)}', file=sys.stderr)
+#            print(f'  Start: {trace[0]}', file=sys.stderr)
+#            print(f'  End: {trace[-1]}', file=sys.stderr)
+#            print(f'  Layer: {trace[1].layer}', file=sys.stderr)
+
+        #for e in obj.find_connected_traces(seg, layers=seg.layer_mask):
+        #    print(getattr(e, 'layer', ''), str(e)[:80], file=sys.stderr)
+        #nodes, edges = obj.track_skeleton(pads[-1])
+        #for node, node_edges in edges.items():
+        #    print(f'Node {node} with {len(node_edges)} edges', file=sys.stderr)
+        #    for i, e in enumerate(node_edges):
+        #        print(f'    Edge {i}', file=sys.stderr)
+        #        for elem in e:
+        #            print('       ', elem, file=sys.stderr)
 
     else:
         obj = kicad_fp.Footprint(
