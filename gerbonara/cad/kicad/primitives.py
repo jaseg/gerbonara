@@ -32,7 +32,7 @@ def layer_mask(layers):
     for layer in layers:
         match layer:
             case '*.Cu':
-                return 0xff
+                return 0xffffffff
             case 'F.Cu':
                 mask |= 1<<0
             case 'B.Cu':

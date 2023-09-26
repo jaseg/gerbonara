@@ -343,6 +343,7 @@ class SymbolInstance:
     at: AtPos = field(default_factory=AtPos)
     mirror: OmitDefault(MirrorFlags) = field(default_factory=MirrorFlags)
     unit: Named(int) = 1
+    exclude_from_sim: Named(YesNoAtom()) = False
     in_bom: Named(YesNoAtom()) = True
     on_board: Named(YesNoAtom()) = True
     dnp: Named(YesNoAtom()) = True

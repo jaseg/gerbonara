@@ -2,10 +2,12 @@
 Library for handling KiCad's PCB files (`*.kicad_mod`).
 """
 
+import sys
 import math
 from pathlib import Path
 from dataclasses import field, KW_ONLY, fields
 from itertools import chain
+from collections import defaultdict
 import re
 import fnmatch
 import functools
@@ -428,6 +430,7 @@ class Board:
     @_require_trace_index
     def query_trace_index_tolerance(self, point, layers='*.Cu', tol=10e-6):
         layers = layer_mask(layers)
+        print(f'query {layers:08x}', file=sys.stderr)
 
         x, y = point
         for obj_id in self._trace_index.intersection((x-tol, y-tol, x+tol, y+tol)):
@@ -466,66 +469,94 @@ class Board:
             coord, size, layers = search_frontier.pop()
             x, y = coord.x, coord.y
 
-            # First, find all bounding box intersections
-            found = []
-            for cand, attr, cand_size, cand_mask in self.query_trace_index_tolerance((x, y), layers&filter_layers, size):
-                cand_coord = getattr(cand, attr)
-                dist = math.dist((x, y), (cand_coord.x, cand_coord.y))
-                if dist <= size/2 + cand_size/2 and layers&cand_mask:
-                    found.append((dist, cand))
-
-            if not found:
-                continue
-
-            # Second, filter to match only objects that are within tolerance of closest
-            min_dist = min(e[0] for e in found)
-            for dist, cand in found:
-                if dist < min_dist+tol and id(cand) not in visited:
+            for cand in self.find_conductors_at(x, y, layers & filter_layers, size):
+                if id(cand) not in visited:
                     enqueue(cand)
                     yield cand
 
     def track_skeleton(self, start, tol=10e-6):
         search_frontier = []
-        visited = set()
-        def enqueue(obj):
-            visited.add(id(obj))
-
+        def enqueue(obj, arr):
             if isinstance(obj, (TrackSegment, TrackArc)):
-                search_frontier.append((obj.start, obj.width, obj.layer_mask))
-                search_frontier.append((obj.end, obj.width, obj.layer_mask))
+                search_frontier.append((id(obj), arr, False, obj.start, obj.width, obj.layer_mask))
+                search_frontier.append((id(obj), arr, False, obj.end, obj.width, obj.layer_mask))
 
             elif isinstance(obj, Via):
-                search_frontier.append((obj.at, obj.size, obj.layer_mask))
+                search_frontier.append((id(obj), arr, True, obj.at, obj.size, obj.layer_mask))
 
             elif isinstance(obj, Pad):
-                search_frontier.append((obj.at, max(obj.size.x, obj.size.y), obj.layer_mask))
+                search_frontier.append((id(obj), arr, True, obj.at, max(obj.size.x, obj.size.y), obj.layer_mask))
 
             else:
                 raise TypeError(f'Track skeleton starting at {type(obj)} objects is not (yet) supported.')
 
-        enqueue(start)
+        first_edge = []
+        enqueue(start, first_edge)
+        nodes = {id(start): 1}
+        edges = {1: [first_edge]}
 
+        i = 0
         while search_frontier:
-            coord, size, layers = search_frontier.pop()
+            obj_id, edge, force_node, coord, size, layers = search_frontier.pop()
+            print(f'current entry {obj_id} {force_node} {coord} {size} {layers:08x}', file=sys.stderr)
             x, y = coord.x, coord.y
 
-            # First, find all bounding box intersections
-            found = []
-            for cand, attr, cand_size, cand_mask in self.query_trace_index_tolerance((x, y), layers, size):
-                cand_coord = getattr(cand, attr)
-                dist = math.dist((x, y), (cand_coord.x, cand_coord.y))
-                if dist <= size/2 + cand_size/2 and layers&cand_mask:
-                    found.append((dist, cand))
+            candidates = [cand for cand in self.find_conductors_at(x, y, layers, size) if id(cand) != obj_id]
 
-            if not found:
-                continue
+            if force_node or len(candidates) > 1:
+                for cand in candidates:
+                    if node_id := nodes.get(id(cand)):
+                        edge.append(node_id)
+                        break
 
-            # Second, filter to match only objects that are within tolerance of closest
-            min_dist = min(e[0] for e in found)
-            for dist, cand in found:
-                if dist < min_dist+tol and id(cand) not in visited:
-                    enqueue(cand)
-                    yield cand
+                else:
+                    node_id = nodes[obj_id] = len(nodes) + 1
+                    edge.append(node_id)
+                    edges[node_id] = arrs = []
+                    for cand in candidates:
+                        a = [cand]
+                        arrs.append(a)
+                        enqueue(cand, a)
+
+            elif len(candidates) == 1:
+                next_obj, = candidates
+                edge.append(next_obj)
+                if id(next_obj) not in nodes:
+                    enqueue(next_obj, edge)
+
+            i += 1
+            print(f'~ Step {i}', file=sys.stderr)
+            print(f'~   Candidates:', file=sys.stderr)
+            for e in candidates:
+                print(f'~     {e}', file=sys.stderr)
+
+            print(f'~   Nodes:', file=sys.stderr)
+            for k, v in nodes.items():
+                print(f'~     {k} = {v}', file=sys.stderr)
+
+            print(f'~   Current edge:', file=sys.stderr)
+            for e in edge:
+                print(f'~     {e}', file=sys.stderr)
+
+        return nodes, edges
+
+    def find_conductors_at(self, x, y, layers, size, tol=1e-6):
+        # First, find all bounding box intersections
+        found = {}
+        for cand, attr, cand_size, cand_mask in self.query_trace_index_tolerance((x, y), layers, size):
+            cand_coord = getattr(cand, attr)
+            dist = math.dist((x, y), (cand_coord.x, cand_coord.y))
+            if dist <= size/2 + cand_size/2 and layers&cand_mask:
+                found[id(cand)] = dist, cand
+
+        if not found:
+            return
+
+        # Second, filter to match only objects that are within tolerance of closest
+        min_dist = min(e[0] for e in found.values())
+        for dist, cand in found.values():
+            if dist < min_dist+tol:
+                yield cand
 
 
     def __after_parse__(self, parent):

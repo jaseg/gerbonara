@@ -31,6 +31,8 @@ from .cam import FileSettings
 from .rs274x import GerberFile
 from . import layers as lyr
 from . import __version__
+from .cad.kicad import schematic as kc_schematic
+from .cad.kicad import tmtheme
 
 
 def _print_version(ctx, param, value):
@@ -127,6 +129,27 @@ def cli():
     """ The gerbonara CLI allows you to analyze, render, modify and merge both individual Gerber or Excellon files as
     well as sets of those files """
     pass
+
+
+@cli.group('kicad')
+def kicad_group():
+    pass
+
+
+@kicad_group.group('schematic')
+def schematic_group():
+    pass
+
+
+@schematic_group.command()
+@click.argument('inpath', type=click.Path(exists=True))
+@click.argument('theme', type=click.Path(exists=True))
+@click.argument('outfile', type=click.File('w'), default='-')
+def render(inpath, theme, outfile):
+    sch = kc_schematic.Schematic.open(inpath)
+    cs = tmtheme.TmThemeSchematic(Path(theme).read_text())
+    with outfile as f:
+        f.write(str(sch.to_svg(cs)))
 
 
 @cli.command()
