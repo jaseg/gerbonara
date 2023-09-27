@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+import multiprocessing
 import os
 from math import *
 from pathlib import Path
@@ -48,7 +49,7 @@ def angle_between_vectors(va, vb):
     return angle
 
 
-def traces_to_gmsh(traces, mesh_out, bbox, model_name='gerbonara_board', log=True, copper_thickness=35e-6, board_thickness=0.8, air_box_margin=5.0):
+def traces_to_gmsh(traces, mesh_out, bbox, model_name='gerbonara_board', log=True, copper_thickness=0.035, board_thickness=0.8, air_box_margin=5.0):
     import gmsh
     occ = gmsh.model.occ
     eps = 1e-6
@@ -121,14 +122,18 @@ def traces_to_gmsh(traces, mesh_out, bbox, model_name='gerbonara_board', log=Tru
             for i, tag in trace_tags.items()]
     
     airbox_adjacent = set(gmsh.model.getAdjacencies(3, airbox)[1])
-    in_bbox = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=22)}
+    in_bbox = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=3)}
     airbox_physical_surface = gmsh.model.add_physical_group(2, list(airbox_adjacent - in_bbox), name='airbox_surface')
+    
+    points_airbox_adjacent = set(gmsh.model.getAdjacencies(0, airbox)[1])
+    points_inside = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=0)}
+    gmsh.model.mesh.setSize([(0, tag) for tag in points_airbox_adjacent - points_inside], 10e-3)
 
     gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 90)
     gmsh.option.setNumber('Mesh.Smoothing', 10)
     gmsh.option.setNumber('Mesh.Algorithm3D', 10)
-    gmsh.option.setNumber('Mesh.MeshSizeMax', 0.2e-3)
-    gmsh.option.setNumber('General.NumThreads', 12)
+    gmsh.option.setNumber('Mesh.MeshSizeMax', 1)
+    gmsh.option.setNumber('General.NumThreads', multiprocessing.cpu_count())
 
     print('Meshing')
     gmsh.model.mesh.generate(dim=3)
@@ -570,7 +575,8 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
         traces[0] = traces[0][1:]
 
         r = outer_diameter/2 + 20
-        traces_to_gmsh(traces, mesh_out, ((-r, -r), (r, r)))
+        if mesh_out:
+            traces_to_gmsh(traces, mesh_out, ((-r, -r), (r, r)))
 
 #        for trace in traces:
 #            print(f'Trace {i}', file=sys.stderr)
