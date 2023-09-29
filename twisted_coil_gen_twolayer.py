@@ -7,7 +7,10 @@ import os
 from math import *
 from pathlib import Path
 from itertools import cycle
+
 from scipy.constants import mu_0
+import numpy as np
+import click
 import matplotlib as mpl
 
 from gerbonara.cad.kicad import pcb as kicad_pcb
@@ -16,7 +19,7 @@ from gerbonara.cad.kicad import graphical_primitives as kicad_gr
 from gerbonara.cad.kicad import primitives as kicad_pr
 from gerbonara.utils import Tag
 from gerbonara import graphic_primitives as gp
-import click
+from gerbonara import graphic_objects as go
 
 
 __version__ = '1.0.0'
@@ -64,7 +67,7 @@ def traces_to_gmsh(traces, mesh_out, bbox, model_name='gerbonara_board', log=Tru
     trace_tags = {}
     trace_ends = set()
     render_cache = {}
-    for i, tr in enumerate(traces):
+    for i, tr in enumerate(traces, start=1):
         layer = tr[1].layer
         z0 = 0 if layer == 'F.Cu' else -(board_thickness+copper_thickness)
 
@@ -139,6 +142,141 @@ def traces_to_gmsh(traces, mesh_out, bbox, model_name='gerbonara_board', log=Tru
     gmsh.model.mesh.generate(dim=3)
     print('Writing')
     gmsh.write(str(mesh_out))
+
+
+def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log=True, copper_thickness=0.035, board_thickness=0.8, air_box_margin=5.0):
+    import gmsh
+    occ = gmsh.model.occ
+    eps = 1e-6
+
+    board_thickness -= 2*copper_thickness
+
+    gmsh.initialize()
+    gmsh.model.add('gerbonara_board')
+    if log:
+        gmsh.logger.start()
+
+    trace_tags = []
+    trace_ends = set()
+    render_cache = {}
+    for i, tr in enumerate(traces, start=1):
+        layer = tr[1].layer
+        z0 = 0 if layer == 'F.Cu' else -(board_thickness+copper_thickness)
+
+        objs = [obj
+                 for elem in tr
+                 for obj in elem.render(cache=render_cache)]
+
+        tags = []
+        for ob in objs:
+            if isinstance(ob, go.Line):
+                length = dist((ob.x1, ob.y1), (ob.x2, ob.y2))
+                w = ob.aperture.equivalent_width('mm')
+                box_tag = occ.addBox(0, -w/2, 0, length, w, copper_thickness)
+                angle = atan2(ob.y2 - ob.y1, ob.x2 - ob.x1)
+                occ.rotate([(3, box_tag)], 0, 0, 0, 0, 0, 1, angle)
+                occ.translate([(3, box_tag)], ob.x1, ob.y1, z0)
+                tags.append(box_tag)
+
+                for x, y in ((ob.x1, ob.y1), (ob.x2, ob.y2)):
+                    disc_id = (round(x, 3), round(y, 3), round(z0, 3), round(w, 3))
+                    if disc_id  in trace_ends:
+                        continue
+
+                    trace_ends.add(disc_id)
+                    cylinder_tag = occ.addCylinder(x, y, z0, 0, 0, copper_thickness, w/2)
+                    tags.append(cylinder_tag)
+            
+        for elem in tr:
+            if isinstance(elem, kicad_pcb.Via):
+                cylinder_tag = occ.addCylinder(elem.at.x, elem.at.y, 0, 0, 0, -board_thickness, elem.drill)
+                tags.append(cylinder_tag)
+
+        print('fusing', tags)
+        tags, tag_map = occ.fuse([(3, tags[0])], [(3, tag) for tag in tags[1:]])
+        print(tags)
+        assert len(tags) == 1
+        (_dim, tag), = tags
+        trace_tags.append(tag)
+
+    print('fusing top-level', trace_tags)
+    tags, tag_map = occ.fuse([(3, trace_tags[0])], [(3, tag) for tag in trace_tags[1:]])
+    print(tags)
+    assert len(tags) == 1
+    (_dim, toplevel_tag), = tags
+
+    first_geom = traces[0][0]
+    interface_tag_top = occ.addDisk(first_geom.start.x, first_geom.start.y, 0, first_geom.width, first_geom.width)
+    interface_tag_bottom = occ.addDisk(first_geom.end.x, first_geom.end.y, -board_thickness, first_geom.width, first_geom.width)
+
+    (x1, y1), (x2, y2) = bbox
+    substrate = occ.addBox(x1, y1, -board_thickness, x2-x1, y2-y1, board_thickness)
+
+    x1, y1 = x1-air_box_margin, y1-air_box_margin
+    x2, y2 = x2+air_box_margin, y2+air_box_margin
+    w, d = x2-x1, y2-y1
+    z0 = -board_thickness-air_box_margin
+    ab_h = board_thickness + 2*air_box_margin
+    airbox = occ.addBox(x1, y1, z0, w, d, ab_h)
+
+    print('Cutting airbox')
+    occ.cut([(3, airbox)], [(3, toplevel_tag)], removeObject=True, removeTool=False)
+
+    print('Cutting substrate')
+    occ.cut([(3, substrate)], [(3, toplevel_tag)], removeObject=True, removeTool=False)
+
+    print('Synchronizing')
+    occ.synchronize()
+
+    substrate_physical = gmsh.model.add_physical_group(3, [substrate], name='substrate')
+    airbox_physical = gmsh.model.add_physical_group(3, [airbox], name='airbox')
+    trace_physical_surfaces = [
+            gmsh.model.add_physical_group(2, list(gmsh.model.getAdjacencies(3, tag)[1]), name=f'trace{i}')
+            for i, tag in trace_tags.items()]
+    
+    airbox_adjacent = set(gmsh.model.getAdjacencies(3, airbox)[1])
+    in_bbox = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=3)}
+    airbox_physical_surface = gmsh.model.add_physical_group(2, list(airbox_adjacent - in_bbox), name='airbox_surface')
+    
+    points_airbox_adjacent = set(gmsh.model.getAdjacencies(0, airbox)[1])
+    points_inside = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=0)}
+    gmsh.model.mesh.setSize([(0, tag) for tag in points_airbox_adjacent - points_inside], 10e-3)
+
+    gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 90)
+    gmsh.option.setNumber('Mesh.Smoothing', 10)
+    gmsh.option.setNumber('Mesh.Algorithm3D', 10)
+    gmsh.option.setNumber('Mesh.MeshSizeMax', 1)
+    gmsh.option.setNumber('General.NumThreads', multiprocessing.cpu_count())
+
+    print('Meshing')
+    gmsh.model.mesh.generate(dim=3)
+    print('Writing')
+    gmsh.write(str(mesh_out))
+
+
+def traces_to_magneticalc(traces, out, pcb_thickness=0.8):
+    coords = []
+    last_x, last_y, last_z = None, None, None
+    def coord(x, y, z):
+        nonlocal coords, last_x, last_y, last_z
+        if (x, y, z) != (last_x, last_y, last_z):
+            coords.append((x, y, z))
+
+    render_cache = {}
+    for tr in traces:
+        z = pcb_thickness if tr[1].layer == 'F.Cu' else 0
+        objs = [obj
+                 for elem in tr
+                 for obj in elem.render(cache=render_cache)
+                 if isinstance(elem, (kicad_pcb.TrackSegment, kicad_pcb.TrackArc))]
+
+        # start / switch layer
+        coord(objs[0].x1, objs[0].y1, z)
+
+        for ob in objs:
+            coord(ob.x2, ob.y2, z)
+
+    np.savetxt(out, np.array(coords) / 10) # magneticalc expects centimeters, not millimeters.
 
 
 class SVGPath:
@@ -235,16 +373,19 @@ def print_valid_twists(ctx, param, value):
 @click.option('--keepout-zone/--no-keepout-zone', default=True, help='Add a keepout are to the footprint (default: yes)')
 @click.option('--keepout-margin', type=float, default=5, help='Margin between outside of coil and keepout area (mm, default: 5)')
 @click.option('--twists', type=int, default=1, help='Number of twists per revolution. Note that this number must be co-prime to the number of turns. Run with --show-twists to list valid values. (default: 1)')
+@click.option('--circle-segments', type=int, default=64, help='When not using arcs, the number of points to use for arc interpolation per 360 degrees.')
 @click.option('--show-twists', callback=print_valid_twists, expose_value=False, type=int, is_eager=True, help='Calculate and show valid --twists counts for the given number of turns. Takes the number of turns as a value.')
 @click.option('--clearance', type=float, default=None)
 @click.option('--arc-tolerance', type=float, default=0.02)
 @click.option('--mesh-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
+@click.option('--mag-mesh-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
+@click.option('--magneticalc-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
 @click.option('--clipboard/--no-clipboard', help='Use clipboard integration (requires wl-clipboard)')
 @click.option('--counter-clockwise/--clockwise', help='Direction of generated spiral. Default: clockwise when wound from the inside.')
 @click.version_option()
 def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_drill, via_offset, trace_width, clearance,
              footprint_name, layer_pair, twists, clipboard, counter_clockwise, keepout_zone, keepout_margin,
-             arc_tolerance, pcb, mesh_out):
+             arc_tolerance, pcb, mesh_out, magneticalc_out, circle_segments, mag_mesh_out):
     if 'WAYLAND_DISPLAY' in os.environ:
         copy, paste, cliputil = ['wl-copy'], ['wl-paste'], 'xclip'
     else:
@@ -255,6 +396,9 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
 
     if mesh_out and not pcb:
         raise click.ClickException('--pcb is required when --mesh-out is used.')
+
+    if magneticalc_out and not pcb:
+        raise click.ClickException('--pcb is required when --magneticalc-out is used.')
 
     outer_radius = outer_diameter/2
     inner_radius = inner_diameter/2
@@ -466,7 +610,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
         end_angle = fold_angle + sweeping_angle
 
         x = inverse[i]*floor(2*sweeping_angle / (2*pi)) * 2*pi
-        (x0, y0), (xn, yn), clen = do_spiral(0, outer_radius, inner_radius, start_angle, fold_angle, (x + start_angle)/total_angle, (x + fold_angle)/total_angle)
+        (x0, y0), (xn, yn), clen = do_spiral(0, outer_radius, inner_radius, start_angle, fold_angle, (x + start_angle)/total_angle, (x + fold_angle)/total_angle, circle_segments)
         do_spiral(1, inner_radius, outer_radius, fold_angle, end_angle, (x + fold_angle)/total_angle, (x + end_angle)/total_angle)
 
         xv, yv = inner_via_ring_radius*cos(fold_angle), inner_via_ring_radius*sin(fold_angle)
@@ -577,6 +721,12 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
         r = outer_diameter/2 + 20
         if mesh_out:
             traces_to_gmsh(traces, mesh_out, ((-r, -r), (r, r)))
+
+        if mag_mesh_out:
+            traces_to_gmsh_mag(traces, mesh_out, ((-r, -r), (r, r)))
+
+        if magneticalc_out:
+            traces_to_magneticalc(traces, magneticalc_out)
 
 #        for trace in traces:
 #            print(f'Trace {i}', file=sys.stderr)
