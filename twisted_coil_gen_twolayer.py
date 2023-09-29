@@ -132,7 +132,7 @@ def traces_to_gmsh(traces, mesh_out, bbox, model_name='gerbonara_board', log=Tru
     points_inside = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=0)}
     gmsh.model.mesh.setSize([(0, tag) for tag in points_airbox_adjacent - points_inside], 10e-3)
 
-    gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 90)
+    #gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 90)
     gmsh.option.setNumber('Mesh.Smoothing', 10)
     gmsh.option.setNumber('Mesh.Algorithm3D', 10)
     gmsh.option.setNumber('Mesh.MeshSizeMax', 1)
@@ -144,7 +144,7 @@ def traces_to_gmsh(traces, mesh_out, bbox, model_name='gerbonara_board', log=Tru
     gmsh.write(str(mesh_out))
 
 
-def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log=True, copper_thickness=0.035, board_thickness=0.8, air_box_margin=5.0):
+def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log=True, copper_thickness=0.035, board_thickness=0.8, air_box_margin_h=30.0, air_box_margin_v=80.0):
     import gmsh
     occ = gmsh.model.occ
     eps = 1e-6
@@ -159,6 +159,7 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     trace_tags = []
     trace_ends = set()
     render_cache = {}
+    first_disk, last_disk = None, None
     for i, tr in enumerate(traces, start=1):
         layer = tr[1].layer
         z0 = 0 if layer == 'F.Cu' else -(board_thickness+copper_thickness)
@@ -186,11 +187,21 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
                     trace_ends.add(disc_id)
                     cylinder_tag = occ.addCylinder(x, y, z0, 0, 0, copper_thickness, w/2)
                     tags.append(cylinder_tag)
+
+                    if first_disk is None:
+                        occ.synchronize()
+                        adjacent = gmsh.model.getAdjacencies(3, cylinder_tag)
+                        first_disk = adjacent
+                    elif i == len(traces) and last_disk is None:
+                        occ.synchronize()
+                        adjacent = gmsh.model.getAdjacencies(3, cylinder_tag)
+                        last_disk = adjacent
             
         for elem in tr:
             if isinstance(elem, kicad_pcb.Via):
                 cylinder_tag = occ.addCylinder(elem.at.x, elem.at.y, 0, 0, 0, -board_thickness, elem.drill)
                 tags.append(cylinder_tag)
+                occ.synchronize()
 
         print('fusing', tags)
         tags, tag_map = occ.fuse([(3, tags[0])], [(3, tag) for tag in tags[1:]])
@@ -205,52 +216,72 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     assert len(tags) == 1
     (_dim, toplevel_tag), = tags
 
-    first_geom = traces[0][0]
-    interface_tag_top = occ.addDisk(first_geom.start.x, first_geom.start.y, 0, first_geom.width, first_geom.width)
-    interface_tag_bottom = occ.addDisk(first_geom.end.x, first_geom.end.y, -board_thickness, first_geom.width, first_geom.width)
-
     (x1, y1), (x2, y2) = bbox
+    #print('first disk', first_disk)
+    #print('bbox', [occ.getBoundingBox(2, tag) for tag in first_disk[1]])
+    #print('last disk', last_disk)
+    #print('bbox', [occ.getBoundingBox(2, tag) for tag in last_disk[1]])
+
+    first_geom = traces[0][0]
+    interface_tag_top = occ.addDisk(first_geom.start.x, first_geom.start.y, 0, first_geom.width/2, first_geom.width/2)
+    interface_tag_bottom = occ.addDisk(first_geom.start.x, first_geom.start.y, -board_thickness, first_geom.width/2, first_geom.width/2)
+
+    #occ.synchronize()
+    #_, toplevel_adjacent = gmsh.model.getAdjacencies(3, toplevel_tag)
+
+    #x0, y0, w = traces[0][0].start.x, traces[0][0].start.y, traces[0][0].width
+    #print(x0, y0, w)
+    #in_bbox = occ.getEntitiesInBoundingBox(x0-w/2-eps, y0-w/2-eps, -board_thickness-eps, x0+w/2+eps, y0+w/2+eps, eps, dim=1)
+    #print('in bbox', in_bbox)
+    #for dim, tag in in_bbox:
+    #    print(tag, 'adjacent', gmsh.model.getAdjacencies(dim, tag))
+
+    #print('fragment', occ.fragment([(2, tag) for tag in toplevel_adjacent], [(2, interface_tag_top), (2, interface_tag_bottom)]))
+
     substrate = occ.addBox(x1, y1, -board_thickness, x2-x1, y2-y1, board_thickness)
 
-    x1, y1 = x1-air_box_margin, y1-air_box_margin
-    x2, y2 = x2+air_box_margin, y2+air_box_margin
+    x1, y1 = x1-air_box_margin_h, y1-air_box_margin_h
+    x2, y2 = x2+air_box_margin_h, y2+air_box_margin_h
     w, d = x2-x1, y2-y1
-    z0 = -board_thickness-air_box_margin
-    ab_h = board_thickness + 2*air_box_margin
+    z0 = -board_thickness-air_box_margin_v
+    ab_h = board_thickness + 2*air_box_margin_v
     airbox = occ.addBox(x1, y1, z0, w, d, ab_h)
 
     print('Cutting airbox')
-    occ.cut([(3, airbox)], [(3, toplevel_tag)], removeObject=True, removeTool=False)
+    occ.cut([(3, airbox)], [(3, toplevel_tag), (3, substrate)], removeObject=True, removeTool=False)
 
     print('Cutting substrate')
     occ.cut([(3, substrate)], [(3, toplevel_tag)], removeObject=True, removeTool=False)
+
+    occ.fragment([(3, airbox)], [(3, substrate), (3, toplevel_tag)])
 
     print('Synchronizing')
     occ.synchronize()
 
     substrate_physical = gmsh.model.add_physical_group(3, [substrate], name='substrate')
     airbox_physical = gmsh.model.add_physical_group(3, [airbox], name='airbox')
-    trace_physical_surfaces = [
-            gmsh.model.add_physical_group(2, list(gmsh.model.getAdjacencies(3, tag)[1]), name=f'trace{i}')
-            for i, tag in trace_tags.items()]
+    trace_physical = gmsh.model.add_physical_group(3, [toplevel_tag], name='trace')
+    interface_top_physical = gmsh.model.add_physical_group(2, [interface_tag_top], name='interface_top')
+    interface_bottom_physical = gmsh.model.add_physical_group(2, [interface_tag_bottom], name='interface_bottom')
     
     airbox_adjacent = set(gmsh.model.getAdjacencies(3, airbox)[1])
-    in_bbox = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=3)}
+    in_bbox = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x2-eps, y2-eps, z0+ab_h-eps, dim=2)}
     airbox_physical_surface = gmsh.model.add_physical_group(2, list(airbox_adjacent - in_bbox), name='airbox_surface')
     
     points_airbox_adjacent = set(gmsh.model.getAdjacencies(0, airbox)[1])
     points_inside = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=0)}
     gmsh.model.mesh.setSize([(0, tag) for tag in points_airbox_adjacent - points_inside], 10e-3)
 
-    gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 90)
+    gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 32)
     gmsh.option.setNumber('Mesh.Smoothing', 10)
     gmsh.option.setNumber('Mesh.Algorithm3D', 10)
-    gmsh.option.setNumber('Mesh.MeshSizeMax', 1)
+    gmsh.option.setNumber('Mesh.MeshSizeMax', 10)
+    gmsh.option.setNumber('Mesh.MeshSizeMin', 0.08)
     gmsh.option.setNumber('General.NumThreads', multiprocessing.cpu_count())
 
     print('Meshing')
     gmsh.model.mesh.generate(dim=3)
-    print('Writing')
+    print('Writing to', str(mesh_out))
     gmsh.write(str(mesh_out))
 
 
@@ -723,7 +754,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
             traces_to_gmsh(traces, mesh_out, ((-r, -r), (r, r)))
 
         if mag_mesh_out:
-            traces_to_gmsh_mag(traces, mesh_out, ((-r, -r), (r, r)))
+            traces_to_gmsh_mag(traces, mag_mesh_out, ((-r, -r), (r, r)))
 
         if magneticalc_out:
             traces_to_magneticalc(traces, magneticalc_out)
