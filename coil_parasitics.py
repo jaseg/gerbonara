@@ -89,7 +89,7 @@ def elmer_solver(cwd):
 @click.command()
 @click.option('-d', '--sim-dir', type=click.Path(dir_okay=True, file_okay=False, path_type=Path))
 @click.argument('mesh_file', type=click.Path(dir_okay=False, path_type=Path))
-def run_simulation(mesh_file, sim_dir):
+def run_capacitance_simulation(mesh_file, sim_dir):
     physical = dict(enumerate_mesh_bodies(mesh_file))
     if sim_dir is not None:
         sim_dir = Path(sim_dir)
@@ -143,7 +143,78 @@ def run_simulation(mesh_file, sim_dir):
         
         capacitance_matrix = np.loadtxt(tmpdir / 'capacitance.txt')
 
+@click.command()
+@click.option('-d', '--sim-dir', type=click.Path(dir_okay=True, file_okay=False, path_type=Path))
+@click.argument('mesh_file', type=click.Path(dir_okay=False, path_type=Path))
+def run_inductance_simulation(mesh_file, sim_dir):
+    physical = dict(enumerate_mesh_bodies(mesh_file))
+
+    if sim_dir is not None:
+        sim_dir = Path(sim_dir)
+        sim_dir.mkdir(exist_ok=True)
+
+    sim = elmer.load_simulation('3D_steady', 'coil_mag_sim.yml')
+    mesh_dir = '.'
+    mesh_fn = 'mesh'
+    sim.header['Mesh DB'] = f'"{mesh_dir}" "{mesh_fn}"'
+    sim.constants.update({
+        'Permittivity of Vacuum': str(constants.epsilon_0),
+        'Gravity(4)': f'0 -1 0 {constants.g}',
+        'Boltzmann Constant': str(constants.Boltzmann),
+        'Unit Charge': str(constants.elementary_charge)})
+
+    air = elmer.load_material('air', sim, 'coil_mag_materials.yml')
+    ro4003c = elmer.load_material('ro4003c', sim, 'coil_mag_materials.yml')
+    copper = elmer.load_material('copper', sim, 'coil_mag_materials.yml')
+
+    solver_current = elmer.load_solver('Static_Current_Conduction', sim, 'coil_mag_solvers.yml')
+    solver_magdyn = elmer.load_solver('Magneto_Dynamics', sim, 'coil_mag_solvers.yml')
+    solver_magdyn_calc = elmer.load_solver('Magneto_Dynamics_Calculations', sim, 'coil_mag_solvers.yml')
+
+    copper_eqn = elmer.Equation(sim, 'copperEqn', [solver_current, solver_magdyn, solver_magdyn_calc])
+    air_eqn = elmer.Equation(sim, 'airEqn', [solver_magdyn, solver_magdyn_calc])
+
+    bdy_trace = elmer.Body(sim, 'trace', [physical['trace'][1]])
+    bdy_trace.material = copper
+    bdy_trace.equation = copper_eqn
+
+    bdy_sub = elmer.Body(sim, 'substrate', [physical['substrate'][1]])
+    bdy_sub.material = ro4003c
+    bdy_sub.equation = air_eqn
+
+    bdy_ab = elmer.Body(sim, 'airbox', [physical['airbox'][1]])
+    bdy_ab.material = air
+    bdy_ab.equation = air_eqn
+
+    bdy_if_top = elmer.Body(sim, 'interface_top', [physical['interface_top'][1]])
+    bdy_if_top.material = copper
+    bdy_if_top.equation = copper_eqn
+
+    bdy_if_bottom = elmer.Body(sim, 'interface_bottom', [physical['interface_bottom'][1]])
+    bdy_if_bottom.material = copper
+    bdy_if_bottom.equation = copper_eqn
+
+    # boundaries
+    boundary_airbox = elmer.Boundary(sim, 'FarField', [physical['airbox_surface'][1]])
+    boundary_airbox.data['Electric Infinity BC'] = 'True'
+
+    boundary_vplus = elmer.Boundary(sim, 'Vplus', [physical['interface_top'][1]])
+    boundary_vplus.data['Potential'] = 1.0
+    boundary_vplus.data['Save Scalars'] = True
+
+    boundary_vminus = elmer.Boundary(sim, 'Vminus', [physical['interface_bottom'][1]])
+    boundary_vminus.data['Potential'] = 0.0
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        if sim_dir:
+            tmpdir = str(sim_dir)
+
+        sim.write_startinfo(tmpdir)
+        sim.write_sif(tmpdir)
+        # Convert mesh from gmsh to elemer formats. Also scale it from 1 unit = 1 mm to 1 unit = 1 m (SI units)
+        elmer_grid(mesh_file.name, 'mesh', cwd=tmpdir, scale=[1e-3, 1e-3, 1e-3])
+        elmer_solver(tmpdir)
 
 
 if __name__ == '__main__':
-    run_simulation()
+    run_inductance_simulation()
