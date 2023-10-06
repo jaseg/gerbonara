@@ -239,7 +239,7 @@ class AtPos(XYCoord):
     x: float = 0 # in millimeter
     y: float = 0 # in millimeter
     rotation: int = 0  # in degrees, can only be 0, 90, 180 or 270.
-    unlocked: Flag() = False
+    unlocked: Flag() = True
 
     def __before_sexp__(self):
         self.rotation = int(round(self.rotation % 360))

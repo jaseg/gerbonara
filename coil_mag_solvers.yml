@@ -1,0 +1,50 @@
+Static_Current_Conduction:
+  Equation: Static Current Conduction
+  Variable: Potential
+  Procedure: '"StatCurrentSolve" "StatCurrentSolver"'
+  Calculate Volume Current: True
+  Calculate Joule Heating: False
+  Optimize Bandwidth: True
+  Nonlinear System Max Iterations: 1
+  Linear System Solver: Iterative
+  Linear System Iterative Method: BiCGStabl
+  Linear System Max Iterations: 5000
+  Linear System Convergence Tolerance: 1.0e-10
+  Linear System Preconditioning: ILU0
+  Linear System ILUT Tolerance: 1.0e-3
+  Linear System Abort Not Converged: False
+  Linear System Residual Output: 20
+  Linear System Precondition Recompute: 1
+
+Magneto_Dynamics:
+  Equation: MGDynamics
+  Procedure: '"MagnetoDynamics" "WhitneyAVSolver"'
+  Newton-Raphson Iteration: True
+  Nonlinear System Max Iterations: 1
+  Linear System Solver: Iterative
+  Linear System Preconditioning: none
+  Linear System Convergence Tolerance: 1e-8
+  Linear System Residual Output: 20
+  Linear System Max Iterations: 5000
+  Linear System Iterative Method: BiCGStabl
+  BiCGStabL Polynomial Degree: 4
+  Idrs Parameter: 6
+  Solver Timing: True 
+
+Magneto_Dynamics_Calculations:
+  Equation: MGDynamicsCalc
+  Procedure: '"MagnetoDynamics" "MagnetoDynamicsCalcFields"'
+  Linear System Symmetric: True
+  Calculate Magnetic Field Strength: True
+  Calculate JxB: False
+  Calculate Current Density: True
+  Calculate Electric Field: False
+  Calculate Nodal Fields: False
+  Calculate Elemental Fields: True
+  Linear System Solver: Iterative
+  Linear System Preconditioning: ILU0
+  Linear System Residual Output: 0
+  Linear System Max Iterations: 5000
+  Linear System Iterative Method: CG
+  Linear System Convergence Tolerance: 1.0e-8
+

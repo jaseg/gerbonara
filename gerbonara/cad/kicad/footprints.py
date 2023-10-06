@@ -627,7 +627,7 @@ class Footprint:
     zone_connect: Named(int) = None
     thermal_width: Named(float) = None
     thermal_gap: Named(float) = None
-    attributes: List(Attribute) = field(default_factory=list)
+    attributes: Attribute = field(default_factory=list)
     private_layers: Named(str) = None
     net_tie_pad_groups: Named(Array(str)) = None
     texts: List(Text) = field(default_factory=list)
@@ -672,10 +672,26 @@ class Footprint:
             effects = TextEffect()
 
         self.properties.append(DrawnProperty(key, value, 
-                                             at=AtPos(x, y, rotation),
+                                             at=AtPos(x, y, rotation, unlocked=True),
                                              layer=layer,
                                              hide=hide,
                                              effects=effects))
+
+    def make_standard_properties(self):
+        if not self.property_value('Reference', None):
+            self.set_property('Reference', 'REF**', 0, 0, 0, 'F.SilkS')
+
+        if not self.property_value('Value', None):
+            self.set_property('Value', self.name or 'VAL**', 0, 0, 0, hide=False)
+
+        if not self.property_value('Footprint', None):
+            self.set_property('Footprint', '', 0, 0, 0)
+
+        if not self.property_value('Datasheet', None):
+            self.set_property('Datasheet', '', 0, 0, 0)
+
+        if not self.property_value('Description', None):
+            self.set_property('Description', self.descr or '', 0, 0, 0)
 
     @property
     def pads_by_number(self):

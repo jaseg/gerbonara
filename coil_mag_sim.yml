@@ -1,0 +1,14 @@
+3D_steady:
+  Mesh Levels: 1
+  Max Output Level: 7
+  Coordinate System: Cartesian
+  Coordinate Mapping(3): 1 2 3
+  Simulation Type: Steady state
+  Steady State Max Iterations: 1
+  Output Intervals: 1
+  Timestepping Method: BDF
+  Simulation Timing: True
+  BDF Order: 1
+  Solver Input File: case.sif
+  Post File: case.vtu
+  Output File: case.result
