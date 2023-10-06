@@ -247,14 +247,19 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     ab_h = board_thickness + 2*air_box_margin_v
     airbox = occ.addBox(x1, y1, z0, w, d, ab_h)
 
-    print('Cutting airbox')
-    occ.cut([(3, airbox)], [(3, toplevel_tag), (3, substrate)], removeObject=True, removeTool=False)
+    print('Fragmenting trace')
+    print(occ.fragment([(3, toplevel_tag)], [(2, interface_tag_top), (2, interface_tag_bottom)], removeObject=True, removeTool=False))
 
-    print('Cutting substrate')
-    occ.cut([(3, substrate)], [(3, toplevel_tag)], removeObject=True, removeTool=False)
+    print('Fragmenting substrate')
+    print(occ.cut([(3, substrate)], [(3, toplevel_tag)], removeObject=True, removeTool=False))
+    print(occ.fragment([(3, substrate)], [(3, toplevel_tag), (2, interface_tag_top), (2, interface_tag_bottom)], removeObject=True, removeTool=False))
 
-    occ.fragment([(3, substrate)], [(2, interface_tag_top), (2, interface_tag_bottom)])
-    occ.fragment([(3, airbox)], [(3, substrate), (3, toplevel_tag)])
+    print(f'Fragmenting airbox ({airbox}) with {toplevel_tag=} {substrate=} {interface_tag_top=} {interface_tag_bottom=}')
+    print(occ.cut([(3, airbox)], [(3, toplevel_tag)], removeObject=True, removeTool=False))
+    print(occ.fragment([(3, airbox)], [(3, toplevel_tag), (3, substrate), (2, interface_tag_top), (2, interface_tag_bottom)], removeObject=True, removeTool=False))
+
+    #occ.fragment([(3, substrate)], [(2, interface_tag_top), (2, interface_tag_bottom)])
+    #occ.fragment([(3, airbox)], [(3, substrate), (3, toplevel_tag)])
 
     print('Synchronizing')
     occ.synchronize()
@@ -274,9 +279,10 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     in_bbox = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x2-eps, y2-eps, z0+ab_h-eps, dim=2)}
     airbox_physical_surface = gmsh.model.add_physical_group(2, list(airbox_adjacent - in_bbox), name='airbox_surface')
     
-    points_airbox_adjacent = set(gmsh.model.getAdjacencies(0, airbox)[1])
+    points_airbox_adjacent = {tag for _dim, tag in gmsh.model.getBoundary([(3, airbox)], recursive=True, oriented=False)}
+    print(f'{points_airbox_adjacent=}')
     points_inside = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=0)}
-    gmsh.model.mesh.setSize([(0, tag) for tag in points_airbox_adjacent - points_inside], 10e-3)
+    #gmsh.model.mesh.setSize([(0, tag) for tag in points_airbox_adjacent - points_inside], 300e-3)
 
     gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 32)
     gmsh.option.setNumber('Mesh.Smoothing', 10)
