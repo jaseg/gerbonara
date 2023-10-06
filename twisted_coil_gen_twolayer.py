@@ -7,6 +7,7 @@ import os
 from math import *
 from pathlib import Path
 from itertools import cycle
+from contextlib import contextmanager
 
 from scipy.constants import mu_0
 import numpy as np
@@ -223,8 +224,35 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     #print('bbox', [occ.getBoundingBox(2, tag) for tag in last_disk[1]])
 
     first_geom = traces[0][0]
-    interface_tag_top = occ.addDisk(first_geom.start.x, first_geom.start.y, 0, first_geom.width/2, first_geom.width/2)
-    interface_tag_bottom = occ.addDisk(first_geom.start.x, first_geom.start.y, -board_thickness, first_geom.width/2, first_geom.width/2)
+    #contact_tag_top = occ.addCylinder(first_geom.start.x, first_geom.start.y, copper_thickness, 0, 0, copper_thickness, first_geom.width/2)
+    #contact_tag_bottom = occ.addCylinder(first_geom.start.x, first_geom.start.y, -board_thickness-copper_thickness, 0, 0, -copper_thickness, first_geom.width/2)
+
+    @contextmanager
+    def model_delta():
+        occ.synchronize()
+        entities = {i: set() for i in range(4)}
+        for dim, tag in gmsh.model.getEntities():
+            entities[dim].add(tag)
+
+        yield
+
+        occ.synchronize()
+        new_entities = {i: set() for i in range(4)}
+        for dim, tag in gmsh.model.getEntities():
+            new_entities[dim].add(tag)
+
+        for i, dimtype in enumerate(['points', 'lines', 'surfaces', 'volumes']):
+            delta = entities[i] - new_entities[i]
+            print(f'Removed {dimtype} [{len(delta)}]: {", ".join(map(str, delta))[:180]}')
+
+            delta = new_entities[i] - entities[i]
+            print(f'New {dimtype} [{len(delta)}]: {", ".join(map(str, delta))[:180]}')
+
+    with model_delta():
+        print('Fragmenting disks')
+        interface_tag_top = occ.addDisk(first_geom.start.x, first_geom.start.y, 0, first_geom.width/2, first_geom.width/2)
+        interface_tag_bottom = occ.addDisk(first_geom.start.x, first_geom.start.y, -board_thickness, first_geom.width/2, first_geom.width/2)
+        occ.fragment([(3, toplevel_tag)], [(2, interface_tag_top), (2, interface_tag_bottom)], removeObject=True, removeTool=True)
 
     #occ.synchronize()
     #_, toplevel_adjacent = gmsh.model.getAdjacencies(3, toplevel_tag)
@@ -247,16 +275,32 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     ab_h = board_thickness + 2*air_box_margin_v
     airbox = occ.addBox(x1, y1, z0, w, d, ab_h)
 
-    print('Fragmenting trace')
-    print(occ.fragment([(3, toplevel_tag)], [(2, interface_tag_top), (2, interface_tag_bottom)], removeObject=True, removeTool=False))
+    occ.synchronize()
 
-    print('Fragmenting substrate')
-    print(occ.cut([(3, substrate)], [(3, toplevel_tag)], removeObject=True, removeTool=False))
-    print(occ.fragment([(3, substrate)], [(3, toplevel_tag), (2, interface_tag_top), (2, interface_tag_bottom)], removeObject=True, removeTool=False))
+    #trace_surface = gmsh.model.getBoundary([(3, toplevel_tag)], oriented=False)
+    #print('Fragmenting trace surface')
+    #with model_delta():
+    #    print(occ.fragment(trace_surface, [(2, interface_tag_top), (2, interface_tag_bottom)], removeObject=True, removeTool=False))
 
-    print(f'Fragmenting airbox ({airbox}) with {toplevel_tag=} {substrate=} {interface_tag_top=} {interface_tag_bottom=}')
-    print(occ.cut([(3, airbox)], [(3, toplevel_tag)], removeObject=True, removeTool=False))
-    print(occ.fragment([(3, airbox)], [(3, toplevel_tag), (3, substrate), (2, interface_tag_top), (2, interface_tag_bottom)], removeObject=True, removeTool=False))
+    #print('Fragmenting trace')
+    #with model_delta():
+    #    print(occ.fragment([(3, toplevel_tag)], [(3, contact_tag_top), (3, contact_tag_bottom)], removeObject=True, removeTool=False))
+
+    print('cut')
+    with model_delta():
+        print(occ.cut([(3, substrate)], [(3, toplevel_tag)], removeObject=True, removeTool=False))
+
+    #print('Fragmenting substrate')
+    #with model_delta():
+    #    print(occ.fragment([(3, substrate)], [(3, toplevel_tag), (3, contact_tag_top), (3, contact_tag_bottom)], removeObject=True, removeTool=False))
+
+    print('cut')
+    with model_delta():
+        print(occ.cut([(3, airbox)], [(3, toplevel_tag), (3, substrate)], removeObject=True, removeTool=False))
+
+    print(f'Fragmenting airbox ({airbox}) with {toplevel_tag=} {substrate=}')
+    with model_delta():
+        print(occ.fragment([(3, airbox)], [(3, toplevel_tag), (3, substrate)], removeObject=True, removeTool=False))
 
     #occ.fragment([(3, substrate)], [(2, interface_tag_top), (2, interface_tag_bottom)])
     #occ.fragment([(3, airbox)], [(3, substrate), (3, toplevel_tag)])
@@ -264,17 +308,21 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     print('Synchronizing')
     occ.synchronize()
 
+    pcx, pcy = first_geom.start.x, first_geom.start.y
+    pcr = first_geom.width/2
+    (_dim, plane_top), = gmsh.model.getEntitiesInBoundingBox(pcx-pcr-eps, pcy-pcr-eps, -eps, pcx+pcr+eps, pcy+pcr+eps, eps, 2)
+    (_dim, plane_bottom), = gmsh.model.getEntitiesInBoundingBox(pcx-pcr-eps, pcy-pcr-eps, -board_thickness-eps, pcx+pcr+eps, pcy+pcr+eps, -board_thickness+eps, 2)
+
     substrate_physical = gmsh.model.add_physical_group(3, [substrate], name='substrate')
     airbox_physical = gmsh.model.add_physical_group(3, [airbox], name='airbox')
     trace_physical = gmsh.model.add_physical_group(3, [toplevel_tag], name='trace')
-    interface_top_physical = gmsh.model.add_physical_group(2, [interface_tag_top], name='interface_top')
-    interface_bottom_physical = gmsh.model.add_physical_group(2, [interface_tag_bottom], name='interface_bottom')
 
-    print('first disk', first_disk)
-    print('bbox', occ.getBoundingBox(2, interface_tag_top))
-    print('last disk', last_disk)
-    print('bbox', occ.getBoundingBox(2, interface_tag_bottom))
-    
+    #interface_tags_top = gmsh.model.getBoundary([(3, contact_tag_top)], oriented=False)
+    #interface_tags_bottom = gmsh.model.getBoundary([(3, contact_tag_bottom)], oriented=False)
+
+    interface_top_physical = gmsh.model.add_physical_group(2, [plane_top], name='interface_top')
+    interface_bottom_physical = gmsh.model.add_physical_group(2, [plane_bottom], name='interface_bottom')
+
     airbox_adjacent = set(gmsh.model.getAdjacencies(3, airbox)[1])
     in_bbox = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x2-eps, y2-eps, z0+ab_h-eps, dim=2)}
     airbox_physical_surface = gmsh.model.add_physical_group(2, list(airbox_adjacent - in_bbox), name='airbox_surface')
@@ -291,6 +339,7 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     gmsh.option.setNumber('Mesh.MeshSizeMin', 0.08)
     gmsh.option.setNumber('General.NumThreads', multiprocessing.cpu_count())
 
+    gmsh.write('/tmp/test.msh')
     print('Meshing')
     gmsh.model.mesh.generate(dim=3)
     print('Writing to', str(mesh_out))
