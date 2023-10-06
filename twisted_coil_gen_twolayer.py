@@ -253,6 +253,7 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     print('Cutting substrate')
     occ.cut([(3, substrate)], [(3, toplevel_tag)], removeObject=True, removeTool=False)
 
+    occ.fragment([(3, substrate)], [(2, interface_tag_top), (2, interface_tag_bottom)])
     occ.fragment([(3, airbox)], [(3, substrate), (3, toplevel_tag)])
 
     print('Synchronizing')
@@ -263,6 +264,11 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     trace_physical = gmsh.model.add_physical_group(3, [toplevel_tag], name='trace')
     interface_top_physical = gmsh.model.add_physical_group(2, [interface_tag_top], name='interface_top')
     interface_bottom_physical = gmsh.model.add_physical_group(2, [interface_tag_bottom], name='interface_bottom')
+
+    print('first disk', first_disk)
+    print('bbox', occ.getBoundingBox(2, interface_tag_top))
+    print('last disk', last_disk)
+    print('bbox', occ.getBoundingBox(2, interface_tag_bottom))
     
     airbox_adjacent = set(gmsh.model.getAdjacencies(3, airbox)[1])
     in_bbox = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x2-eps, y2-eps, z0+ab_h-eps, dim=2)}

@@ -73,14 +73,14 @@ def elmer_grid(infile, outfile=None, intype=None, outtype=None, cwd=None, **kwar
     if outfile is not None:
         kwargs['out'] = str(outfile)
 
-    args = ['ElmerGrid', intype, outtype, infile]
+    args = ['ElmerGrid', intype, outtype, str(infile)]
     for key, value in kwargs.items():
         args.append(f'-{key}')
         if isinstance(value, (tuple, list)):
             args.extend(str(v) for v in value)
         else:
             args.append(str(value))
-    subprocess.run(args, cwd=cwd)
+    subprocess.run(args, cwd=cwd, check=True)
 
 def elmer_solver(cwd):
     subprocess.run(['ElmerSolver'], cwd=cwd)
@@ -138,7 +138,7 @@ def run_capacitance_simulation(mesh_file, sim_dir):
         sim.write_startinfo(tmpdir)
         sim.write_sif(tmpdir)
         # Convert mesh from gmsh to elemer formats. Also scale it from 1 unit = 1 mm to 1 unit = 1 m (SI units)
-        elmer_grid(mesh_file.name, 'mesh', cwd=tmpdir, scale=[1e-3, 1e-3, 1e-3])
+        elmer_grid(mesh_file.absolute(), 'mesh', cwd=tmpdir, scale=[1e-3, 1e-3, 1e-3])
         elmer_solver(tmpdir)
         
         capacitance_matrix = np.loadtxt(tmpdir / 'capacitance.txt')
@@ -212,7 +212,7 @@ def run_inductance_simulation(mesh_file, sim_dir):
         sim.write_startinfo(tmpdir)
         sim.write_sif(tmpdir)
         # Convert mesh from gmsh to elemer formats. Also scale it from 1 unit = 1 mm to 1 unit = 1 m (SI units)
-        elmer_grid(mesh_file.name, 'mesh', cwd=tmpdir, scale=[1e-3, 1e-3, 1e-3])
+        elmer_grid(mesh_file.absolute(), 'mesh', cwd=tmpdir, scale=[1e-3, 1e-3, 1e-3])
         elmer_solver(tmpdir)
 
 
