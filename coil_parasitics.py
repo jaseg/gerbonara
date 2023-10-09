@@ -108,10 +108,15 @@ def elmer_solver(cwd, stdout_log=None, stderr_log=None):
     return result
 
 
-@click.command()
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
 @click.option('-d', '--sim-dir', type=click.Path(dir_okay=True, file_okay=False, path_type=Path))
 @click.argument('mesh_file', type=click.Path(dir_okay=False, path_type=Path))
-def run_capacitance_simulation(mesh_file, sim_dir):
+def self_capacitance(mesh_file, sim_dir):
     physical = dict(enumerate_mesh_bodies(mesh_file))
     if sim_dir is not None:
         sim_dir = Path(sim_dir)
@@ -168,10 +173,10 @@ def run_capacitance_simulation(mesh_file, sim_dir):
         
         capacitance_matrix = np.loadtxt(tmpdir / 'capacitance.txt')
 
-@click.command()
+@cli.command()
 @click.option('-d', '--sim-dir', type=click.Path(dir_okay=True, file_okay=False, path_type=Path))
 @click.argument('mesh_file', type=click.Path(dir_okay=False, path_type=Path))
-def run_inductance_simulation(mesh_file, sim_dir):
+def inductance(mesh_file, sim_dir):
     physical = dict(enumerate_mesh_bodies(mesh_file))
 
     if sim_dir is not None:
@@ -264,16 +269,149 @@ def run_inductance_simulation(mesh_file, sim_dir):
         elif P is None or R is None or U_mag is None:
             raise click.ClickException(f'Error during solver execution. Electrical parameters could not be calculated. See log files for details:\n{solver_stdout.absolute()}\n{solver_stderr.absolute()}')
 
-        U = math.sqrt(P*R)
+        V = math.sqrt(P*R)
         I = math.sqrt(P/R)
         L = 2*U_mag / (I**2)
 
-        assert math.isclose(U, 1.0, abs_tol=1e-3)
+        assert math.isclose(V, 1.0, abs_tol=1e-3)
 
+        print(f'Total magnetic field energy: {format_si(U_mag, "J")}')
+        print(f'Reference coil current: {format_si(I, "Ω")}')
         print(f'Coil resistance calculated by solver: {format_si(R, "Ω")}')
         print(f'Inductance calucated from field: {format_si(L, "H")}')
 
 
+@cli.command()
+@click.option('-r', '--reference-field', type=float, required=True)
+@click.option('-d', '--sim-dir', type=click.Path(dir_okay=True, file_okay=False, path_type=Path))
+@click.argument('mesh_file', type=click.Path(dir_okay=False, path_type=Path))
+def mutual_inductance(mesh_file, sim_dir, reference_field):
+    physical = dict(enumerate_mesh_bodies(mesh_file))
+
+    if sim_dir is not None:
+        sim_dir = Path(sim_dir)
+        sim_dir.mkdir(exist_ok=True)
+
+    sim = elmer.load_simulation('3D_steady', 'coil_mag_sim.yml')
+    mesh_dir = '.'
+    mesh_fn = 'mesh'
+    sim.header['Mesh DB'] = f'"{mesh_dir}" "{mesh_fn}"'
+    sim.constants.update({
+        'Permittivity of Vacuum': str(constants.epsilon_0),
+        'Gravity(4)': f'0 -1 0 {constants.g}',
+        'Boltzmann Constant': str(constants.Boltzmann),
+        'Unit Charge': str(constants.elementary_charge)})
+
+    air = elmer.load_material('air', sim, 'coil_mag_materials.yml')
+    ro4003c = elmer.load_material('ro4003c', sim, 'coil_mag_materials.yml')
+    copper = elmer.load_material('copper', sim, 'coil_mag_materials.yml')
+
+    solver_current = elmer.load_solver('Static_Current_Conduction', sim, 'coil_mag_solvers.yml')
+    solver_magdyn = elmer.load_solver('Magneto_Dynamics', sim, 'coil_mag_solvers.yml')
+    solver_magdyn_calc = elmer.load_solver('Magneto_Dynamics_Calculations', sim, 'coil_mag_solvers.yml')
+
+    copper_eqn = elmer.Equation(sim, 'copperEqn', [solver_current, solver_magdyn, solver_magdyn_calc])
+    air_eqn = elmer.Equation(sim, 'airEqn', [solver_magdyn, solver_magdyn_calc])
+
+    bdy_trace1 = elmer.Body(sim, 'trace1', [physical['trace1'][1]])
+    bdy_trace1.material = copper
+    bdy_trace1.equation = copper_eqn
+
+    bdy_trace2 = elmer.Body(sim, 'trace2', [physical['trace2'][1]])
+    bdy_trace2.material = copper
+    bdy_trace2.equation = copper_eqn
+
+    bdy_sub1 = elmer.Body(sim, 'substrate1', [physical['substrate1'][1]])
+    bdy_sub1.material = ro4003c
+    bdy_sub1.equation = air_eqn
+
+    bdy_sub2 = elmer.Body(sim, 'substrate2', [physical['substrate2'][1]])
+    bdy_sub2.material = ro4003c
+    bdy_sub2.equation = air_eqn
+
+
+    bdy_ab = elmer.Body(sim, 'airbox', [physical['airbox'][1]])
+    bdy_ab.material = air
+    bdy_ab.equation = air_eqn
+
+    bdy_if_top1 = elmer.Body(sim, 'interface_top1', [physical['interface_top1'][1]])
+    bdy_if_top1.material = copper
+    bdy_if_top1.equation = copper_eqn
+
+    bdy_if_bottom1 = elmer.Body(sim, 'interface_bottom1', [physical['interface_bottom1'][1]])
+    bdy_if_bottom1.material = copper
+    bdy_if_bottom1.equation = copper_eqn
+
+    bdy_if_top2 = elmer.Body(sim, 'interface_top2', [physical['interface_top2'][1]])
+    bdy_if_top2.material = copper
+    bdy_if_top2.equation = copper_eqn
+
+    bdy_if_bottom2 = elmer.Body(sim, 'interface_bottom2', [physical['interface_bottom2'][1]])
+    bdy_if_bottom2.material = copper
+    bdy_if_bottom2.equation = copper_eqn
+
+    potential_force = elmer.BodyForce(sim, 'electric_potential', {'Electric Potential': 'Equals "Potential"'})
+    bdy_trace1.body_force = potential_force
+    bdy_trace2.body_force = potential_force
+
+    # boundaries
+    boundary_airbox = elmer.Boundary(sim, 'FarField', [physical['airbox_surface'][1]])
+    boundary_airbox.data['Electric Infinity BC'] = 'True'
+
+    boundary_vplus1 = elmer.Boundary(sim, 'Vplus1', [physical['interface_top1'][1]])
+    boundary_vplus1.data['Potential'] = 1.0
+    boundary_vplus1.data['Save Scalars'] = True
+
+    boundary_vminus1 = elmer.Boundary(sim, 'Vminus1', [physical['interface_bottom1'][1]])
+    boundary_vminus1.data['Potential'] = 0.0
+
+    boundary_vplus2 = elmer.Boundary(sim, 'Vplus2', [physical['interface_top2'][1]])
+    boundary_vplus2.data['Potential'] = 1.0
+    boundary_vplus2.data['Save Scalars'] = True
+
+    boundary_vminus2 = elmer.Boundary(sim, 'Vminus2', [physical['interface_bottom2'][1]])
+    boundary_vminus2.data['Potential'] = 0.0
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = sim_dir if sim_dir else Path(tmpdir)
+
+        sim.write_startinfo(tmpdir)
+        sim.write_sif(tmpdir)
+        # Convert mesh from gmsh to elemer formats. Also scale it from 1 unit = 1 mm to 1 unit = 1 m (SI units)
+        elmer_grid(mesh_file.absolute(), 'mesh', cwd=tmpdir, scale=[1e-3, 1e-3, 1e-3],
+                   stdout_log=(tmpdir / 'ElmerGrid_stdout.log'),
+                   stderr_log=(tmpdir / 'ElmerGrid_stderr.log'))
+        solver_stdout, solver_stderr = (tmpdir / 'ElmerSolver_stdout.log'), (tmpdir / 'ElmerSolver_stderr.log')
+        res = elmer_solver(tmpdir,
+                   stdout_log=solver_stdout,
+                   stderr_log=solver_stderr)
+        
+        P, R, U_mag = None, None, None
+        solver_error = False
+        for l in res.stdout.splitlines():
+            if (m := re.fullmatch(r'StatCurrentSolve:\s*Total Heating Power\s*:\s*([0-9.+-Ee]+)\s*', l)):
+                P = float(m.group(1))
+            elif (m := re.fullmatch(r'StatCurrentSolve:\s*Effective Resistance\s*:\s*([0-9.+-Ee]+)\s*', l)):
+                R = float(m.group(1))
+            elif (m := re.fullmatch(r'MagnetoDynamicsCalcFields:\s*ElectroMagnetic Field Energy\s*:\s*([0-9.+-Ee]+)\s*', l)):
+                U_mag = float(m.group(1))
+            elif re.fullmatch(r'IterSolve: Linear iteration did not converge to tolerance', l):
+                solver_error = True
+
+        if solver_error:
+            raise click.ClickException(f'Error: One of the solvers did not converge. See log files for details:\n{solver_stdout.absolute()}\n{solver_stderr.absolute()}')
+        elif P is None or R is None or U_mag is None:
+            raise click.ClickException(f'Error during solver execution. Electrical parameters could not be calculated. See log files for details:\n{solver_stdout.absolute()}\n{solver_stderr.absolute()}')
+
+        V = math.sqrt(P*R)
+        I = math.sqrt(P/R)
+        Lm = (U_mag - 2*reference_field) / ((I/2)**2)
+
+        assert math.isclose(V, 1.0, abs_tol=1e-3)
+
+        print(f'Mutual inductance calucated from field: {format_si(Lm, "H")}')
+
+
 if __name__ == '__main__':
-    run_inductance_simulation()
+    cli()
 

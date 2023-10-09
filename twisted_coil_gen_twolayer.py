@@ -58,8 +58,6 @@ def traces_to_gmsh(traces, mesh_out, bbox, model_name='gerbonara_board', log=Tru
     occ = gmsh.model.occ
     eps = 1e-6
 
-    board_thickness -= 2*copper_thickness
-
     gmsh.initialize()
     gmsh.model.add('gerbonara_board')
     if log:
@@ -144,19 +142,32 @@ def traces_to_gmsh(traces, mesh_out, bbox, model_name='gerbonara_board', log=Tru
     print('Writing')
     gmsh.write(str(mesh_out))
 
+@contextmanager
+def model_delta():
+    import gmsh
+    gmsh.model.occ.synchronize()
+    entities = {i: set() for i in range(4)}
+    for dim, tag in gmsh.model.getEntities():
+        entities[dim].add(tag)
 
-def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log=True, copper_thickness=0.035, board_thickness=0.8, air_box_margin_h=30.0, air_box_margin_v=80.0):
+    yield
+
+    gmsh.model.occ.synchronize()
+    new_entities = {i: set() for i in range(4)}
+    for dim, tag in gmsh.model.getEntities():
+        new_entities[dim].add(tag)
+
+    for i, dimtype in enumerate(['points', 'lines', 'surfaces', 'volumes']):
+        delta = entities[i] - new_entities[i]
+        print(f'Removed {dimtype} [{len(delta)}]: {", ".join(map(str, delta))[:180]}')
+
+        delta = new_entities[i] - entities[i]
+        print(f'New {dimtype} [{len(delta)}]: {", ".join(map(str, delta))[:180]}')
+
+
+def _gmsh_coil_inductance_geometry(traces, mesh_out, bbox, copper_thickness, board_thickness, air_box_margin_h):
     import gmsh
     occ = gmsh.model.occ
-    eps = 1e-6
-
-    board_thickness -= 2*copper_thickness
-
-    gmsh.initialize()
-    gmsh.model.add('gerbonara_board')
-    if log:
-        gmsh.logger.start()
-
     trace_tags = []
     trace_ends = set()
     render_cache = {}
@@ -218,35 +229,8 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     (_dim, toplevel_tag), = tags
 
     (x1, y1), (x2, y2) = bbox
-    #print('first disk', first_disk)
-    #print('bbox', [occ.getBoundingBox(2, tag) for tag in first_disk[1]])
-    #print('last disk', last_disk)
-    #print('bbox', [occ.getBoundingBox(2, tag) for tag in last_disk[1]])
 
     first_geom = traces[0][0]
-    #contact_tag_top = occ.addCylinder(first_geom.start.x, first_geom.start.y, copper_thickness, 0, 0, copper_thickness, first_geom.width/2)
-    #contact_tag_bottom = occ.addCylinder(first_geom.start.x, first_geom.start.y, -board_thickness-copper_thickness, 0, 0, -copper_thickness, first_geom.width/2)
-
-    @contextmanager
-    def model_delta():
-        occ.synchronize()
-        entities = {i: set() for i in range(4)}
-        for dim, tag in gmsh.model.getEntities():
-            entities[dim].add(tag)
-
-        yield
-
-        occ.synchronize()
-        new_entities = {i: set() for i in range(4)}
-        for dim, tag in gmsh.model.getEntities():
-            new_entities[dim].add(tag)
-
-        for i, dimtype in enumerate(['points', 'lines', 'surfaces', 'volumes']):
-            delta = entities[i] - new_entities[i]
-            print(f'Removed {dimtype} [{len(delta)}]: {", ".join(map(str, delta))[:180]}')
-
-            delta = new_entities[i] - entities[i]
-            print(f'New {dimtype} [{len(delta)}]: {", ".join(map(str, delta))[:180]}')
 
     with model_delta():
         print('Fragmenting disks')
@@ -254,45 +238,34 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
         interface_tag_bottom = occ.addDisk(first_geom.start.x, first_geom.start.y, -board_thickness, first_geom.width/2, first_geom.width/2)
         occ.fragment([(3, toplevel_tag)], [(2, interface_tag_top), (2, interface_tag_bottom)], removeObject=True, removeTool=True)
 
-    #occ.synchronize()
-    #_, toplevel_adjacent = gmsh.model.getAdjacencies(3, toplevel_tag)
-
-    #x0, y0, w = traces[0][0].start.x, traces[0][0].start.y, traces[0][0].width
-    #print(x0, y0, w)
-    #in_bbox = occ.getEntitiesInBoundingBox(x0-w/2-eps, y0-w/2-eps, -board_thickness-eps, x0+w/2+eps, y0+w/2+eps, eps, dim=1)
-    #print('in bbox', in_bbox)
-    #for dim, tag in in_bbox:
-    #    print(tag, 'adjacent', gmsh.model.getAdjacencies(dim, tag))
-
-    #print('fragment', occ.fragment([(2, tag) for tag in toplevel_adjacent], [(2, interface_tag_top), (2, interface_tag_bottom)]))
-
     substrate = occ.addBox(x1, y1, -board_thickness, x2-x1, y2-y1, board_thickness)
-
-    x1, y1 = x1-air_box_margin_h, y1-air_box_margin_h
-    x2, y2 = x2+air_box_margin_h, y2+air_box_margin_h
-    w, d = x2-x1, y2-y1
-    z0 = -board_thickness-air_box_margin_v
-    ab_h = board_thickness + 2*air_box_margin_v
-    airbox = occ.addBox(x1, y1, z0, w, d, ab_h)
-
-    occ.synchronize()
-
-    #trace_surface = gmsh.model.getBoundary([(3, toplevel_tag)], oriented=False)
-    #print('Fragmenting trace surface')
-    #with model_delta():
-    #    print(occ.fragment(trace_surface, [(2, interface_tag_top), (2, interface_tag_bottom)], removeObject=True, removeTool=False))
-
-    #print('Fragmenting trace')
-    #with model_delta():
-    #    print(occ.fragment([(3, toplevel_tag)], [(3, contact_tag_top), (3, contact_tag_bottom)], removeObject=True, removeTool=False))
 
     print('cut')
     with model_delta():
         print(occ.cut([(3, substrate)], [(3, toplevel_tag)], removeObject=True, removeTool=False))
 
-    #print('Fragmenting substrate')
-    #with model_delta():
-    #    print(occ.fragment([(3, substrate)], [(3, toplevel_tag), (3, contact_tag_top), (3, contact_tag_bottom)], removeObject=True, removeTool=False))
+    return toplevel_tag, interface_tag_top, interface_tag_bottom, substrate
+
+
+def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log=True, copper_thickness=0.035, board_thickness=0.8, air_box_margin_h=30.0, air_box_margin_v=80.0):
+    import gmsh
+    occ = gmsh.model.occ
+    eps = 1e-6
+
+    gmsh.initialize()
+    gmsh.model.add('gerbonara_board')
+    if log:
+        gmsh.logger.start()
+
+    toplevel_tag, interface_tag_top, interface_tag_bottom, substrate = _gmsh_coil_inductance_geometry(traces, mesh_out, bbox, copper_thickness, board_thickness, air_box_margin_h)
+
+    (x1, y1), (x2, y2) = bbox
+    x1, y1 = x1-air_box_margin_h, y1-air_box_margin_h
+    x2, y2 = x2+air_box_margin_h, y2+air_box_margin_h
+    w, d = x2-x1, y2-y1
+    z0 = -2*copper_thickness-board_thickness-air_box_margin_v
+    ab_h = 2*copper_thickness + board_thickness + 2*air_box_margin_v
+    airbox = occ.addBox(x1, y1, z0, w, d, ab_h)
 
     print('cut')
     with model_delta():
@@ -302,12 +275,10 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     with model_delta():
         print(occ.fragment([(3, airbox)], [(3, toplevel_tag), (3, substrate)], removeObject=True, removeTool=False))
 
-    #occ.fragment([(3, substrate)], [(2, interface_tag_top), (2, interface_tag_bottom)])
-    #occ.fragment([(3, airbox)], [(3, substrate), (3, toplevel_tag)])
-
     print('Synchronizing')
     occ.synchronize()
 
+    first_geom = traces[0][0]
     pcx, pcy = first_geom.start.x, first_geom.start.y
     pcr = first_geom.width/2
     (_dim, plane_top), = gmsh.model.getEntitiesInBoundingBox(pcx-pcr-eps, pcy-pcr-eps, -eps, pcx+pcr+eps, pcy+pcr+eps, eps, 2)
@@ -341,7 +312,85 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     gmsh.option.setNumber('Mesh.MeshSizeMin', 0.08)
     gmsh.option.setNumber('General.NumThreads', multiprocessing.cpu_count())
 
-    gmsh.write('/tmp/test.msh')
+    print('Meshing')
+    gmsh.model.mesh.generate(dim=3)
+    print('Writing to', str(mesh_out))
+    gmsh.write(str(mesh_out))
+
+
+def traces_to_gmsh_mag_mutual(traces, mesh_out, bbox, model_name='gerbonara_board', log=True, copper_thickness=0.035, board_thickness=0.8, air_box_margin_h=30.0, air_box_margin_v=80.0, mutual_offset=(0, 0, 5), mutual_rotation=(0, 0, 0)):
+    import gmsh
+    occ = gmsh.model.occ
+    eps = 1e-6
+
+    gmsh.initialize()
+    gmsh.model.add('gerbonara_board')
+    if log:
+        gmsh.logger.start()
+
+    m_dx, m_dy, m_dz = mutual_offset
+    m_dz += 2*copper_thickness + board_thickness
+
+    toplevel_tag1, interface_tag_top1, interface_tag_bottom1, substrate1 = _gmsh_coil_inductance_geometry(traces, mesh_out, bbox, copper_thickness, board_thickness, air_box_margin_h)
+
+    occ.translate([(3, toplevel_tag1), (2, interface_tag_top1), (2, interface_tag_bottom1), (3, substrate1)], m_dx, m_dy, m_dz)
+
+    toplevel_tag2, interface_tag_top2, interface_tag_bottom2, substrate2 = _gmsh_coil_inductance_geometry(traces, mesh_out, bbox, copper_thickness, board_thickness, air_box_margin_h)
+
+    (x1, y1), (x2, y2) = bbox
+    x1, y1 = x1-air_box_margin_h, y1-air_box_margin_h
+    x2, y2 = x2+air_box_margin_h, y2+air_box_margin_h
+    w, d = x2-x1, y2-y1
+    z0 = -2*copper_thickness-board_thickness-air_box_margin_v
+    ab_h = 4*copper_thickness + 2*board_thickness + 2*air_box_margin_v + m_dz
+    airbox = occ.addBox(x1, y1, z0, w, d, ab_h)
+
+    print('cut')
+    with model_delta():
+        print(occ.cut([(3, airbox)], [(3, toplevel_tag1), (3, toplevel_tag2), (3, substrate1), (3, substrate2)], removeObject=True, removeTool=False))
+
+    print(f'Fragmenting airbox ({airbox}) with {toplevel_tag1=} {substrate1=} {toplevel_tag2=} {substrate2=}')
+    with model_delta():
+        print(occ.fragment([(3, airbox)], [(3, toplevel_tag1), (3, toplevel_tag2), (3, substrate1), (3, substrate2)], removeObject=True, removeTool=False))
+
+    print('Synchronizing')
+    occ.synchronize()
+
+    first_geom = traces[0][0]
+    pcx, pcy = first_geom.start.x, first_geom.start.y
+    pcr = first_geom.width/2
+    (_dim, plane_top1), = gmsh.model.getEntitiesInBoundingBox(pcx-pcr-eps, pcy-pcr-eps, m_dz-eps, pcx+pcr+eps, pcy+pcr+eps, m_dz+eps, 2)
+    (_dim, plane_bottom1), = gmsh.model.getEntitiesInBoundingBox(pcx-pcr-eps, pcy-pcr-eps, m_dz-board_thickness-eps, pcx+pcr+eps, pcy+pcr+eps, m_dz-board_thickness+eps, 2)
+    (_dim, plane_top2), = gmsh.model.getEntitiesInBoundingBox(pcx-pcr-eps, pcy-pcr-eps, -eps, pcx+pcr+eps, pcy+pcr+eps, eps, 2)
+    (_dim, plane_bottom2), = gmsh.model.getEntitiesInBoundingBox(pcx-pcr-eps, pcy-pcr-eps, -board_thickness-eps, pcx+pcr+eps, pcy+pcr+eps, -board_thickness+eps, 2)
+
+    substrate1_physical = gmsh.model.add_physical_group(3, [substrate1], name='substrate1')
+    trace1_physical = gmsh.model.add_physical_group(3, [toplevel_tag1], name='trace1')
+    substrate2_physical = gmsh.model.add_physical_group(3, [substrate2], name='substrate2')
+    trace2_physical = gmsh.model.add_physical_group(3, [toplevel_tag2], name='trace2')
+    airbox_physical = gmsh.model.add_physical_group(3, [airbox], name='airbox')
+
+    interface_top1_physical = gmsh.model.add_physical_group(2, [plane_top1], name='interface_top1')
+    interface_bottom1_physical = gmsh.model.add_physical_group(2, [plane_bottom1], name='interface_bottom1')
+    interface_top2_physical = gmsh.model.add_physical_group(2, [plane_top2], name='interface_top2')
+    interface_bottom2_physical = gmsh.model.add_physical_group(2, [plane_bottom2], name='interface_bottom2')
+
+    airbox_adjacent = set(gmsh.model.getAdjacencies(3, airbox)[1])
+    in_bbox = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x2-eps, y2-eps, z0+ab_h-eps, dim=2)}
+    airbox_physical_surface = gmsh.model.add_physical_group(2, list(airbox_adjacent - in_bbox), name='airbox_surface')
+    
+    points_airbox_adjacent = {tag for _dim, tag in gmsh.model.getBoundary([(3, airbox)], recursive=True, oriented=False)}
+    print(f'{points_airbox_adjacent=}')
+    points_inside = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=0)}
+    #gmsh.model.mesh.setSize([(0, tag) for tag in points_airbox_adjacent - points_inside], 300e-3)
+
+    gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 32)
+    gmsh.option.setNumber('Mesh.Smoothing', 10)
+    gmsh.option.setNumber('Mesh.Algorithm3D', 10)
+    gmsh.option.setNumber('Mesh.MeshSizeMax', 10)
+    gmsh.option.setNumber('Mesh.MeshSizeMin', 0.08)
+    gmsh.option.setNumber('General.NumThreads', multiprocessing.cpu_count())
+
     print('Meshing')
     gmsh.model.mesh.generate(dim=3)
     print('Writing to', str(mesh_out))
@@ -475,6 +524,10 @@ def print_valid_twists(ctx, param, value):
 @click.option('--arc-tolerance', type=float, default=0.02)
 @click.option('--mesh-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
 @click.option('--mag-mesh-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
+@click.option('--mag-mesh-mutual-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
+@click.option('--mutual-offset-x', type=float, default=0)
+@click.option('--mutual-offset-y', type=float, default=0)
+@click.option('--mutual-offset-z', type=float, default=5)
 @click.option('--magneticalc-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
 @click.option('--clipboard/--no-clipboard', help='Use clipboard integration (requires wl-clipboard)')
 @click.option('--counter-clockwise/--clockwise', help='Direction of generated spiral. Default: clockwise when wound from the inside.')
@@ -482,7 +535,7 @@ def print_valid_twists(ctx, param, value):
 def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_drill, via_offset, trace_width, clearance,
              footprint_name, layer_pair, twists, clipboard, counter_clockwise, keepout_zone, keepout_margin,
              arc_tolerance, pcb, mesh_out, magneticalc_out, circle_segments, mag_mesh_out, copper_thickness,
-             board_thickness):
+             board_thickness, mag_mesh_mutual_out, mutual_offset_x, mutual_offset_y, mutual_offset_z):
     if 'WAYLAND_DISPLAY' in os.environ:
         copy, paste, cliputil = ['wl-copy'], ['wl-paste'], 'xclip'
     else:
@@ -826,6 +879,10 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
 
         if mag_mesh_out:
             traces_to_gmsh_mag(traces, mag_mesh_out, ((-r, -r), (r, r)), copper_thickness=copper_thickness, board_thickness=board_thickness)
+
+        if mag_mesh_mutual_out:
+            m_dx, m_dy, m_dz = mutual_offset_x, mutual_offset_y, mutual_offset_z
+            traces_to_gmsh_mag_mutual(traces, mag_mesh_mutual_out, ((-r, -r), (r, r)), copper_thickness=copper_thickness, board_thickness=board_thickness, mutual_offset=(m_dx, m_dy, m_dz))
 
         if magneticalc_out:
             traces_to_magneticalc(traces, magneticalc_out)
