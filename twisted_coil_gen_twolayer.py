@@ -317,6 +317,8 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     airbox_physical = gmsh.model.add_physical_group(3, [airbox], name='airbox')
     trace_physical = gmsh.model.add_physical_group(3, [toplevel_tag], name='trace')
 
+    gmsh.model.mesh.setSize([(0, tag) for dim, tag in gmsh.model.getBoundary([(3, toplevel_tag)], recursive=True) if dim == 0], 0.300)
+
     #interface_tags_top = gmsh.model.getBoundary([(3, contact_tag_top)], oriented=False)
     #interface_tags_bottom = gmsh.model.getBoundary([(3, contact_tag_bottom)], oriented=False)
 
@@ -464,6 +466,8 @@ def print_valid_twists(ctx, param, value):
 @click.option('--via-offset', type=float, default=None, help='Radially offset vias from trace endpoints [mm]')
 @click.option('--keepout-zone/--no-keepout-zone', default=True, help='Add a keepout are to the footprint (default: yes)')
 @click.option('--keepout-margin', type=float, default=5, help='Margin between outside of coil and keepout area (mm, default: 5)')
+@click.option('--copper-thickness', type=float, default=0.035, help='Copper thickness for resistance calculation and mesh generation in mm. Default: 0.035mm ^= 1 Oz')
+@click.option('--board-thickness', type=float, default=1.53, help='Board substrate thickness for mesh generation in mm. Default: 1.53mm')
 @click.option('--twists', type=int, default=1, help='Number of twists per revolution. Note that this number must be co-prime to the number of turns. Run with --show-twists to list valid values. (default: 1)')
 @click.option('--circle-segments', type=int, default=64, help='When not using arcs, the number of points to use for arc interpolation per 360 degrees.')
 @click.option('--show-twists', callback=print_valid_twists, expose_value=False, type=int, is_eager=True, help='Calculate and show valid --twists counts for the given number of turns. Takes the number of turns as a value.')
@@ -477,7 +481,8 @@ def print_valid_twists(ctx, param, value):
 @click.version_option()
 def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_drill, via_offset, trace_width, clearance,
              footprint_name, layer_pair, twists, clipboard, counter_clockwise, keepout_zone, keepout_margin,
-             arc_tolerance, pcb, mesh_out, magneticalc_out, circle_segments, mag_mesh_out):
+             arc_tolerance, pcb, mesh_out, magneticalc_out, circle_segments, mag_mesh_out, copper_thickness,
+             board_thickness):
     if 'WAYLAND_DISPLAY' in os.environ:
         copy, paste, cliputil = ['wl-copy'], ['wl-paste'], 'xclip'
     else:
@@ -722,7 +727,12 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
             svg_vias.append(Tag('circle', cx=xv, cy=yv, r=via_diameter/2, stroke='none', fill='white'))
             svg_vias.append(Tag('circle', cx=xv, cy=yv, r=via_drill/2, stroke='none', fill='black'))
 
-    print(f'Approximate track length: {clen*twists*2:.2f} mm', file=sys.stderr)
+    l_total = clen*twists*2
+    print(f'Approximate track length: {l_total:.2f} mm', file=sys.stderr)
+    A = copper_thickness/1e3 * trace_width/1e3
+    rho = 1.68e-8
+    R = l_total/1e3 * rho / A
+    print(f'Approximate resistance: {R:g} Ω', file=sys.stderr)
 
     top_pad = make_pad(1, [layer_pair[0]], outer_radius, 0)
     pads.append(top_pad)
@@ -812,10 +822,10 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
 
         r = outer_diameter/2 + 20
         if mesh_out:
-            traces_to_gmsh(traces, mesh_out, ((-r, -r), (r, r)))
+            traces_to_gmsh(traces, mesh_out, ((-r, -r), (r, r)), copper_thickness=copper_thickness, board_thickness=board_thickness)
 
         if mag_mesh_out:
-            traces_to_gmsh_mag(traces, mag_mesh_out, ((-r, -r), (r, r)))
+            traces_to_gmsh_mag(traces, mag_mesh_out, ((-r, -r), (r, r)), copper_thickness=copper_thickness, board_thickness=board_thickness)
 
         if magneticalc_out:
             traces_to_magneticalc(traces, magneticalc_out)

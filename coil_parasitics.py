@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 
+import math
 from pathlib import Path
 import multiprocessing
 import re
 import tempfile
-import subprocess
 import fnmatch
 import shutil
 import numpy as np
 
 from pyelmer import elmer
+import subprocess_tee
 import click
 from scipy import constants
 
@@ -30,6 +31,17 @@ def enumerate_mesh_bodies(msh_file):
             dim, _, line = line.strip().partition(' ')
             tag, _, name = line.partition(' ')
             yield name.strip().strip('"'), (int(dim), int(tag))
+
+# https://en.wikipedia.org/wiki/Metric_prefix
+SI_PREFIX = 'QRYZEPTGMk mµnpfazyrq'
+
+def format_si(value, unit='', fractional_digits=1):
+    mag = int(math.log10(abs(value))//3)
+    value /= 1000**mag
+    prefix = SI_PREFIX[SI_PREFIX.find(' ') - mag].strip()
+    value = f'{{:.{fractional_digits}f}}'.format(value)
+    return f'{value} {prefix}{unit}'
+
 
 INPUT_EXT_MAP = {
         '.grd': 1,
@@ -56,7 +68,7 @@ OUTPUT_EXT_MAP = {
         '.msh': 4,
         '.vtu': 5}
 
-def elmer_grid(infile, outfile=None, intype=None, outtype=None, cwd=None, **kwargs):
+def elmer_grid(infile, outfile=None, intype=None, outtype=None, cwd=None, stdout_log=None, stderr_log=None, **kwargs):
     infile = Path(infile)
     if outfile is not None:
         outfile = Path(outfile)
@@ -80,10 +92,20 @@ def elmer_grid(infile, outfile=None, intype=None, outtype=None, cwd=None, **kwar
             args.extend(str(v) for v in value)
         else:
             args.append(str(value))
-    subprocess.run(args, cwd=cwd, check=True)
 
-def elmer_solver(cwd):
-    subprocess.run(['ElmerSolver'], cwd=cwd)
+    result = subprocess_tee.run(args, cwd=cwd, check=True)
+    if stdout_log:
+        Path(stdout_log).write_text(result.stdout or '')
+    if stderr_log:
+        Path(stderr_log).write_text(result.stderr or '')
+
+def elmer_solver(cwd, stdout_log=None, stderr_log=None):
+    result = subprocess_tee.run(['ElmerSolver'], cwd=cwd, check=True)
+    if stdout_log:
+        Path(stdout_log).write_text(result.stdout or '')
+    if stderr_log:
+        Path(stderr_log).write_text(result.stderr or '')
+    return result
 
 
 @click.command()
@@ -132,14 +154,17 @@ def run_capacitance_simulation(mesh_file, sim_dir):
     boundary_airbox.data['Electric Infinity BC'] = 'True'
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        if sim_dir:
-            tmpdir = str(sim_dir)
+        tmpdir = sim_dir if sim_dir else Path(tmpdir)
 
         sim.write_startinfo(tmpdir)
         sim.write_sif(tmpdir)
         # Convert mesh from gmsh to elemer formats. Also scale it from 1 unit = 1 mm to 1 unit = 1 m (SI units)
-        elmer_grid(mesh_file.absolute(), 'mesh', cwd=tmpdir, scale=[1e-3, 1e-3, 1e-3])
-        elmer_solver(tmpdir)
+        elmer_grid(mesh_file.absolute(), 'mesh', cwd=tmpdir, scale=[1e-3, 1e-3, 1e-3],
+                   stdout_log=(tmpdir / 'ElmerGrid_stdout.log'),
+                   stderr_log=(tmpdir / 'ElmerGrid_stderr.log'))
+        elmer_solver(tmpdir,
+                   stdout_log=(tmpdir / 'ElmerSolver_stdout.log'),
+                   stderr_log=(tmpdir / 'ElmerSolver_stderr.log'))
         
         capacitance_matrix = np.loadtxt(tmpdir / 'capacitance.txt')
 
@@ -194,6 +219,9 @@ def run_inductance_simulation(mesh_file, sim_dir):
     bdy_if_bottom.material = copper
     bdy_if_bottom.equation = copper_eqn
 
+    potential_force = elmer.BodyForce(sim, 'electric_potential', {'Electric Potential': 'Equals "Potential"'})
+    bdy_trace.body_force = potential_force
+
     # boundaries
     boundary_airbox = elmer.Boundary(sim, 'FarField', [physical['airbox_surface'][1]])
     boundary_airbox.data['Electric Infinity BC'] = 'True'
@@ -206,15 +234,46 @@ def run_inductance_simulation(mesh_file, sim_dir):
     boundary_vminus.data['Potential'] = 0.0
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        if sim_dir:
-            tmpdir = str(sim_dir)
+        tmpdir = sim_dir if sim_dir else Path(tmpdir)
 
         sim.write_startinfo(tmpdir)
         sim.write_sif(tmpdir)
         # Convert mesh from gmsh to elemer formats. Also scale it from 1 unit = 1 mm to 1 unit = 1 m (SI units)
-        elmer_grid(mesh_file.absolute(), 'mesh', cwd=tmpdir, scale=[1e-3, 1e-3, 1e-3])
-        elmer_solver(tmpdir)
+        elmer_grid(mesh_file.absolute(), 'mesh', cwd=tmpdir, scale=[1e-3, 1e-3, 1e-3],
+                   stdout_log=(tmpdir / 'ElmerGrid_stdout.log'),
+                   stderr_log=(tmpdir / 'ElmerGrid_stderr.log'))
+        solver_stdout, solver_stderr = (tmpdir / 'ElmerSolver_stdout.log'), (tmpdir / 'ElmerSolver_stderr.log')
+        res = elmer_solver(tmpdir,
+                   stdout_log=solver_stdout,
+                   stderr_log=solver_stderr)
+        
+        P, R, U_mag = None, None, None
+        solver_error = False
+        for l in res.stdout.splitlines():
+            if (m := re.fullmatch(r'StatCurrentSolve:\s*Total Heating Power\s*:\s*([0-9.+-Ee]+)\s*', l)):
+                P = float(m.group(1))
+            elif (m := re.fullmatch(r'StatCurrentSolve:\s*Effective Resistance\s*:\s*([0-9.+-Ee]+)\s*', l)):
+                R = float(m.group(1))
+            elif (m := re.fullmatch(r'MagnetoDynamicsCalcFields:\s*ElectroMagnetic Field Energy\s*:\s*([0-9.+-Ee]+)\s*', l)):
+                U_mag = float(m.group(1))
+            elif re.fullmatch(r'IterSolve: Linear iteration did not converge to tolerance', l):
+                solver_error = True
+
+        if solver_error:
+            raise click.ClickException(f'Error: One of the solvers did not converge. See log files for details:\n{solver_stdout.absolute()}\n{solver_stderr.absolute()}')
+        elif P is None or R is None or U_mag is None:
+            raise click.ClickException(f'Error during solver execution. Electrical parameters could not be calculated. See log files for details:\n{solver_stdout.absolute()}\n{solver_stderr.absolute()}')
+
+        U = math.sqrt(P*R)
+        I = math.sqrt(P/R)
+        L = 2*U_mag / (I**2)
+
+        assert math.isclose(U, 1.0, abs_tol=1e-3)
+
+        print(f'Coil resistance calculated by solver: {format_si(R, "Ω")}')
+        print(f'Inductance calucated from field: {format_si(L, "H")}')
 
 
 if __name__ == '__main__':
     run_inductance_simulation()
+
