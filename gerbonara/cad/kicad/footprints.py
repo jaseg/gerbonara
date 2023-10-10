@@ -627,7 +627,7 @@ class Footprint:
     zone_connect: Named(int) = None
     thermal_width: Named(float) = None
     thermal_gap: Named(float) = None
-    attributes: Attribute = field(default_factory=list)
+    attributes: Attribute = field(default_factory=Attribute)
     private_layers: Named(str) = None
     net_tie_pad_groups: Named(Array(str)) = None
     texts: List(Text) = field(default_factory=list)

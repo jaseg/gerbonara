@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+import math
 import multiprocessing
 import os
 from math import *
@@ -329,11 +330,17 @@ def traces_to_gmsh_mag_mutual(traces, mesh_out, bbox, model_name='gerbonara_boar
         gmsh.logger.start()
 
     m_dx, m_dy, m_dz = mutual_offset
+    m_ax, m_ay, m_az = mutual_rotation
     m_dz += 2*copper_thickness + board_thickness
 
     toplevel_tag1, interface_tag_top1, interface_tag_bottom1, substrate1 = _gmsh_coil_inductance_geometry(traces, mesh_out, bbox, copper_thickness, board_thickness, air_box_margin_h)
 
-    occ.translate([(3, toplevel_tag1), (2, interface_tag_top1), (2, interface_tag_bottom1), (3, substrate1)], m_dx, m_dy, m_dz)
+    upper_coil = [(3, toplevel_tag1), (3, substrate1)]
+    occ.translate(upper_coil, m_dx, m_dy, m_dz)
+
+    print('rotate')
+    with model_delta():
+        occ.rotate(upper_coil, 0, 0, 0, 0, 0, 1, m_az)
 
     toplevel_tag2, interface_tag_top2, interface_tag_bottom2, substrate2 = _gmsh_coil_inductance_geometry(traces, mesh_out, bbox, copper_thickness, board_thickness, air_box_margin_h)
 
@@ -357,10 +364,14 @@ def traces_to_gmsh_mag_mutual(traces, mesh_out, bbox, model_name='gerbonara_boar
     occ.synchronize()
 
     first_geom = traces[0][0]
-    pcx, pcy = first_geom.start.x, first_geom.start.y
+    pcx, pcy = first_geom.start.x + m_dx, first_geom.start.y + m_dy
+    pcx, pcy = math.cos(m_az) * pcx - math.sin(m_az) * pcy, math.sin(m_az) * pcx + math.cos(m_az) * pcy
     pcr = first_geom.width/2
+
     (_dim, plane_top1), = gmsh.model.getEntitiesInBoundingBox(pcx-pcr-eps, pcy-pcr-eps, m_dz-eps, pcx+pcr+eps, pcy+pcr+eps, m_dz+eps, 2)
     (_dim, plane_bottom1), = gmsh.model.getEntitiesInBoundingBox(pcx-pcr-eps, pcy-pcr-eps, m_dz-board_thickness-eps, pcx+pcr+eps, pcy+pcr+eps, m_dz-board_thickness+eps, 2)
+
+    pcx, pcy = first_geom.start.x, first_geom.start.y
     (_dim, plane_top2), = gmsh.model.getEntitiesInBoundingBox(pcx-pcr-eps, pcy-pcr-eps, -eps, pcx+pcr+eps, pcy+pcr+eps, eps, 2)
     (_dim, plane_bottom2), = gmsh.model.getEntitiesInBoundingBox(pcx-pcr-eps, pcy-pcr-eps, -board_thickness-eps, pcx+pcr+eps, pcy+pcr+eps, -board_thickness+eps, 2)
 
@@ -511,6 +522,7 @@ def print_valid_twists(ctx, param, value):
 @click.option('--inner-diameter', type=float, default=25, help='Inner diameter [mm]')
 @click.option('--trace-width', type=float, default=None)
 @click.option('--via-diameter', type=float, default=0.6)
+@click.option('--two-layer/--single-layer', default=True)
 @click.option('--via-drill', type=float, default=0.3)
 @click.option('--via-offset', type=float, default=None, help='Radially offset vias from trace endpoints [mm]')
 @click.option('--keepout-zone/--no-keepout-zone', default=True, help='Add a keepout are to the footprint (default: yes)')
@@ -528,6 +540,7 @@ def print_valid_twists(ctx, param, value):
 @click.option('--mutual-offset-x', type=float, default=0)
 @click.option('--mutual-offset-y', type=float, default=0)
 @click.option('--mutual-offset-z', type=float, default=5)
+@click.option('--mutual-rotation-z', type=float, default=0)
 @click.option('--magneticalc-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
 @click.option('--clipboard/--no-clipboard', help='Use clipboard integration (requires wl-clipboard)')
 @click.option('--counter-clockwise/--clockwise', help='Direction of generated spiral. Default: clockwise when wound from the inside.')
@@ -535,7 +548,9 @@ def print_valid_twists(ctx, param, value):
 def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_drill, via_offset, trace_width, clearance,
              footprint_name, layer_pair, twists, clipboard, counter_clockwise, keepout_zone, keepout_margin,
              arc_tolerance, pcb, mesh_out, magneticalc_out, circle_segments, mag_mesh_out, copper_thickness,
-             board_thickness, mag_mesh_mutual_out, mutual_offset_x, mutual_offset_y, mutual_offset_z):
+             board_thickness, mag_mesh_mutual_out, mutual_offset_x, mutual_offset_y, mutual_offset_z, mutual_rotation_z,
+             two_layer):
+
     if 'WAYLAND_DISPLAY' in os.environ:
         copy, paste, cliputil = ['wl-copy'], ['wl-paste'], 'xclip'
     else:
@@ -552,7 +567,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
 
     outer_radius = outer_diameter/2
     inner_radius = inner_diameter/2
-    turns_per_layer = turns/2
+    turns_per_layer = turns/2 if two_layer else turns
 
     sweeping_angle = 2*pi * turns_per_layer / twists
     spiral_pitch = (outer_radius-inner_radius) / turns_per_layer
@@ -606,6 +621,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
     print(f'Outer via ring @r={outer_via_ring_radius:.2f} mm (from {outer_radius:.2f} mm)', file=sys.stderr)
     print(f'    {degrees(outer_via_angle):.1f} deg / via', file=sys.stderr)
 
+    # Check if the vias of the inner ring are so large that they would overlap
     if inner_via_angle*twists > 2*pi:
         min_dia = 2*((via_diameter + clearance) / (2*sin(pi / twists)) + via_offset)
         raise click.ClickException(f'Error: Overlapping vias in inner via ring. Calculated minimum inner diameter is {min_dia:.2f} mm.')
@@ -620,9 +636,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
     out_paths = []
     svg_stuff = [*out_paths]
 
-
-    # See https://coil32.net/pcb-coil.html for details
-
+    # For fill factor & inductance formulas, See https://coil32.net/pcb-coil.html for details
     d_avg = (outer_diameter + inner_diameter)/2
     phi = (outer_diameter - inner_diameter) / (outer_diameter + inner_diameter)
     c1, c2, c3, c4 = 1.00, 2.46, 0.00, 0.20
@@ -632,7 +646,6 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
     print(f'Inner diameter: {inner_diameter:g} mm', file=sys.stderr)
     print(f'Fill factor: {phi:g}', file=sys.stderr)
     print(f'Approximate inductance: {L:g} µH', file=sys.stderr)
-
 
     make_pad = lambda num, layer, x, y: kicad_fp.Pad(
             number=str(num),
@@ -668,7 +681,6 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
                      clearance=clearance, 
                      zone_connect=0)
 
-    use_arcs = not pcb
     pads = []
     lines = []
     arcs = []
@@ -704,6 +716,8 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
             #print(f'{indent} -> good fit', file=sys.stderr)
 
     def do_spiral(layer, r1, r2, a1, a2, start_frac, end_frac, fn=64):
+        use_arcs = not pcb
+
         fn = ceil(fn * (a2-a1)/(2*pi))
         x0, y0 = cos(a1)*r1, sin(a1)*r1
         direction = '↓' if r2 < r1 else '↑'
@@ -747,7 +761,7 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
         return (x0, y0), (xn, yn), sum(dists)
 
     sector_angle = 2*pi / twists
-    total_angle = twists*2*sweeping_angle
+    total_angle = twists*2*sweeping_angle if two_layer else twists*sweeping_angle
 
     inverse = {}
     for i in range(twists):
@@ -761,7 +775,19 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
 
         x = inverse[i]*floor(2*sweeping_angle / (2*pi)) * 2*pi
         (x0, y0), (xn, yn), clen = do_spiral(0, outer_radius, inner_radius, start_angle, fold_angle, (x + start_angle)/total_angle, (x + fold_angle)/total_angle, circle_segments)
-        do_spiral(1, inner_radius, outer_radius, fold_angle, end_angle, (x + fold_angle)/total_angle, (x + end_angle)/total_angle)
+        if two_layer:
+            do_spiral(1, inner_radius, outer_radius, fold_angle, end_angle, (x + fold_angle)/total_angle, (x + end_angle)/total_angle)
+        else:
+            dr = outer_radius - inner_radius
+            xq = xn + cos(fold_angle) * dr
+            yq = yn - sin(fold_angle) * dr
+            lines.append(make_line(xn, yn, xq, yq, layer_pair[1]))
+
+            r, g, b, _a = mpl.cm.plasma((x + fold_angle)/total_angle)
+            path = SVGPath(fill='none', stroke=f'#{round(r*255):02x}{round(g*255):02x}{round(b*255):02x}', stroke_width=trace_width, stroke_linejoin='round', stroke_linecap='round')
+            svg_stuff.append(path)
+            path.move(xn, yn)
+            path.line(xq, yq)
 
         xv, yv = inner_via_ring_radius*cos(fold_angle), inner_via_ring_radius*sin(fold_angle)
         pads.append(make_via(xv, yv, layer_pair))
@@ -882,7 +908,10 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
 
         if mag_mesh_mutual_out:
             m_dx, m_dy, m_dz = mutual_offset_x, mutual_offset_y, mutual_offset_z
-            traces_to_gmsh_mag_mutual(traces, mag_mesh_mutual_out, ((-r, -r), (r, r)), copper_thickness=copper_thickness, board_thickness=board_thickness, mutual_offset=(m_dx, m_dy, m_dz))
+            mutual_rotation_z = math.radians(mutual_rotation_z)
+            traces_to_gmsh_mag_mutual(traces, mag_mesh_mutual_out, ((-r, -r), (r, r)),
+                                      copper_thickness=copper_thickness, board_thickness=board_thickness,
+                                      mutual_offset=(m_dx, m_dy, m_dz), mutual_rotation=(0, 0, mutual_rotation_z))
 
         if magneticalc_out:
             traces_to_magneticalc(traces, magneticalc_out)
