@@ -147,13 +147,20 @@ def self_capacitance(mesh_file, sim_dir):
     bdy_ab.material = air
     bdy_ab.equation = eqn
 
+    max_num = -1
+
     # boundaries
     for name, identity in physical.items():
         if (m := re.fullmatch(r'trace([0-9]+)', name)):
             num = int(m.group(1))
+            max_num = max(num, max_num)
 
             bndry_m2 = elmer.Boundary(sim, name, [identity[1]])
             bndry_m2.data['Capacitance Body'] = str(num)
+
+    if (tr := physical.get('trace')):
+        bndry_m2 = elmer.Boundary(sim, 'trace', [tr[1]])
+        bndry_m2.data['Capacitance Body'] = f'{max_num+1}'
 
     boundary_airbox = elmer.Boundary(sim, 'FarField', [physical['airbox_surface'][1]])
     boundary_airbox.data['Electric Infinity BC'] = 'True'
@@ -175,8 +182,9 @@ def self_capacitance(mesh_file, sim_dir):
 
 @cli.command()
 @click.option('-d', '--sim-dir', type=click.Path(dir_okay=True, file_okay=False, path_type=Path))
+@click.option('--solver-method')
 @click.argument('mesh_file', type=click.Path(dir_okay=False, path_type=Path))
-def inductance(mesh_file, sim_dir):
+def inductance(mesh_file, sim_dir, solver_method):
     physical = dict(enumerate_mesh_bodies(mesh_file))
 
     if sim_dir is not None:
@@ -199,6 +207,8 @@ def inductance(mesh_file, sim_dir):
 
     solver_current = elmer.load_solver('Static_Current_Conduction', sim, 'coil_mag_solvers.yml')
     solver_magdyn = elmer.load_solver('Magneto_Dynamics', sim, 'coil_mag_solvers.yml')
+    if solver_method:
+        solver_magdyn.data['Linear System Iterative Method'] = solver_method
     solver_magdyn_calc = elmer.load_solver('Magneto_Dynamics_Calculations', sim, 'coil_mag_solvers.yml')
 
     copper_eqn = elmer.Equation(sim, 'copperEqn', [solver_current, solver_magdyn, solver_magdyn_calc])

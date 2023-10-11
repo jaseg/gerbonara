@@ -31,6 +31,7 @@ Magneto_Dynamics:
   Linear System Max Iterations: 5000
   Linear System Iterative Method: TFQMR
   BiCGStabL Polynomial Degree: 4
+  "Jfix: Linear System Max Iterations": 5000
   Idrs Parameter: 6
   Solver Timing: True 
 
@@ -41,7 +42,7 @@ Magneto_Dynamics_Calculations:
   Calculate Magnetic Field Strength: True
   Calculate JxB: False
   Calculate Current Density: True
-  Calculate Electric Field: False
+  Calculate Electric Field: True
   Calculate Nodal Fields: False
   Calculate Elemental Fields: True
   Linear System Solver: Iterative
