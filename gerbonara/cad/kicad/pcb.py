@@ -585,6 +585,7 @@ class Board:
                 self.groups.append(obj)
             case Footprint():
                 self.footprints.append(obj)
+                obj.board = self
             case _:
                 for elem in self.map_gn_cad(obj):
                     self.add(elem)

@@ -289,7 +289,8 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     airbox_physical = gmsh.model.add_physical_group(3, [airbox], name='airbox')
     trace_physical = gmsh.model.add_physical_group(3, [toplevel_tag], name='trace')
 
-    gmsh.model.mesh.setSize([(0, tag) for dim, tag in gmsh.model.getBoundary([(3, toplevel_tag)], recursive=True) if dim == 0], 0.300)
+    gmsh.model.mesh.setSize([(0, tag) for dim, tag in gmsh.model.getBoundary([(3, toplevel_tag)], recursive=True) if dim == 0], 0.100)
+    gmsh.model.mesh.setSize([(0, tag) for dim, tag in gmsh.model.getBoundary([(3, substrate)], recursive=True) if dim == 0], 0.200)
 
     #interface_tags_top = gmsh.model.getBoundary([(3, contact_tag_top)], oriented=False)
     #interface_tags_bottom = gmsh.model.getBoundary([(3, contact_tag_bottom)], oriented=False)
@@ -308,11 +309,13 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
 
     gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 32)
     gmsh.option.setNumber('Mesh.Smoothing', 10)
-    gmsh.option.setNumber('Mesh.Algorithm3D', 10)
+    gmsh.option.setNumber('Mesh.Algorithm3D', 10) # HXT
     gmsh.option.setNumber('Mesh.MeshSizeMax', 10)
     gmsh.option.setNumber('Mesh.MeshSizeMin', 0.08)
     gmsh.option.setNumber('General.NumThreads', multiprocessing.cpu_count())
 
+    print('Writing geo file')
+    gmsh.write('/tmp/test.geo_unrolled')
     print('Meshing')
     gmsh.model.mesh.generate(dim=3)
     print('Writing to', str(mesh_out))
@@ -583,25 +586,25 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
         print(f'Warning: Defaulting to {trace_width:.2f} mm trace width.', file=sys.stderr)
 
     if trace_width is None:
-        if clearance > projected_spiral_pitch:
+        if round(clearance, 3) > round(projected_spiral_pitch, 3):
             raise click.ClickException(f'Error: Given clearance of {clearance:.2f} mm is larger than the projected spiral pitch of {projected_spiral_pitch:.2f} mm. Reduce clearance or increase the size of the coil.')
         trace_width = projected_spiral_pitch - clearance
         print(f'Calculated trace width for {clearance:.2f} mm clearance is {trace_width:.2f} mm.', file=sys.stderr)
 
     elif clearance is None:
-        if trace_width > projected_spiral_pitch:
+        if round(trace_width, 2) > round(projected_spiral_pitch, 2):
             raise click.ClickException(f'Error: Given trace width of {trace_width:.2f} mm is larger than the projected spiral pitch of {projected_spiral_pitch:.2f} mm. Reduce clearance or increase the size of the coil.')
         clearance = projected_spiral_pitch - trace_width
         print(f'Calculated clearance for {trace_width:.2f} mm trace width is {clearance:.2f} mm.', file=sys.stderr)
 
     else:
-        if trace_width > projected_spiral_pitch:
+        if round(trace_width, 2) > round(projected_spiral_pitch, 2):
             raise click.ClickException(f'Error: Given trace width of {trace_width:.2f} mm is larger than the projected spiral pitch of {projected_spiral_pitch:.2f} mm. Reduce clearance or increase the size of the coil.')
         clearance_actual = projected_spiral_pitch - trace_width
-        if clearance_actual < clearance:
+        if round(clearance_actual, 3) < round(clearance, 3):
             raise click.ClickException(f'Error: Actual clearance for {trace_width:.2f} mm trace is {clearance_actual:.2f} mm, which is lower than the given clearance of {clearance:.2f} mm.')
 
-    if via_diameter < trace_width:
+    if round(via_diameter, 2) < round(trace_width, 2):
         print(f'Clipping via diameter from {via_diameter:.2f} mm to trace width of {trace_width:.2f} mm.', file=sys.stderr)
         via_diameter = trace_width
 
