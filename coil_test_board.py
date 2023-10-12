@@ -29,14 +29,14 @@ coil_specs = [
         {'n': 10, 's': False, 't': 1, 'c': 0.20, 'w': 0.50, 'v': 0.40},
         {'n': 25, 's': False, 't': 1, 'c': 0.15, 'w': 0.25, 'v': 0.40},
 
-        {'n':  1, 's': False, 't': 2, 'c': 0.20, 'w': 5.00, 'v': 0.40},
+        {'n':  1, 's': False, 't': 3, 'c': 0.20, 'w': 5.00, 'v': 0.40},
         {'n':  2, 's': False, 't': 3, 'c': 0.20, 'w': 3.00, 'v': 0.40},
         {'n':  3, 's': False, 't': 2, 'c': 0.20, 'w': 1.50, 'v': 0.40},
         {'n':  5, 's': False, 't': 2, 'c': 0.20, 'w': 0.80, 'v': 0.40},
         {'n': 10, 's': False, 't': 3, 'c': 0.20, 'w': 0.50, 'v': 0.40},
         {'n': 25, 's': False, 't': 2, 'c': 0.15, 'w': 0.25, 'v': 0.40},
 
-        {'n':  1, 's': False, 't': 3, 'c': 0.20, 'w': 5.00, 'v': 0.40},
+        {'n':  1, 's': False, 't': 5, 'c': 0.20, 'w': 5.00, 'v': 0.40},
         {'n':  2, 's': False, 't': 5, 'c': 0.20, 'w': 3.00, 'v': 0.40},
         {'n':  3, 's': False, 't': 4, 'c': 0.20, 'w': 1.50, 'v': 0.40},
         {'n':  5, 's': False, 't': 3, 'c': 0.20, 'w': 0.80, 'v': 0.40},
@@ -313,7 +313,7 @@ for index, ((y, x), spec) in enumerate(zip(itertools.product(range(rows), range(
         if 'outer_diameter' not in spec:
             spec['outer_diameter'] = 35
 
-        args = ['python', '-m', 'twisted_coil_gen_twolayer']
+        args = ['python', '-m', 'twisted_coil_gen_twolayer', '--no-keepout-zone']
         for k, v in spec.items():
             if not isinstance(v, bool) or v:
                 args.append('--' + k.replace('_', '-'))
