@@ -366,8 +366,8 @@ for index, ((y, x), spec) in enumerate(zip(itertools.product(range(rows), range(
         w2 = (x - pad_length/2, y)
         x, y, _r, _f = pads.pad(1).abs_pos
         w1 = (x - pad_length/2, y)
-        b.add(cad_pr.Trace(w, pads.pad(1), coil.pad(1), waypoints=[w1], orientation=['cw'], side='top'))
-        b.add(cad_pr.Trace(w, pads.pad(2), coil.pad(2), waypoints=[w2], orientation=['ccw'], side='bottom'))
+        b.add(cad_pr.Trace(w, coil.pad(1), pads.pad(1), waypoints=[w1], orientation=['ccw'], side='top'))
+        b.add(cad_pr.Trace(w, coil.pad(2), pads.pad(2), waypoints=[w2], orientation=['cw'], side='bottom'))
 
         k = 3
         for layer in ['F.SilkS', 'B.SilkS']:
