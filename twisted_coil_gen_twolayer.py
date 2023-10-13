@@ -537,9 +537,9 @@ def print_valid_twists(ctx, param, value):
 @click.option('--show-twists', callback=print_valid_twists, expose_value=False, type=int, is_eager=True, help='Calculate and show valid --twists counts for the given number of turns. Takes the number of turns as a value.')
 @click.option('--clearance', type=float, default=None)
 @click.option('--arc-tolerance', type=float, default=0.02)
+@click.option('--mesh-split-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
 @click.option('--mesh-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
-@click.option('--mag-mesh-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
-@click.option('--mag-mesh-mutual-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
+@click.option('--mesh-mutual-out', type=click.Path(writable=True, dir_okay=False, path_type=Path))
 @click.option('--mutual-offset-x', type=float, default=0)
 @click.option('--mutual-offset-y', type=float, default=0)
 @click.option('--mutual-offset-z', type=float, default=5)
@@ -550,8 +550,8 @@ def print_valid_twists(ctx, param, value):
 @click.version_option()
 def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_drill, via_offset, trace_width, clearance,
              footprint_name, layer_pair, twists, clipboard, counter_clockwise, keepout_zone, keepout_margin,
-             arc_tolerance, pcb, mesh_out, magneticalc_out, circle_segments, mag_mesh_out, copper_thickness,
-             board_thickness, mag_mesh_mutual_out, mutual_offset_x, mutual_offset_y, mutual_offset_z, mutual_rotation_z,
+             arc_tolerance, pcb, mesh_out, magneticalc_out, circle_segments, mesh_split_out, copper_thickness,
+             board_thickness, mesh_mutual_out, mutual_offset_x, mutual_offset_y, mutual_offset_z, mutual_rotation_z,
              two_layer):
 
     if 'WAYLAND_DISPLAY' in os.environ:
@@ -562,8 +562,8 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
     if gcd(twists, turns) != 1:
         raise click.ClickException('For the geometry to work out, the --twists parameter must be co-prime to --turns, i.e. the two must have 1 as their greatest common divisor. You can print valid values for --twists by running this command with --show-twists [turns number].')
 
-    if mesh_out and not pcb:
-        raise click.ClickException('--pcb is required when --mesh-out is used.')
+    if (mesh_out or mesh_split_out or mesh_mutual_out) and not pcb:
+        raise click.ClickException('--pcb is required when --mesh-out, --mesh-mutual-out or --mesh-split-out are used.')
 
     if magneticalc_out and not pcb:
         raise click.ClickException('--pcb is required when --magneticalc-out is used.')
@@ -903,16 +903,16 @@ def generate(outfile, turns, outer_diameter, inner_diameter, via_diameter, via_d
         traces[0] = traces[0][1:]
 
         r = outer_diameter/2 + 20
+        if mesh_split_out:
+            traces_to_gmsh(traces, mesh_split_out, ((-r, -r), (r, r)), copper_thickness=copper_thickness, board_thickness=board_thickness)
+
         if mesh_out:
-            traces_to_gmsh(traces, mesh_out, ((-r, -r), (r, r)), copper_thickness=copper_thickness, board_thickness=board_thickness)
+            traces_to_gmsh_mag(traces, mesh_out, ((-r, -r), (r, r)), copper_thickness=copper_thickness, board_thickness=board_thickness)
 
-        if mag_mesh_out:
-            traces_to_gmsh_mag(traces, mag_mesh_out, ((-r, -r), (r, r)), copper_thickness=copper_thickness, board_thickness=board_thickness)
-
-        if mag_mesh_mutual_out:
+        if mesh_mutual_out:
             m_dx, m_dy, m_dz = mutual_offset_x, mutual_offset_y, mutual_offset_z
             mutual_rotation_z = math.radians(mutual_rotation_z)
-            traces_to_gmsh_mag_mutual(traces, mag_mesh_mutual_out, ((-r, -r), (r, r)),
+            traces_to_gmsh_mag_mutual(traces, mesh_mutual_out, ((-r, -r), (r, r)),
                                       copper_thickness=copper_thickness, board_thickness=board_thickness,
                                       mutual_offset=(m_dx, m_dy, m_dz), mutual_rotation=(0, 0, mutual_rotation_z))
 

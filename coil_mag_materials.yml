@@ -23,6 +23,7 @@ copper:
   Heat Capacity: 415.0  # 200°C
   Heat Conductivity: 401.0  # 0°C
   Relative Permeability: 1
+  Relative Permittivity: 1
 steel_1.4541:
   Density: 7900.0  # 20°C
   Electric Conductivity: 1370

@@ -1,47 +1,53 @@
 #!/usr/bin/env python3
 
 import math
+import re
 import itertools
 import datetime
 import tempfile
 import subprocess
+import sqlite3
+import json
+
+import tqdm
 
 import gerbonara.cad.kicad.pcb as pcb
 import gerbonara.cad.kicad.footprints as fp
 import gerbonara.cad.primitives as cad_pr
 import gerbonara.cad.kicad.graphical_primitives as kc_gr
 
+
 cols = 6
 rows = 4
 
 coil_specs = [
-        {'n':  1, 's':  True, 't': 1, 'c': 0.20, 'w': 5.00, 'v': 0.40},
-        {'n':  2, 's':  True, 't': 1, 'c': 0.20, 'w': 3.00, 'v': 0.40},
-        {'n':  3, 's':  True, 't': 1, 'c': 0.20, 'w': 1.50, 'v': 0.40},
-        {'n':  5, 's':  True, 't': 1, 'c': 0.20, 'w': 0.80, 'v': 0.40},
-        {'n': 10, 's':  True, 't': 1, 'c': 0.20, 'w': 0.50, 'v': 0.40},
-        {'n': 25, 's':  True, 't': 1, 'c': 0.15, 'w': 0.25, 'v': 0.40},
+        {'n':  1, 's':  True, 't': 1, 'c': 0.20, 'w': 5.00, 'd': 3.00, 'v': 5.00},
+        {'n':  2, 's':  True, 't': 1, 'c': 0.20, 'w': 3.00, 'd': 1.50, 'v': 3.00},
+        {'n':  3, 's':  True, 't': 1, 'c': 0.20, 'w': 1.50, 'd': 1.20, 'v': 2.00},
+        {'n':  5, 's':  True, 't': 1, 'c': 0.20, 'w': 0.80, 'd': 0.40, 'v': 0.80},
+        {'n': 10, 's':  True, 't': 1, 'c': 0.20, 'w': 0.50, 'd': 0.30, 'v': 0.60},
+        {'n': 25, 's':  True, 't': 1, 'c': 0.15, 'w': 0.25, 'd': 0.30, 'v': 0.60},
 
-        {'n':  1, 's': False, 't': 1, 'c': 0.20, 'w': 5.00, 'v': 0.40},
-        {'n':  2, 's': False, 't': 1, 'c': 0.20, 'w': 3.00, 'v': 0.40},
-        {'n':  3, 's': False, 't': 1, 'c': 0.20, 'w': 1.50, 'v': 0.40},
-        {'n':  5, 's': False, 't': 1, 'c': 0.20, 'w': 0.80, 'v': 0.40},
-        {'n': 10, 's': False, 't': 1, 'c': 0.20, 'w': 0.50, 'v': 0.40},
-        {'n': 25, 's': False, 't': 1, 'c': 0.15, 'w': 0.25, 'v': 0.40},
+        {'n':  1, 's': False, 't': 3, 'c': 0.20, 'w': 5.00, 'd': 3.00, 'v': 5.00},
+        {'n':  2, 's': False, 't': 1, 'c': 0.20, 'w': 3.00, 'd': 1.50, 'v': 3.00},
+        {'n':  3, 's': False, 't': 1, 'c': 0.20, 'w': 2.50, 'd': 1.20, 'v': 2.00},
+        {'n':  5, 's': False, 't': 1, 'c': 0.20, 'w': 2.50, 'd': 0.40, 'v': 0.80},
+        {'n': 10, 's': False, 't': 1, 'c': 0.20, 'w': 1.50, 'd': 0.30, 'v': 0.60},
+        {'n': 25, 's': False, 't': 1, 'c': 0.15, 'w': 0.50, 'd': 0.30, 'v': 0.60},
 
-        {'n':  1, 's': False, 't': 3, 'c': 0.20, 'w': 5.00, 'v': 0.40},
-        {'n':  2, 's': False, 't': 3, 'c': 0.20, 'w': 3.00, 'v': 0.40},
-        {'n':  3, 's': False, 't': 2, 'c': 0.20, 'w': 1.50, 'v': 0.40},
-        {'n':  5, 's': False, 't': 2, 'c': 0.20, 'w': 0.80, 'v': 0.40},
-        {'n': 10, 's': False, 't': 3, 'c': 0.20, 'w': 0.50, 'v': 0.40},
-        {'n': 25, 's': False, 't': 2, 'c': 0.15, 'w': 0.25, 'v': 0.40},
+        {'n':  1, 's': False, 't': 4, 'c': 0.20, 'w': 5.00, 'd': 3.00, 'v': 5.00},
+        {'n':  2, 's': False, 't': 3, 'c': 0.20, 'w': 3.00, 'd': 1.50, 'v': 3.00},
+        {'n':  3, 's': False, 't': 4, 'c': 0.20, 'w': 2.50, 'd': 1.20, 'v': 2.00},
+        {'n':  5, 's': False, 't': 3, 'c': 0.20, 'w': 2.50, 'd': 0.40, 'v': 0.80},
+        {'n': 10, 's': False, 't': 3, 'c': 0.20, 'w': 1.50, 'd': 0.30, 'v': 0.60},
+        {'n': 25, 's': False, 't': 3, 'c': 0.15, 'w': 0.50, 'd': 0.30, 'v': 0.60},
 
-        {'n':  1, 's': False, 't': 5, 'c': 0.20, 'w': 5.00, 'v': 0.40},
-        {'n':  2, 's': False, 't': 5, 'c': 0.20, 'w': 3.00, 'v': 0.40},
-        {'n':  3, 's': False, 't': 4, 'c': 0.20, 'w': 1.50, 'v': 0.40},
-        {'n':  5, 's': False, 't': 3, 'c': 0.20, 'w': 0.80, 'v': 0.40},
-        {'n': 10, 's': False, 't': 7, 'c': 0.20, 'w': 0.50, 'v': 0.40},
-        {'n': 25, 's': False, 't': 7, 'c': 0.15, 'w': 0.25, 'v': 0.40},
+        {'n':  1, 's': False, 't': 5, 'c': 0.20, 'w': 5.00, 'd': 3.00, 'v': 5.00},
+        {'n':  2, 's': False, 't': 5, 'c': 0.20, 'w': 3.00, 'd': 1.50, 'v': 3.00},
+        {'n':  3, 's': False, 't': 4, 'c': 0.20, 'w': 2.50, 'd': 1.20, 'v': 2.00},
+        {'n':  5, 's': False, 't': 7, 'c': 0.20, 'w': 2.50, 'd': 0.40, 'v': 0.80},
+        {'n': 10, 's': False, 't': 7, 'c': 0.20, 'w': 1.50, 'd': 0.30, 'v': 0.60},
+        {'n': 25, 's': False, 't': 13, 'c': 0.15, 'w': 0.50, 'd': 0.30, 'v': 0.60},
 ]
 
 version_string = 'v1.0'
@@ -55,6 +61,8 @@ mouse_bite_hole_spacing = 0.3
 hole_offset = 5
 hole_dia = 3.2
 coil_dia = 35 # mm
+coil_inner_dia = 15 # mm
+board_thickness = 0.80 # mm
 pad_offset = 2 # mm
 pad_dia = 2.0 # mm
 pad_length = 3.5 # mm
@@ -62,6 +70,16 @@ pad_drill = 1.1 # mm
 pad_pitch = 2.54 # mm
 v_cuts = False # FIXME DEBUG
 mouse_bites = False # FIXME DEBUG
+
+db = sqlite3.connect('coil_parameters.sqlite3')
+db.execute('CREATE TABLE IF NOT EXISTS runs (run_id INTEGER PRIMARY KEY, timestamp TEXT, version TEXT)')
+db.execute('CREATE TABLE IF NOT EXISTS coils (coil_id INTEGER PRIMARY KEY, run_id INTEGER, FOREIGN KEY (run_id) REFERENCES runs(run_id))')
+db.execute('CREATE TABLE IF NOT EXISTS results (result_id INTEGER PRIMARY KEY, coil_id INTEGER, key TEXT, value TEXT, FOREIGN KEY (coil_id) REFERENCES coils(coil_id))')
+cur = db.cursor()
+cur.execute('INSERT INTO runs(timestamp, version) VALUES (datetime("now"), ?)', (version_string,))
+run_id = cur.lastrowid
+db.commit()
+
 coil_pitch = coil_dia + coil_border*2 + cut_gap
 
 total_width = coil_pitch*cols + 2*tooling_border + cut_gap
@@ -286,51 +304,77 @@ b.add(kc_gr.Text(text=f'Planar inductor test panel {version_string} {timestamp} 
                                        thickness=a/5),
                      justify=pcb.Justify(h=pcb.Atom.left, v=pcb.Atom.top))))
 
-for index, ((y, x), spec) in enumerate(zip(itertools.product(range(rows), range(cols)), coil_specs), start=1):
+for index, ((y, x), spec) in tqdm.tqdm(enumerate(zip(itertools.product(range(rows), range(cols)), coil_specs), start=1)):
     pass
     with tempfile.NamedTemporaryFile(suffix='.kicad_mod') as f:
         tile_x0 = x0 + tooling_border + cut_gap + x*coil_pitch + tile_width/2
         tile_y0 = y0 + tooling_border + cut_gap + y*coil_pitch + tile_height/2
 
         for key, alias in {
-                'inner_diameter': 'id',
-                'outer_diameter': 'od',
-                'trace_width': 'w',
-                'turns': 'n',
-                'twists': 't',
-                'clearance': 'c',
-                'single_layer': 's',
-                'via_drill': 'v'}.items():
+                'gen.inner_diameter': 'id',
+                'gen.outer_diameter': 'od',
+                'gen.trace_width': 'w',
+                'gen.turns': 'n',
+                'gen.twists': 't',
+                'gen.clearance': 'c',
+                'gen.single_layer': 's',
+                'gen.via_drill': 'd',
+                'gen.via_diameter': 'v'}.items():
             if alias in spec:
                 spec[key] = spec.pop(alias)
 
-        if 'via_diameter' not in spec:
-            spec['via_diameter'] = spec['trace_width']
+        if 'gen.via_diameter' not in spec:
+            spec['gen.via_diameter'] = spec['gen.trace_width']
         
-        if 'inner_diameter' not in spec:
-            spec['inner_diameter'] = 15
+        if 'gen.inner_diameter' not in spec:
+            spec['gen.inner_diameter'] = coil_inner_dia
 
-        if 'outer_diameter' not in spec:
-            spec['outer_diameter'] = 35
+        if 'gen.outer_diameter' not in spec:
+            spec['gen.outer_diameter'] = coil_dia
 
         args = ['python', '-m', 'twisted_coil_gen_twolayer', '--no-keepout-zone']
         for k, v in spec.items():
-            if not isinstance(v, bool) or v:
+            prefix, _, k = k.partition('.')
+            if (not isinstance(v, bool) or v) and prefix == 'gen':
                 args.append('--' + k.replace('_', '-'))
                 if v is not True:
                     args.append(str(v))
         args.append(f.name)
-        subprocess.run(args, check=True)
+        res = subprocess.run(args, check=True, capture_output=True, text=True)
 
         coil = fp.Footprint.open_mod(f.name)
         coil.at = fp.AtPos(tile_x0, tile_y0, 0)
         b.add(coil)
 
-        t = [f'n={spec["turns"]}',
-             f'{spec["twists"]} twists',
-             f'w={spec["trace_width"]:.2f}mm']
-        if spec.get('single_layer'):
+        t = [f'n={spec["gen.turns"]}',
+             f'{spec["gen.twists"]} twists',
+             f'w={spec["gen.trace_width"]:.2f}mm']
+        if spec.get('gen.single_layer'):
             t.append('single layer')
+
+        spec['gen.board_thickness'] = board_thickness
+        cur.execute('INSERT INTO coils(run_id) VALUES (?)', (run_id,))
+        coil_id = cur.lastrowid
+
+        for key, value in spec.items():
+            if isinstance(value, bool):
+                value = str(value)
+            db.execute('INSERT INTO results(coil_id, key, value) VALUES (?, ?, ?)', (coil_id, key, value))
+
+        for l in res.stderr.splitlines():
+            if (m := re.fullmatch(r'Approximate inductance:\s*([-+.0-9eE]+)\s*µH', l.strip())):
+                val = float(m.group(1)) * 1e-6
+                db.execute('INSERT INTO results(coil_id, key, value) VALUES (?, "calculated_approximate_inductance", ?)', (coil_id, val))
+            if (m := re.fullmatch(r'Approximate track length:\s*([-+.0-9eE]+)\s*mm', l.strip())):
+                val = float(m.group(1)) * 1e-3
+                db.execute('INSERT INTO results(coil_id, key, value) VALUES (?, "calculated_trace_length", ?)', (coil_id, val))
+            if (m := re.fullmatch(r'Approximate resistance:\s*([-+.0-9eE]+)\s*Ω', l.strip())):
+                val = float(m.group(1))
+                db.execute('INSERT INTO results(coil_id, key, value) VALUES (?, "calculated_approximate_resistance", ?)', (coil_id, val))
+            if (m := re.fullmatch(r'Fill factor:\s*([-+.0-9eE]+)', l.strip())):
+                val = float(m.group(1))
+                db.execute('INSERT INTO results(coil_id, key, value) VALUES (?, "calculated_fill_factor", ?)', (coil_id, val))
+        db.commit()
 
         sz = 1.5
         b.add(kc_gr.Text(text='\\n'.join(t),
@@ -361,7 +405,7 @@ for index, ((y, x), spec) in enumerate(zip(itertools.product(range(rows), range(
         pads = make_pads(pads_x0, tile_y0, 270, 2, pad_dia, pad_length, pad_drill, pad_pitch)
         b.add(pads)
 
-        w = min(spec.get('trace_width', pad_dia), pad_dia)
+        w = min(spec.get('gen.trace_width', pad_dia), pad_dia)
         x, y, _r, _f = pads.pad(2).abs_pos
         w2 = (x - pad_length/2, y)
         x, y, _r, _f = pads.pad(1).abs_pos
