@@ -128,11 +128,32 @@ def traces_to_gmsh(traces, mesh_out, bbox, model_name='gerbonara_board', log=Tru
     in_bbox = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=3)}
     airbox_physical_surface = gmsh.model.add_physical_group(2, list(airbox_adjacent - in_bbox), name='airbox_surface')
     
-    points_airbox_adjacent = set(gmsh.model.getAdjacencies(0, airbox)[1])
-    points_inside = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=0)}
-    gmsh.model.mesh.setSize([(0, tag) for tag in points_airbox_adjacent - points_inside], 10e-3)
+    #points_airbox_adjacent = set(gmsh.model.getAdjacencies(0, airbox)[1])
+    #points_inside = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=0)}
 
-    #gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 90)
+    #gmsh.model.mesh.setSize([(0, tag) for tag in points_airbox_adjacent - points_inside], 10e-3)
+
+    gmsh.model.mesh.setSize(getPoints((3, airbox)), 10.0)
+
+    trace_field = gmsh.model.mesh.field.add('BoundaryLayer')
+    gmsh.model.mesh.field.setNumbers(trace_field, 'CurvesList', getCurves(*trace_tags.values()))
+    gmsh.model.mesh.field.setNumber(trace_field, 'Size', 0.5)
+    gmsh.model.mesh.field.setNumber(trace_field, 'SizeFar', 10.0)
+
+    substrate_field = gmsh.model.mesh.field.add('AttractorAnisoCurve')
+    gmsh.model.mesh.field.setNumbers(substrate_field, 'CurvesList', getCurves(substrate))
+    gmsh.model.mesh.field.setNumber(substrate_field, 'DistMax', 10)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'DistMin', 0)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'SizeMinNormal', board_thickness/3)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'SizeMaxNormal', 10.0)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'SizeMinTangent', 0.5)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'SizeMaxTangent', 10.0)
+
+    background_field = gmsh.model.mesh.field.add('MinAniso')
+    gmsh.model.mesh.field.setNumbers(background_field, 'FieldsList', [trace_field, substrate_field])
+    gmsh.model.mesh.field.setAsBackgroundMesh(background_field)
+
+    gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 12)
     gmsh.option.setNumber('Mesh.Smoothing', 10)
     gmsh.option.setNumber('Mesh.Algorithm3D', 10)
     gmsh.option.setNumber('Mesh.MeshSizeMax', 1)
@@ -216,9 +237,12 @@ def _gmsh_coil_inductance_geometry(traces, mesh_out, bbox, copper_thickness, boa
                 tags.append(cylinder_tag)
                 occ.synchronize()
 
-        print('fusing', tags)
-        tags, tag_map = occ.fuse([(3, tags[0])], [(3, tag) for tag in tags[1:]])
-        print(tags)
+        if len(tags) > 1:
+            print('fusing', tags)
+            gmsh.write('/tmp/test_foo.geo_unrolled')
+            tags, tag_map = occ.fuse([(3, tags[0])], [(3, tag) for tag in tags[1:]])
+            print(tags)
+
         assert len(tags) == 1
         (_dim, tag), = tags
         trace_tags.append(tag)
@@ -246,6 +270,16 @@ def _gmsh_coil_inductance_geometry(traces, mesh_out, bbox, copper_thickness, boa
         print(occ.cut([(3, substrate)], [(3, toplevel_tag)], removeObject=True, removeTool=False))
 
     return toplevel_tag, interface_tag_top, interface_tag_bottom, substrate
+
+
+def getCurves(*volume_tags):
+    import gmsh
+    dim_tags = gmsh.model.getBoundary([(3, tag) for tag in volume_tags], oriented=False)
+    return [curve_tag for dim, curve_tag in gmsh.model.getBoundary(dim_tags, oriented=False, combined=False) if dim == 1]
+
+def getPoints(*dim_tags):
+    import gmsh
+    return [(0, tag) for dim, tag in gmsh.model.getBoundary(dim_tags, oriented=False, recursive=True) if dim == 0]
 
 
 def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log=True, copper_thickness=0.035, board_thickness=0.8, air_box_margin_h=30.0, air_box_margin_v=80.0):
@@ -289,11 +323,38 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     airbox_physical = gmsh.model.add_physical_group(3, [airbox], name='airbox')
     trace_physical = gmsh.model.add_physical_group(3, [toplevel_tag], name='trace')
 
-    gmsh.model.mesh.setSize([(0, tag) for dim, tag in gmsh.model.getBoundary([(3, toplevel_tag)], recursive=True) if dim == 0], 0.100)
-    gmsh.model.mesh.setSize([(0, tag) for dim, tag in gmsh.model.getBoundary([(3, substrate)], recursive=True) if dim == 0], 0.200)
+    gmsh.model.mesh.setSize(getPoints((3, airbox)), 10.0)
+    #gmsh.model.mesh.setSize(getPoints((3, substrate)), 1.0)
+    #gmsh.model.mesh.setSize(getPoints((3, toplevel_tag)), 0.1)
 
-    #interface_tags_top = gmsh.model.getBoundary([(3, contact_tag_top)], oriented=False)
-    #interface_tags_bottom = gmsh.model.getBoundary([(3, contact_tag_bottom)], oriented=False)
+    #trace_field = gmsh.model.mesh.field.add('AttractorAnisoCurve')
+    #gmsh.model.mesh.field.setNumbers(trace_field, 'CurvesList', getCurves(toplevel_tag))
+    #gmsh.model.mesh.field.setNumber(trace_field, 'DistMax', 1.0)
+    #gmsh.model.mesh.field.setNumber(trace_field, 'DistMin', 0.3)
+    #gmsh.model.mesh.field.setNumber(trace_field, 'SizeMinNormal', 0.1)
+    #gmsh.model.mesh.field.setNumber(trace_field, 'SizeMaxNormal', 1.0)
+    #gmsh.model.mesh.field.setNumber(trace_field, 'SizeMinTangent', 0.5)
+    #gmsh.model.mesh.field.setNumber(trace_field, 'SizeMaxTangent', 2.0)
+    #gmsh.model.mesh.field.setAsBackgroundMesh(trace_field)
+
+    trace_field = gmsh.model.mesh.field.add('BoundaryLayer')
+    gmsh.model.mesh.field.setNumbers(trace_field, 'CurvesList', getCurves(toplevel_tag))
+    gmsh.model.mesh.field.setNumber(trace_field, 'Size', 0.5)
+    gmsh.model.mesh.field.setNumber(trace_field, 'SizeFar', 10.0)
+    #gmsh.model.mesh.field.setAsBackgroundMesh(trace_field)
+
+    substrate_field = gmsh.model.mesh.field.add('AttractorAnisoCurve')
+    gmsh.model.mesh.field.setNumbers(substrate_field, 'CurvesList', getCurves(substrate))
+    gmsh.model.mesh.field.setNumber(substrate_field, 'DistMax', 10)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'DistMin', 0)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'SizeMinNormal', board_thickness/3)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'SizeMaxNormal', 10.0)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'SizeMinTangent', 0.5)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'SizeMaxTangent', 10.0)
+
+    background_field = gmsh.model.mesh.field.add('MinAniso')
+    gmsh.model.mesh.field.setNumbers(background_field, 'FieldsList', [trace_field, substrate_field])
+    gmsh.model.mesh.field.setAsBackgroundMesh(background_field)
 
     interface_top_physical = gmsh.model.add_physical_group(2, [plane_top], name='interface_top')
     interface_bottom_physical = gmsh.model.add_physical_group(2, [plane_bottom], name='interface_bottom')
@@ -303,11 +364,10 @@ def traces_to_gmsh_mag(traces, mesh_out, bbox, model_name='gerbonara_board', log
     airbox_physical_surface = gmsh.model.add_physical_group(2, list(airbox_adjacent - in_bbox), name='airbox_surface')
     
     points_airbox_adjacent = {tag for _dim, tag in gmsh.model.getBoundary([(3, airbox)], recursive=True, oriented=False)}
-    print(f'{points_airbox_adjacent=}')
     points_inside = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=0)}
     #gmsh.model.mesh.setSize([(0, tag) for tag in points_airbox_adjacent - points_inside], 300e-3)
 
-    gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 32)
+    gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 12)
     gmsh.option.setNumber('Mesh.Smoothing', 10)
     gmsh.option.setNumber('Mesh.Algorithm3D', 10) # HXT
     gmsh.option.setNumber('Mesh.MeshSizeMax', 10)
@@ -393,12 +453,27 @@ def traces_to_gmsh_mag_mutual(traces, mesh_out, bbox, model_name='gerbonara_boar
     in_bbox = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x2-eps, y2-eps, z0+ab_h-eps, dim=2)}
     airbox_physical_surface = gmsh.model.add_physical_group(2, list(airbox_adjacent - in_bbox), name='airbox_surface')
     
-    points_airbox_adjacent = {tag for _dim, tag in gmsh.model.getBoundary([(3, airbox)], recursive=True, oriented=False)}
-    print(f'{points_airbox_adjacent=}')
-    points_inside = {tag for _dim, tag in gmsh.model.getEntitiesInBoundingBox(x1+eps, y1+eps, z0+eps, x1+w-eps, y1+d-eps, z0+ab_h-eps, dim=0)}
-    #gmsh.model.mesh.setSize([(0, tag) for tag in points_airbox_adjacent - points_inside], 300e-3)
+    gmsh.model.mesh.setSize(getPoints((3, airbox)), 10.0)
 
-    gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 32)
+    trace_field = gmsh.model.mesh.field.add('BoundaryLayer')
+    gmsh.model.mesh.field.setNumbers(trace_field, 'CurvesList', getCurves(toplevel_tag1, toplevel_tag2))
+    gmsh.model.mesh.field.setNumber(trace_field, 'Size', 0.5)
+    gmsh.model.mesh.field.setNumber(trace_field, 'SizeFar', 10.0)
+
+    substrate_field = gmsh.model.mesh.field.add('AttractorAnisoCurve')
+    gmsh.model.mesh.field.setNumbers(substrate_field, 'CurvesList', getCurves(substrate1, substrate2))
+    gmsh.model.mesh.field.setNumber(substrate_field, 'DistMax', 10)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'DistMin', 0)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'SizeMinNormal', board_thickness/3)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'SizeMaxNormal', 10.0)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'SizeMinTangent', 0.5)
+    gmsh.model.mesh.field.setNumber(substrate_field, 'SizeMaxTangent', 10.0)
+
+    background_field = gmsh.model.mesh.field.add('MinAniso')
+    gmsh.model.mesh.field.setNumbers(background_field, 'FieldsList', [trace_field, substrate_field])
+    gmsh.model.mesh.field.setAsBackgroundMesh(background_field)
+
+    gmsh.option.setNumber('Mesh.MeshSizeFromCurvature', 12)
     gmsh.option.setNumber('Mesh.Smoothing', 10)
     gmsh.option.setNumber('Mesh.Algorithm3D', 10)
     gmsh.option.setNumber('Mesh.MeshSizeMax', 10)
