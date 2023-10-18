@@ -62,8 +62,8 @@ tooling_border = 10 # mm
 vscore_extra = 10 # mm
 mouse_bite_width = 8 # mm
 mouse_bite_yoff = -0.00
-mouse_bite_hole_dia = 0.5
-mouse_bite_hole_spacing = 0.35
+mouse_bite_hole_dia = 0.7
+mouse_bite_hole_spacing = 0.6
 hole_offset = 5
 hole_dia = 3.2
 coil_dia = 35 # mm
@@ -195,9 +195,10 @@ def draw_corner(x0, y0, spokes):
 def make_mouse_bite(x, y, rot=0, width=mouse_bite_width, hole_dia=mouse_bite_hole_dia, hole_spacing=mouse_bite_hole_spacing, **kwargs):
 
     pitch = hole_dia + hole_spacing
-    num_holes = int(math.floor((width - hole_spacing) / pitch))
+    num_holes = int(math.floor((width - hole_dia) / pitch)) + 1
     
     actual_spacing = (width - num_holes*hole_dia) / (num_holes + 1)
+    pitch = hole_dia + actual_spacing
     
     f = fp.Footprint(name='mouse_bite', _version=None, generator=None, at=fp.AtPos(x, y, rot), **kwargs)
     for i in range(num_holes):
@@ -205,7 +206,7 @@ def make_mouse_bite(x, y, rot=0, width=mouse_bite_width, hole_dia=mouse_bite_hol
             number='1',
             type=fp.Atom.np_thru_hole,
             shape=fp.Atom.circle,
-            at=fp.AtPos(-width/2 + actual_spacing + i*pitch + hole_dia/2, 0, 0),
+            at=fp.AtPos(-width/2 + actual_spacing + hole_dia/2 + i*pitch, 0, 0),
             size=xy(hole_dia, hole_dia),
             drill=fp.Drill(diameter=hole_dia),
             footprint=f))
