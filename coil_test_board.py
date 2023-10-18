@@ -19,8 +19,8 @@ import gerbonara.cad.primitives as cad_pr
 import gerbonara.cad.kicad.graphical_primitives as kc_gr
 
 
-cols = 6
-rows = 4
+cols = 5
+rows = 5
 
 coil_specs = [
         {'n':  1, 's':  True, 't': 1, 'c': 0.20, 'w': 5.00, 'd': 3.00, 'v': 5.00},
@@ -33,23 +33,25 @@ coil_specs = [
         {'n':  1, 's': False, 't': 3, 'c': 0.20, 'w': 5.00, 'd': 3.00, 'v': 5.00},
         {'n':  2, 's': False, 't': 1, 'c': 0.20, 'w': 3.00, 'd': 1.50, 'v': 3.00},
         {'n':  3, 's': False, 't': 1, 'c': 0.20, 'w': 2.50, 'd': 1.20, 'v': 2.00},
-        {'n':  5, 's': False, 't': 1, 'c': 0.20, 'w': 2.50, 'd': 0.40, 'v': 0.80},
-        {'n': 10, 's': False, 't': 1, 'c': 0.20, 'w': 1.50, 'd': 0.30, 'v': 0.60},
+        {'n':  5, 's': False, 't': 1, 'c': 0.20, 'w': 2.50, 'd': 1.20, 'v': 0.80},
+        {'n': 10, 's': False, 't': 1, 'c': 0.20, 'w': 1.50, 'd': 0.80, 'v': 0.60},
         {'n': 25, 's': False, 't': 1, 'c': 0.15, 'w': 0.50, 'd': 0.30, 'v': 0.60},
 
         {'n':  1, 's': False, 't': 4, 'c': 0.20, 'w': 5.00, 'd': 3.00, 'v': 5.00},
         {'n':  2, 's': False, 't': 3, 'c': 0.20, 'w': 3.00, 'd': 1.50, 'v': 3.00},
         {'n':  3, 's': False, 't': 4, 'c': 0.20, 'w': 2.50, 'd': 1.20, 'v': 2.00},
-        {'n':  5, 's': False, 't': 3, 'c': 0.20, 'w': 2.50, 'd': 0.40, 'v': 0.80},
-        {'n': 10, 's': False, 't': 3, 'c': 0.20, 'w': 1.50, 'd': 0.30, 'v': 0.60},
+        {'n':  5, 's': False, 't': 3, 'c': 0.20, 'w': 2.50, 'd': 1.20, 'v': 0.80},
+        {'n': 10, 's': False, 't': 3, 'c': 0.20, 'w': 1.50, 'd': 0.80, 'v': 0.60},
         {'n': 25, 's': False, 't': 3, 'c': 0.15, 'w': 0.50, 'd': 0.30, 'v': 0.60},
 
         {'n':  1, 's': False, 't': 5, 'c': 0.20, 'w': 5.00, 'd': 3.00, 'v': 5.00},
         {'n':  2, 's': False, 't': 5, 'c': 0.20, 'w': 3.00, 'd': 1.50, 'v': 3.00},
         {'n':  3, 's': False, 't': 4, 'c': 0.20, 'w': 2.50, 'd': 1.20, 'v': 2.00},
-        {'n':  5, 's': False, 't': 7, 'c': 0.20, 'w': 2.50, 'd': 0.40, 'v': 0.80},
-        {'n': 10, 's': False, 't': 7, 'c': 0.20, 'w': 1.50, 'd': 0.30, 'v': 0.60},
+        {'n':  5, 's': False, 't': 7, 'c': 0.20, 'w': 2.50, 'd': 1.20, 'v': 0.80},
+        {'n': 10, 's': False, 't': 7, 'c': 0.20, 'w': 1.50, 'd': 0.80, 'v': 0.60},
         {'n': 25, 's': False, 't': 13, 'c': 0.15, 'w': 0.50, 'd': 0.30, 'v': 0.60},
+
+        {'n': 25, 's': False, 't': 23, 'c': 0.15, 'w': 0.50, 'd': 0.30, 'v': 0.60},
 ]
 
 cachedir = Path('/tmp/coil_test_cache')
@@ -470,15 +472,16 @@ for index, ((y, x), spec) in tqdm.tqdm(enumerate(zip(itertools.product(range(row
                 wx, wy, _r, _f = pads.pad(2).abs_pos
                 w1 = (wx + p), (wy + q)
                 w2 = (wx + p + q), (tile_y0 + tile_height/2 + cut_gap + q)
-                w5 = (x0 + total_width/2 - pad_pitch/2), (w2[1])
+                w5 = (x0 + 4*total_width/5 - coil_pitch_h/2 - pad_pitch/2), (w2[1])
                 b.add(cad_pr.Trace(join_trace_w, pads.pad(2), w5, waypoints=[w1, w2], orientation=['ccw', 'cw', 'ccw'], side='bottom'))
-            elif x == cols-1:
-                wx, wy, _r, _f = pads.pad(2).abs_pos
-                w1 = (wx + p), (wy + q)
-                w2 = (wx + p - q), (tile_y0 + tile_height/2 + cut_gap + q)
-                w5 = (x0 + total_width/2 + pad_pitch/2), (w2[1])
-                b.add(cad_pr.Trace(join_trace_w, pads.pad(2), w5, waypoints=[w1, w2], orientation=['ccw', 'ccw', 'ccw'], side='bottom'))
-                pads = make_pads(x0 + total_width/2, w5[1], 0, 2, pad_dia, pad_length, pad_drill, pad_pitch)
+
+        if y == 0 and x == cols-1:
+                wx, wy, _r, _f = pads.pad(1).abs_pos
+                w1 = (wx + p + q), (wy + q)
+                w2 = (wx + p), (x0 + tooling_border + cut_gap + coil_pitch_v*rows + q)
+                w5 = (x0 + 4*total_width/5 - coil_pitch_h/2 + pad_pitch/2), (w2[1])
+                b.add(cad_pr.Trace(join_trace_w, pads.pad(1), w5, waypoints=[w1, w2], orientation=['ccw', 'ccw', 'ccw'], side='bottom'))
+                pads = make_pads(x0 + 4*total_width/5 - coil_pitch_h/2, w5[1], 0, 2, pad_dia, pad_length, pad_drill, pad_pitch)
                 b.add(pads)
 
         k = 3
