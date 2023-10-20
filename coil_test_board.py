@@ -51,13 +51,13 @@ coil_specs = [
         {'n': 10, 's': False, 't': 7, 'c': 0.20, 'w': 1.50, 'd': 0.80, 'v': 0.60},
         {'n': 25, 's': False, 't': 13, 'c': 0.15, 'w': 0.50, 'd': 0.30, 'v': 0.60},
 
-        {'n': 25, 's': False, 't': 23, 'c': 0.15, 'w': 0.50, 'd': 0.30, 'v': 0.60},
+        {'n': 25, 's': False, 't': 37, 'c': 0.15, 'w': 0.50, 'd': 0.30, 'v': 0.60},
 ]
 
 cachedir = Path('/tmp/coil_test_cache')
 version_string = 'v1.0'
 coil_border = 7 # mm
-cut_gap = 3 # mm
+cut_gap = 8 # mm
 tooling_border = 10 # mm
 vscore_extra = 10 # mm
 mouse_bite_width = 8 # mm
@@ -74,10 +74,10 @@ pad_dia = 2.0 # mm
 pad_length = 3.5 # mm
 pad_drill = 1.1 # mm
 pad_pitch = 2.54 # mm
-vrail_width = 10 # mm
 join_trace_w = 0.150 # mm
-v_cuts = False
-mouse_bites = True
+do_v_cuts = False
+do_mouse_bites = False
+do_cut_gaps = False
 
 db = sqlite3.connect('coil_parameters.sqlite3')
 db.execute('CREATE TABLE IF NOT EXISTS runs (run_id INTEGER PRIMARY KEY, timestamp TEXT, version TEXT)')
@@ -88,13 +88,13 @@ cur.execute('INSERT INTO runs(timestamp, version) VALUES (datetime("now"), ?)', 
 run_id = cur.lastrowid
 db.commit()
 
-coil_pitch_v = coil_dia + coil_border*2 + cut_gap
-coil_pitch_h = coil_dia + coil_border*2 + 2*cut_gap + vrail_width
+tile_width = tile_height = coil_dia + 2*coil_border
+coil_pitch_v = tile_width + cut_gap
+coil_pitch_h = tile_height + cut_gap
 
-total_width = coil_pitch_h*cols + 2*tooling_border - vrail_width 
+total_width = coil_pitch_h*cols + 2*tooling_border + cut_gap
 total_height = coil_pitch_v*rows + 2*tooling_border + cut_gap
 
-tile_width = tile_height = coil_dia + 2*coil_border
 drawing_text_size = 2.0
 
 print(f'Calculated board size: {total_width:.2f} * {total_height:.2f} mm')
@@ -112,7 +112,7 @@ def do_line(x0, y0, x1, y1, off_x=0, off_y=0):
                      xy(x1+off_x, y1+off_y),
                      layer='Edge.Cuts', stroke=pcb.Stroke(width=0.15)))
 
-if v_cuts:
+if do_v_cuts:
     for y in range(rows):
         for off_y in [0, tile_height]:
             y_pos = y0 + tooling_border + cut_gap + off_y + y*coil_pitch_v
@@ -247,33 +247,45 @@ corner_y0 = y0 + tooling_border + cut_gap/2
 corner_x1 = x0 + total_width - tooling_border - cut_gap/2
 corner_y1 = y0 + total_height - tooling_border - cut_gap/2
 
-# Corners
-draw_corner(corner_x0, corner_y0, 'YNNY')
-draw_corner(corner_x0, corner_y1, 'YYNN')
-draw_corner(corner_x1, corner_y0, 'NNYY')
-draw_corner(corner_x1, corner_y1, 'NYYN')
+if do_cut_gaps:
+    # Corners
+    draw_corner(corner_x0, corner_y0, 'YNNY')
+    draw_corner(corner_x0, corner_y1, 'YYNN')
+    draw_corner(corner_x1, corner_y0, 'NNYY')
+    draw_corner(corner_x1, corner_y1, 'NYYN')
 
-# Top / bottom V rail L junctions
-for x in range(1, cols):
-    draw_corner(corner_x0 + x*coil_pitch_h - cut_gap - vrail_width, corner_y0, 'NNYY')
-    draw_corner(corner_x0 + x*coil_pitch_h, corner_y0, 'YNNY')
-
-    draw_corner(corner_x0 + x*coil_pitch_h - cut_gap - vrail_width, corner_y1, 'NYYN')
-    draw_corner(corner_x0 + x*coil_pitch_h, corner_y1, 'YYNN')
-
-# Left / right T junctions
-for y in range(1, rows):
-    draw_corner(corner_x0, corner_y0 + y*coil_pitch_v, 'YYNY')
-    draw_corner(corner_x1, corner_y0 + y*coil_pitch_v, 'NYYY')
-
-# Middle T junctions
-for y in range(1, rows):
+    # Top / bottom T junctions
     for x in range(1, cols):
-        draw_corner(corner_x0 + x*coil_pitch_h - cut_gap - vrail_width, corner_y0 + y*coil_pitch_v, 'NYYY')
-        draw_corner(corner_x0 + x*coil_pitch_h, corner_y0 + y*coil_pitch_v, 'YYNY')
+        draw_corner(corner_x0 + x*coil_pitch_h, corner_y0, 'YYNY')
+        draw_corner(corner_x0 + x*coil_pitch_h, corner_y1, 'NYYY')
+
+    # Left / right T junctions
+    for y in range(1, rows):
+        draw_corner(corner_x0, corner_y0 + y*coil_pitch_v, 'YYNY')
+        draw_corner(corner_x1, corner_y0 + y*coil_pitch_v, 'NYYY')
+
+    # Middle X junctions
+    for y in range(1, rows):
+        for x in range(1, cols):
+            draw_corner(corner_x0 + x*coil_pitch_h, corner_y0 + y*coil_pitch_v, 'YYYY')
+
+else:
+    for layer in ('F.SilkS', 'B.SilkS'):
+        for x in range(0, cols+1):
+            cx = x0 + tooling_border + cut_gap/2 + x*coil_pitch_h
+            b.add(kc_gr.Line(xy(cx, corner_y0),
+                             xy(cx, corner_y1),
+                             layer=layer, stroke=pcb.Stroke(width=0.15)))
+
+        for y in range(0, rows+1):
+            cy = y0 + tooling_border + cut_gap/2 + y*coil_pitch_v
+            b.add(kc_gr.Line(xy(corner_x0, cy),
+                             xy(corner_x1, cy),
+                             layer=layer, stroke=pcb.Stroke(width=0.15)))
+
 
 # Mouse bites
-if mouse_bites:
+if do_mouse_bites:
     for x in range(0, cols):
         for y in range(0, rows):
             tile_x0 = x0 + tooling_border + cut_gap + x*coil_pitch_h
@@ -311,13 +323,23 @@ for layer in ['F.SilkS', 'B.SilkS']:
 
 a = 3
 timestamp = datetime.datetime.now().strftime('%Y-%m-%d')
-b.add(kc_gr.Text(text=f'Planar inductor test panel {version_string} {timestamp} © 2023 Jan Götte, FG KOM, TU Darmstadt',
-                 at=pcb.AtPos(x0 + c + a/3, y0 + c + a/3),
+b.add(kc_gr.Text(text=f'Planar inductor test panel',
+                 at=pcb.AtPos(x0 + tooling_border + cut_gap/2, y0 + c + 2*a/3),
                  layer=kc_gr.TextLayer('F.SilkS'),
                  effects=pcb.TextEffect(
-                     font=pcb.FontSpec(size=xy(a, a),
+                     font=pcb.FontSpec(face="Inter Semi Bold",
+                                       size=xy(6*a/3, 6*a/3),
                                        thickness=a/5),
                      justify=pcb.Justify(h=pcb.Atom.left, v=pcb.Atom.top))))
+
+b.add(kc_gr.Text(text=f'{version_string} {timestamp} © 2023 Jan Götte, FG KOM, TU Darmstadt',
+                 at=pcb.AtPos(x0 + total_width - tooling_border - cut_gap/2, y0 + c + 4*a/3),
+                 layer=kc_gr.TextLayer('F.SilkS'),
+                 effects=pcb.TextEffect(
+                     font=pcb.FontSpec(face="Inter Light",
+                                       size=xy(a, a),
+                                       thickness=a/5),
+                     justify=pcb.Justify(h=pcb.Atom.right, v=pcb.Atom.top))))
 
 for index, ((y, x), spec) in tqdm.tqdm(enumerate(zip(itertools.product(range(rows), range(cols)), coil_specs), start=1)):
     pass
@@ -403,20 +425,31 @@ for index, ((y, x), spec) in tqdm.tqdm(enumerate(zip(itertools.product(range(row
                 db.execute('INSERT INTO results(coil_id, key, value) VALUES (?, "calculated_fill_factor", ?)', (coil_id, val))
         db.commit()
 
-        sz = 1.5
+        sz = 2
         b.add(kc_gr.Text(text='\\n'.join(t),
                          at=pcb.AtPos(tile_x0, tile_y0),
                          layer=kc_gr.TextLayer('B.SilkS'),
                          effects=pcb.TextEffect(
-                             font=pcb.FontSpec(size=xy(sz, sz),
+                             font=pcb.FontSpec(face='Inter Medium',
+                                               size=xy(sz, sz),
                                                thickness=sz/5),
                              justify=pcb.Justify(h=None, v=None, mirror=True))))
 
-        b.add(kc_gr.Text(text=f'{version_string} {timestamp}\\nTile {index}',
+        b.add(kc_gr.Text(text=f'Tile {index}',
                          at=pcb.AtPos(tile_x0, tile_y0 - tile_height/2 + sz),
                          layer=kc_gr.TextLayer('B.SilkS'),
                          effects=pcb.TextEffect(
-                             font=pcb.FontSpec(size=xy(sz, sz),
+                             font=pcb.FontSpec(face='Inter Semi Bold',
+                                               size=xy(sz, sz),
+                                               thickness=sz/5),
+                             justify=pcb.Justify(h=None, v=pcb.Atom.top, mirror=True))))
+
+        b.add(kc_gr.Text(text=f'{version_string} {timestamp}',
+                         at=pcb.AtPos(tile_x0, tile_y0 - tile_height/2 + sz*2.4),
+                         layer=kc_gr.TextLayer('B.SilkS'),
+                         effects=pcb.TextEffect(
+                             font=pcb.FontSpec(face='Inter Light',
+                                               size=xy(sz, sz),
                                                thickness=sz/5),
                              justify=pcb.Justify(h=None, v=pcb.Atom.top, mirror=True))))
 
@@ -424,7 +457,8 @@ for index, ((y, x), spec) in tqdm.tqdm(enumerate(zip(itertools.product(range(row
                          at=pcb.AtPos(tile_x0, tile_y0 - tile_height/2 + sz),
                          layer=kc_gr.TextLayer('F.SilkS'),
                          effects=pcb.TextEffect(
-                             font=pcb.FontSpec(size=xy(sz, sz),
+                             font=pcb.FontSpec(face='Inter Medium',
+                                               size=xy(sz, sz),
                                                thickness=sz/5),
                              justify=pcb.Justify(h=None, v=pcb.Atom.top, mirror=False))))
 
@@ -440,86 +474,10 @@ for index, ((y, x), spec) in tqdm.tqdm(enumerate(zip(itertools.product(range(row
         b.add(cad_pr.Trace(w, coil.pad(1), pads.pad(1), waypoints=[w1], orientation=['ccw'], side='top'))
         b.add(cad_pr.Trace(w, coil.pad(2), pads.pad(2), waypoints=[w2], orientation=['cw'], side='bottom'))
 
-        px, py, _r, _f = pads.pad(1).abs_pos
-        p1 = (px, py-mouse_bite_yoff)
-        px, py, _r, _f = pads.pad(2).abs_pos
-        p2 = (px, py+mouse_bite_yoff)
-
-        p = cut_gap + 5
-        q = 3
-        if y == 0:
-            if x > 0 and x % 2 == 1:
-                wx, wy = p1
-                w1 = (wx + p), (wy - q)
-                w2 = (tile_x0 + tile_width/2 + cut_gap), (tile_y0 - tile_height/2 - cut_gap - q)
-                w3 = (tile_x0 - coil_pitch_h + tile_width/2 + cut_gap + 2*q), (tile_y0 - tile_height/2 - cut_gap - q)
-                w4 = (wx + p - coil_pitch_h), (wy - q)
-                w5 = (wx - coil_pitch_h + 2*mouse_bite_yoff), (wy)
-                b.add(cad_pr.Trace(join_trace_w, p1, w5, waypoints=[w1, w2, w3, w4], orientation=['cw', 'cw', 'cw', 'cw'], side='top'))
-
-        else:
-            wx, wy = p1
-            w1 = (wx + p), (wy - q)
-            w2 = (wx + p), (wy - coil_pitch_v + pad_pitch + q)
-            w3 = wx, (wy - coil_pitch_v + pad_pitch + 2*mouse_bite_yoff)
-            b.add(cad_pr.Trace(join_trace_w, p1, w3, waypoints=[w1, w2], orientation=['cw', 'cw', 'cw'], side='bottom'))
-
-        if y == rows-1:
-            if x > 0 and x % 2 == 0:
-                wx, wy = p2
-                w1 = (wx + p), (wy + q)
-                w2 = (tile_x0 + tile_width/2 + cut_gap), (tile_y0 + tile_height/2 + cut_gap + q)
-                w3 = (tile_x0 - coil_pitch_h + tile_width/2 + cut_gap + 2*q), (tile_y0 + tile_height/2 + cut_gap + q)
-                w4 = (wx + p - coil_pitch_h), (wy + q)
-                w5 = (wx - coil_pitch_h + 2*mouse_bite_yoff), (wy)
-                b.add(cad_pr.Trace(join_trace_w, p2, w5, waypoints=[w1, w2, w3, w4], orientation=['ccw', 'ccw', 'ccw', 'ccw', 'cw'], side='top'))
-
-            elif x == 0:
-                wx, wy = p2
-                w1 = (wx + p), (wy + q)
-                w2 = (wx + p + q), (tile_y0 + tile_height/2 + cut_gap + q)
-                w5 = (x0 + 4*total_width/5 - coil_pitch_h/2 - pad_pitch/2), (w2[1])
-                b.add(cad_pr.Trace(join_trace_w, p2, w5, waypoints=[w1, w2], orientation=['ccw', 'cw', 'ccw'], side='bottom'))
-
-        if y == 0 and x == cols-1:
-                wx, wy = p1
-                w1 = (wx + p + q), (wy + q)
-                w2 = (wx + p), (x0 + tooling_border + cut_gap + coil_pitch_v*rows + q)
-                w5 = (x0 + 4*total_width/5 - coil_pitch_h/2 + pad_pitch/2), (w2[1])
-                b.add(cad_pr.Trace(join_trace_w, p1, w5, waypoints=[w1, w2], orientation=['ccw', 'ccw', 'ccw'], side='bottom'))
-                pads = make_pads(x0 + 4*total_width/5 - coil_pitch_h/2, w5[1], 0, 2, pad_dia, pad_length, pad_drill, pad_pitch)
-                b.add(pads)
-
         k = 3
         for layer in ['F.SilkS', 'B.SilkS']:
-            b.add(kc_gr.Rectangle(start=xy(x-k/2, y-pad_pitch-k/2), end=xy(x+k/2, y-pad_pitch), layer=layer, stroke=pcb.Stroke(width=0),
+            b.add(kc_gr.Rectangle(start=xy(wx-k/2, wy-pad_pitch-k/2), end=xy(wx+k/2, wy-pad_pitch), layer=layer, stroke=pcb.Stroke(width=0),
                                   fill=kc_gr.FillMode(pcb.Atom.solid)))
-
-b.add(pcb.Zone(layers=['F.Cu', 'B.Cu'], hatch=pcb.Hatch(),
-               min_thickness=0.25, filled_areas_thickness=False,
-               fill=pcb.ZoneFill(island_removal_mode=1, island_area_min=10),
-               polygon=pcb.ZonePolygon(pts=pcb.PointList(xy=[
-                   pcb.XYCoord(x0, y0),
-                   pcb.XYCoord(x0, y0+total_height),
-                   pcb.XYCoord(x0+total_width, y0+total_height),
-                   pcb.XYCoord(x0+total_width, y0)]))))
-
-for x in range(0, cols):
-    tile_x0 = x0 + tooling_border + cut_gap + x*coil_pitch_h
-    tile_y0 = y0 + tooling_border + cut_gap
-
-    w = coil_dia + coil_border*2
-    y1 = y0 + total_height - tooling_border - cut_gap
-
-    b.add(pcb.Zone(layers=['F.Cu', 'B.Cu'], hatch=pcb.Hatch(),
-                   min_thickness=0.25, filled_areas_thickness=False,
-                   fill=pcb.ZoneFill(island_removal_mode=1, island_area_min=10),
-                   keepout=pcb.ZoneKeepout(copperpour_allowed=False),
-                   polygon=pcb.ZonePolygon(pts=pcb.PointList(xy=[
-                       pcb.XYCoord(tile_x0, tile_y0),
-                       pcb.XYCoord(tile_x0, y1),
-                       pcb.XYCoord(tile_x0+w, y1),
-                       pcb.XYCoord(tile_x0+w, tile_y0)]))))
 
 b.write('coil_test_board.kicad_pcb')
 
