@@ -115,8 +115,9 @@ def cli():
 
 @cli.command()
 @click.option('-d', '--sim-dir', type=click.Path(dir_okay=True, file_okay=False, path_type=Path))
+@click.option('-o', '--output', type=click.Path(dir_okay=False, writable=True, path_type=Path), help='Capacitance matrix output file')
 @click.argument('mesh_file', type=click.Path(dir_okay=False, path_type=Path))
-def capacitance_matrix(mesh_file, sim_dir):
+def capacitance_matrix(mesh_file, sim_dir, output):
     physical = dict(enumerate_mesh_bodies(mesh_file))
     if sim_dir is not None:
         sim_dir = Path(sim_dir)
@@ -179,6 +180,8 @@ def capacitance_matrix(mesh_file, sim_dir):
                    stderr_log=(tmpdir / 'ElmerSolver_stderr.log'))
         
         capacitance_matrix = np.loadtxt(tmpdir / 'capacitance.txt')
+        np.savetxt(output, capacitance_matrix)
+
 
 @cli.command()
 @click.option('-d', '--sim-dir', type=click.Path(dir_okay=True, file_okay=False, path_type=Path))
@@ -500,34 +503,91 @@ def self_capacitance(mesh_file, sim_dir):
                    stdout_log=solver_stdout,
                    stderr_log=solver_stderr)
         
-        P, R, U_mag = None, None, None
+        C, U_elec = None, None
         solver_error = False
         for l in res.stdout.splitlines():
-            if (m := re.fullmatch(r'StatCurrentSolve:\s*Total Heating Power\s*:\s*([0-9.+-Ee]+)\s*', l)):
-                P = float(m.group(1))
-            elif (m := re.fullmatch(r'StatCurrentSolve:\s*Effective Resistance\s*:\s*([0-9.+-Ee]+)\s*', l)):
-                R = float(m.group(1))
-            elif (m := re.fullmatch(r'MagnetoDynamicsCalcFields:\s*ElectroMagnetic Field Energy\s*:\s*([0-9.+-Ee]+)\s*', l)):
-                U_mag = float(m.group(1))
+            if (m := re.fullmatch(r'StatElecSolve:\s*Tot. Electric Energy\s*:\s*([0-9.+-Ee]+)\s*', l)):
+                U_elec = float(m.group(1))
+            elif (m := re.fullmatch(r'StatElecSolve:\s*Capacitance\s*:\s*([0-9.+-Ee]+)\s*', l)):
+                C = float(m.group(1))
             elif re.fullmatch(r'IterSolve: Linear iteration did not converge to tolerance', l):
                 solver_error = True
 
         if solver_error:
             raise click.ClickException(f'Error: One of the solvers did not converge. See log files for details:\n{solver_stdout.absolute()}\n{solver_stderr.absolute()}')
-        elif P is None or R is None or U_mag is None:
+        elif C is None or U_elec is None:
             raise click.ClickException(f'Error during solver execution. Electrical parameters could not be calculated. See log files for details:\n{solver_stdout.absolute()}\n{solver_stderr.absolute()}')
 
-        V = math.sqrt(P*R)
-        I = math.sqrt(P/R)
-        L = 2*U_mag / (I**2)
+        print(f'Total electric field energy: {format_si(U_elec, "J")}')
+        print(f'Total parasitic capacitance: {format_si(C, "F")}')
 
-        assert math.isclose(V, 1.0, abs_tol=1e-3)
+@cli.command()
+@click.option('-d', '--sim-dir', type=click.Path(dir_okay=True, file_okay=False, path_type=Path))
+@click.option('--capacitance-matrix-file', type=click.Path(dir_okay=False, exists=True))
+@click.option('--total-inductance', type=float, required=True, help='Total inductance in Henry')
+@click.option('--total-resistance', type=float, required=True, help='Total resistance in Ohm')
+@click.option('--plot-out', type=click.Path(dir_okay=False, writable=True), help='Optional SVG plot output file')
+def resonance(sim_dir, capacitance_matrix_file, total_inductance, total_resistance, plot_out):
+    import PySpice.Unit
+    from PySpice.Spice.Library import SpiceLibrary
+    from PySpice.Spice.Netlist import Circuit
+    from PySpice.Plot.BodeDiagram import bode_diagram
+    import scipy.signal
+    from matplotlib import pyplot as plt
 
-        print(f'Total magnetic field energy: {format_si(U_mag, "J")}')
-        print(f'Reference coil current: {format_si(I, "Ω")}')
-        print(f'Coil resistance calculated by solver: {format_si(R, "Ω")}')
-        print(f'Inductance calucated from field: {format_si(L, "H")}')
+    capacitance_matrix = np.loadtxt(capacitance_matrix_file)
+    num_elements = capacitance_matrix.shape[0]
 
+    circ = Circuit('LC ladder parasitic sim')
+    inputs = 'Vplus', circ.gnd
+    coil_in = 'coil_in'
+
+    Rtest = circ.R('Rtest', inputs[0], coil_in, 50@PySpice.Unit.u_Ohm)
+
+    intermediate_nodes = [f'intermediate{i}' for i in range(num_elements-1)]
+    inductor_nodes = [(a, b) for a, b in zip([coil_in, *intermediate_nodes], [*intermediate_nodes, inputs[1]])]
+    inductor_midpoints = [f'midpoint{i}' for i in range(num_elements)]
+
+    circ.SinusoidalVoltageSource('input', inputs[0], inputs[1], amplitude=1@PySpice.Unit.u_V)
+
+    for i, ((a, b), m) in enumerate(zip(inductor_nodes, inductor_midpoints)):
+        L = total_inductance / num_elements / 2
+        R = total_resistance / num_elements / 2
+        circ.L(f'L{i}A', a, f'R{i}A1', L@PySpice.Unit.u_H)
+        circ.R(f'R{i}A', f'R{i}A1', m, R@PySpice.Unit.u_Ohm)
+        circ.R(f'R{i}B', m, f'R{i}B1', R@PySpice.Unit.u_Ohm)
+        circ.L(f'L{i}B', f'R{i}B1', b, L@PySpice.Unit.u_H)
+
+    for i in range(num_elements):
+        for j in range(i):
+            circ.C(f'C{i}_{j}', inductor_midpoints[i], inductor_midpoints[j], capacitance_matrix[i, j]@PySpice.Unit.u_F)
+
+    sim = circ.simulator(temperature=25, nominal_temperature=25)
+    ana = sim.ac(start_frequency=10@PySpice.Unit.u_kHz, stop_frequency=1000@PySpice.Unit.u_MHz, number_of_points=1000,  variation='dec')
+    figure, axs = plt.subplots(2, figsize=(20, 10), sharex=True)
+
+    freq = ana.frequency
+    gain = 20*np.log10(np.absolute(ana.coil_in))
+
+    peaks, peak_props = scipy.signal.find_peaks(-gain, height=20)
+    for peak in peaks[:3]:
+            print(f'Resonance at {float(freq[peak])/1e6:.3f} MHz')
+    
+    if plot_out:
+        plt.title("Bode Diagram of a Low-Pass RC Filter")
+        bode_diagram(axes=axs,
+                     frequency=freq,
+                     gain=gain,
+                     phase=np.angle(ana.coil_in, deg=False),
+                     linestyle='-',
+        )
+
+        for peak in peaks[:3]:
+            for ax in axs:
+                ax.axvline(float(freq[peak]), color='red', alpha=0.5)
+
+        plt.tight_layout()
+        plt.savefig(plot_out)
 
 
 if __name__ == '__main__':
