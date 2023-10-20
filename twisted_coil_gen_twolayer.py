@@ -233,13 +233,12 @@ def _gmsh_coil_inductance_geometry(traces, mesh_out, bbox, copper_thickness, boa
             
         for elem in tr:
             if isinstance(elem, kicad_pcb.Via):
-                cylinder_tag = occ.addCylinder(elem.at.x, elem.at.y, 0, 0, 0, -board_thickness, elem.drill)
+                cylinder_tag = occ.addCylinder(elem.at.x, elem.at.y, 0, 0, 0, -board_thickness, elem.drill/2)
                 tags.append(cylinder_tag)
                 occ.synchronize()
 
         if len(tags) > 1:
             print('fusing', tags)
-            gmsh.write('/tmp/test_foo.geo_unrolled')
             tags, tag_map = occ.fuse([(3, tags[0])], [(3, tag) for tag in tags[1:]])
             print(tags)
 

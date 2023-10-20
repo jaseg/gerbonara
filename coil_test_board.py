@@ -61,9 +61,9 @@ cut_gap = 3 # mm
 tooling_border = 10 # mm
 vscore_extra = 10 # mm
 mouse_bite_width = 8 # mm
-mouse_bite_yoff = -0.00
+mouse_bite_yoff = 0.175
 mouse_bite_hole_dia = 0.7
-mouse_bite_hole_spacing = 0.6
+mouse_bite_hole_spacing = 0.7
 hole_offset = 5
 hole_dia = 3.2
 coil_dia = 35 # mm
@@ -75,9 +75,9 @@ pad_length = 3.5 # mm
 pad_drill = 1.1 # mm
 pad_pitch = 2.54 # mm
 vrail_width = 10 # mm
-join_trace_w = 0.35 # mm
-v_cuts = False # FIXME DEBUG
-mouse_bites = True # FIXME DEBUG
+join_trace_w = 0.150 # mm
+v_cuts = False
+mouse_bites = True
 
 db = sqlite3.connect('coil_parameters.sqlite3')
 db.execute('CREATE TABLE IF NOT EXISTS runs (run_id INTEGER PRIMARY KEY, timestamp TEXT, version TEXT)')
@@ -197,7 +197,7 @@ def make_mouse_bite(x, y, rot=0, width=mouse_bite_width, hole_dia=mouse_bite_hol
     pitch = hole_dia + hole_spacing
     num_holes = int(math.floor((width - hole_dia) / pitch)) + 1
     
-    actual_spacing = (width - num_holes*hole_dia) / (num_holes + 1)
+    actual_spacing = (width - num_holes*hole_dia) / (num_holes - 1)
     pitch = hole_dia + actual_spacing
     
     f = fp.Footprint(name='mouse_bite', _version=None, generator=None, at=fp.AtPos(x, y, rot), **kwargs)
@@ -206,7 +206,7 @@ def make_mouse_bite(x, y, rot=0, width=mouse_bite_width, hole_dia=mouse_bite_hol
             number='1',
             type=fp.Atom.np_thru_hole,
             shape=fp.Atom.circle,
-            at=fp.AtPos(-width/2 + actual_spacing + hole_dia/2 + i*pitch, 0, 0),
+            at=fp.AtPos(-width/2 + i*pitch + hole_dia/2, 0, 0),
             size=xy(hole_dia, hole_dia),
             drill=fp.Drill(diameter=hole_dia),
             footprint=f))
@@ -282,7 +282,7 @@ if mouse_bites:
             b.add(make_mouse_bite(tile_x0 + tile_width/2, tile_y0 - mouse_bite_hole_dia/2, 0))
             b.add(make_mouse_bite(tile_x0 + tile_width/2, tile_y0 + tile_height + mouse_bite_hole_dia/2, 0))
             b.add(make_mouse_bite(tile_x0 - mouse_bite_hole_dia/2, tile_y0 + tile_height/2, 90))
-            b.add(make_mouse_bite(tile_x0 + tile_width + mouse_bite_hole_dia/2, tile_y0 + tile_height/2 + mouse_bite_yoff, 90))
+            b.add(make_mouse_bite(tile_x0 + tile_width + mouse_bite_hole_dia/2, tile_y0 + tile_height/2, 90))
 
 # Mounting holes
 for x in range(0, cols):
@@ -440,48 +440,53 @@ for index, ((y, x), spec) in tqdm.tqdm(enumerate(zip(itertools.product(range(row
         b.add(cad_pr.Trace(w, coil.pad(1), pads.pad(1), waypoints=[w1], orientation=['ccw'], side='top'))
         b.add(cad_pr.Trace(w, coil.pad(2), pads.pad(2), waypoints=[w2], orientation=['cw'], side='bottom'))
 
+        px, py, _r, _f = pads.pad(1).abs_pos
+        p1 = (px, py-mouse_bite_yoff)
+        px, py, _r, _f = pads.pad(2).abs_pos
+        p2 = (px, py+mouse_bite_yoff)
+
         p = cut_gap + 5
         q = 3
         if y == 0:
             if x > 0 and x % 2 == 1:
-                wx, wy, _r, _f = pads.pad(1).abs_pos
+                wx, wy = p1
                 w1 = (wx + p), (wy - q)
                 w2 = (tile_x0 + tile_width/2 + cut_gap), (tile_y0 - tile_height/2 - cut_gap - q)
                 w3 = (tile_x0 - coil_pitch_h + tile_width/2 + cut_gap + 2*q), (tile_y0 - tile_height/2 - cut_gap - q)
                 w4 = (wx + p - coil_pitch_h), (wy - q)
-                w5 = (wx - coil_pitch_h), (wy)
-                b.add(cad_pr.Trace(join_trace_w, pads.pad(1), w5, waypoints=[w1, w2, w3, w4], orientation=['cw', 'cw', 'cw', 'cw'], side='top'))
+                w5 = (wx - coil_pitch_h + 2*mouse_bite_yoff), (wy)
+                b.add(cad_pr.Trace(join_trace_w, p1, w5, waypoints=[w1, w2, w3, w4], orientation=['cw', 'cw', 'cw', 'cw'], side='top'))
 
         else:
-            wx, wy, _r, _f = pads.pad(1).abs_pos
+            wx, wy = p1
             w1 = (wx + p), (wy - q)
             w2 = (wx + p), (wy - coil_pitch_v + pad_pitch + q)
-            w3 = wx, (wy - coil_pitch_v + pad_pitch)
-            b.add(cad_pr.Trace(join_trace_w, pads.pad(1), w3, waypoints=[w1, w2], orientation=['cw', 'cw', 'cw'], side='bottom'))
+            w3 = wx, (wy - coil_pitch_v + pad_pitch + 2*mouse_bite_yoff)
+            b.add(cad_pr.Trace(join_trace_w, p1, w3, waypoints=[w1, w2], orientation=['cw', 'cw', 'cw'], side='bottom'))
 
         if y == rows-1:
             if x > 0 and x % 2 == 0:
-                wx, wy, _r, _f = pads.pad(2).abs_pos
+                wx, wy = p2
                 w1 = (wx + p), (wy + q)
                 w2 = (tile_x0 + tile_width/2 + cut_gap), (tile_y0 + tile_height/2 + cut_gap + q)
                 w3 = (tile_x0 - coil_pitch_h + tile_width/2 + cut_gap + 2*q), (tile_y0 + tile_height/2 + cut_gap + q)
                 w4 = (wx + p - coil_pitch_h), (wy + q)
-                w5 = (wx - coil_pitch_h), (wy)
-                b.add(cad_pr.Trace(join_trace_w, pads.pad(2), w5, waypoints=[w1, w2, w3, w4], orientation=['ccw', 'ccw', 'ccw', 'ccw', 'cw'], side='top'))
+                w5 = (wx - coil_pitch_h + 2*mouse_bite_yoff), (wy)
+                b.add(cad_pr.Trace(join_trace_w, p2, w5, waypoints=[w1, w2, w3, w4], orientation=['ccw', 'ccw', 'ccw', 'ccw', 'cw'], side='top'))
 
             elif x == 0:
-                wx, wy, _r, _f = pads.pad(2).abs_pos
+                wx, wy = p2
                 w1 = (wx + p), (wy + q)
                 w2 = (wx + p + q), (tile_y0 + tile_height/2 + cut_gap + q)
                 w5 = (x0 + 4*total_width/5 - coil_pitch_h/2 - pad_pitch/2), (w2[1])
-                b.add(cad_pr.Trace(join_trace_w, pads.pad(2), w5, waypoints=[w1, w2], orientation=['ccw', 'cw', 'ccw'], side='bottom'))
+                b.add(cad_pr.Trace(join_trace_w, p2, w5, waypoints=[w1, w2], orientation=['ccw', 'cw', 'ccw'], side='bottom'))
 
         if y == 0 and x == cols-1:
-                wx, wy, _r, _f = pads.pad(1).abs_pos
+                wx, wy = p1
                 w1 = (wx + p + q), (wy + q)
                 w2 = (wx + p), (x0 + tooling_border + cut_gap + coil_pitch_v*rows + q)
                 w5 = (x0 + 4*total_width/5 - coil_pitch_h/2 + pad_pitch/2), (w2[1])
-                b.add(cad_pr.Trace(join_trace_w, pads.pad(1), w5, waypoints=[w1, w2], orientation=['ccw', 'ccw', 'ccw'], side='bottom'))
+                b.add(cad_pr.Trace(join_trace_w, p1, w5, waypoints=[w1, w2], orientation=['ccw', 'ccw', 'ccw'], side='bottom'))
                 pads = make_pads(x0 + 4*total_width/5 - coil_pitch_h/2, w5[1], 0, 2, pad_dia, pad_length, pad_drill, pad_pitch)
                 b.add(pads)
 
