@@ -530,7 +530,7 @@ def svg_arc(old, new, center, clockwise):
                f'A {r:.6} {r:.6} 0 1 {sweep_flag} {float(new[0]):.6} {float(new[1]):.6}'
 
     else: # normal case
-        d = point_line_distance(old, new, center[0], center[1])
+        d = point_line_distance(old, new, (center[0], center[1]))
         large_arc = int((d < 0) == clockwise)
         return f'A {r:.6} {r:.6} 0 {large_arc} {sweep_flag} {float(new[0]):.6} {float(new[1]):.6}'
 

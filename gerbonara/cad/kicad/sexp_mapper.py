@@ -159,6 +159,8 @@ class Rename(WrapperType):
     def __bind_field__(self, field):
         if self.name_atom is None:
             self.name_atom = Atom(field.name)
+        if hasattr(self.next_type, '__bind_field__'):
+            self.next_type.__bind_field__(field)
 
     def __map__(self, obj, parent=None):
         return map_sexp(self.next_type, obj, parent=parent)
@@ -228,106 +230,6 @@ class Untagged(WrapperType):
         for inner in sexp(self.next_type, value):
             _tag, *rest = inner
             yield rest
-
-
-class List(WrapperType):
-    def __bind_field__(self, field):
-        self.attr = field.name
-
-    def __map__(self, value, parent):
-        l = getattr(parent, self.attr, [])
-        mapped = map_sexp(self.next_type, value, parent=parent)
-        l.append(mapped)
-        setattr(parent, self.attr, l)
-
-    def __sexp__(self, value):
-        for elem in value:
-            yield from sexp(self.next_type, elem)
-
-
-class _SexpTemplate:
-    @staticmethod
-    def __atoms__(kls):
-        return [kls.name_atom]
-
-    @staticmethod
-    def __map__(kls, value, *args, parent=None, **kwargs):
-        positional = iter(kls.positional)
-        inst = kls(*args, **kwargs)
-
-        for v in value[1:]: # skip key
-            if isinstance(v, Atom) and v in kls.keys:
-                name, etype = kls.keys[v]
-                mapped = map_sexp(etype, [v], parent=inst)
-                if mapped is not None:
-                    setattr(inst, name, mapped)
-
-            elif isinstance(v, list):
-                name, etype = kls.keys[v[0]]
-                mapped = map_sexp(etype, v, parent=inst)
-                if mapped is not None:
-                    setattr(inst, name, mapped)
-
-            else:
-                try:
-                    pos_key = next(positional)
-                    setattr(inst, pos_key.name, v)
-                except StopIteration:
-                    raise TypeError(f'Unhandled positional argument {v!r} while parsing {kls}')
-
-        getattr(inst, '__after_parse__', lambda x: None)(parent)
-        return inst
-
-    @staticmethod
-    def __sexp__(kls, value):
-        getattr(value, '__before_sexp__', lambda: None)()
-
-        out = [kls.name_atom]
-        for f in fields(kls):
-            if f.type is SEXP_END:
-                break
-            out += sexp(f.type, getattr(value, f.name))
-        yield out
-
-    @staticmethod
-    def parse(kls, data, *args, **kwargs):
-        return kls.__map__(parse_sexp(data), *args, **kwargs)
-
-    @staticmethod
-    def sexp(self):
-        return next(self.__sexp__(self))
-
-
-def sexp_type(name=None):
-    def register(cls):
-        cls = dataclass(cls)
-        cls.name_atom = Atom(name) if name is not None else None
-        for key in '__sexp__', '__map__', '__atoms__', 'parse':
-            if not hasattr(cls, key):
-                setattr(cls, key, classmethod(getattr(_SexpTemplate, key)))
-
-        if not hasattr(cls, 'sexp'):
-            setattr(cls, 'sexp', getattr(_SexpTemplate, 'sexp'))
-        cls.positional = []
-        cls.keys = {}
-        for f in fields(cls):
-            f_type = f.type
-            if f_type is SEXP_END:
-                break
-
-            if hasattr(f_type, '__bind_field__'):
-                f_type.__bind_field__(f)
-
-            atoms = getattr(f_type, '__atoms__', lambda: [])
-            atoms = list(atoms())
-            for atom in atoms:
-                cls.keys[atom] = (f.name, f_type)
-            if not atoms:
-                cls.positional.append(f)
-
-        return cls
-    return register
-
 
 class List(WrapperType):
     def __bind_field__(self, field):
@@ -405,7 +307,6 @@ class _SexpTemplate:
         # Even during a shallow copy, we need to deep copy any fields whose types have a __before_sexp__ method to avoid
         # those from being called more than once on the same object.
         return replace(self, **{f.name: copy.copy(getattr(self, f.name)) for f in fields(self) if not f.kw_only and hasattr(f.type, '__before_sexp__')})
-
 
 def sexp_type(name=None):
     def register(cls):

@@ -736,7 +736,7 @@ class LayerStack:
         tags = []
         layer_transform = f'translate(0 {bounds[0][1] + bounds[1][1]}) scale(1 -1)'
         for (side, use), layer in reversed(self.graphic_layers.items()):
-            if re.match(side_re, side) and (fg := colors.get(f'{side} {use}')):
+            if re.fullmatch(side_re, side) and (fg := colors.get(f'{side} {use}')):
                 tags.append(tag('g', list(layer.svg_objects(svg_unit=svg_unit, fg=fg, bg="white", tag=Tag)),
                         **stroke_attrs, id=f'l-{side}-{use}', transform=layer_transform))
 

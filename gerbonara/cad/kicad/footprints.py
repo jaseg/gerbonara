@@ -105,7 +105,7 @@ class Line:
         dasher.line(self.end.x, self.end.y)
 
         for x1, y1, x2, y2 in dasher:
-            yield go.Line(x1, y1, x2, y2, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
+            yield go.Line(x1, -y1, x2, -y2, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
 
 
 @sexp_type('fp_rect')
@@ -127,7 +127,7 @@ class Rectangle:
         w, h = x2-x1, y2-y1
 
         if self.fill == Atom.solid:
-            yield go.Region.from_rectangle(x1, y1, w, h, unit=MM)
+            yield go.Region.from_rectangle(x1, -y1, w, h, unit=MM)
 
         dasher = Dasher(self)
         dasher.move(x1, y1)
@@ -138,7 +138,7 @@ class Rectangle:
 
         aperture = ap.CircleAperture(dasher.width, unit=MM)
         for x1, y1, x2, y2 in dasher:
-            yield go.Line(x1, y1, x2, y2, aperture=aperture, unit=MM)
+            yield go.Line(x1, -y1, x2, -y2, aperture=aperture, unit=MM)
 
 
 @sexp_type('fp_circle')
@@ -159,7 +159,7 @@ class Circle:
         dasher = Dasher(self)
         aperture = ap.CircleAperture(dasher.width or 0, unit=MM)
 
-        circle = go.Arc.from_circle(x, y, r, aperture=aperture, unit=MM)
+        circle = go.Arc.from_circle(x, -y, r, aperture=aperture, unit=MM)
 
         if self.fill == Atom.solid:
             yield circle.to_region()
@@ -173,7 +173,7 @@ class Circle:
 
             aperture = ap.CircleAperture(dasher.width, unit=MM)
             for x1, y1, x2, y2 in dasher:
-                yield go.Line(x1, y1, x2, y2, aperture=aperture, unit=MM)
+                yield go.Line(x1, -y1, x2, -y2, aperture=aperture, unit=MM)
 
 
 @sexp_type('fp_arc')
@@ -201,7 +201,7 @@ class Arc:
         if math.isclose(x1, x2, abs_tol=1e-6) and math.isclose(y1, y2, abs_tol=1e-6):
             cx = (x1 + mx) / 2
             cy = (y1 + my) / 2
-            arc = go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, clockwise=True, aperture=aperture, unit=MM)
+            arc = go.Arc(x1, -y1, x2, -y2, cx-x1, -(cy-y1), clockwise=True, aperture=aperture, unit=MM)
             if dasher.solid:
                 yield arc
 
@@ -211,7 +211,7 @@ class Arc:
                     dasher.segments.append((line.x1, line.y1, line.x2, line.y2))
                 
                 for line in dasher:
-                    yield go.Line(x1, y1, x2, y2, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
+                    yield go.Line(x1, -y1, x2, -y2, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
 
         else:
             # https://stackoverflow.com/questions/56224824/how-do-i-find-the-circumcenter-of-the-triangle-using-python-without-external-lib
@@ -220,7 +220,7 @@ class Arc:
             cy = ((x1 * x1 + y1 * y1) * (mx - x2) + (x2 * x2 + y2 * y2) * (x1 - mx) + (mx * mx + my * my) * (x2 - x1)) / d
 
         # KiCad only has clockwise arcs.
-        arc = go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, clockwise=False, aperture=aperture, unit=MM)
+        arc = go.Arc(x1, -y1, x2, -y2, cx-x1, -(cy-y1), clockwise=False, aperture=aperture, unit=MM)
         if dasher.solid:
             yield arc
 
@@ -230,7 +230,7 @@ class Arc:
                 dasher.segments.append((line.x1, line.y1, line.x2, line.y2))
             
             for line in dasher:
-                yield go.Line(x1, y1, x2, y2, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
+                yield go.Line(x1, -y1, x2, -y2, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
 
 
 @sexp_type('fp_poly')
@@ -249,16 +249,16 @@ class Polygon:
 
         dasher = Dasher(self)
         start = self.pts.xy[0]
-        dasher.move(start.x, start.y)
+        dasher.move(start.x, -start.y)
         for point in self.pts.xy[1:]:
             dasher.line(point.x, point.y)
 
         aperture = ap.CircleAperture(dasher.width, unit=MM)
         for x1, y1, x2, y2 in dasher:
-            yield go.Line(x1, y1, x2, y2, aperture=aperture, unit=MM)
+            yield go.Line(x1, -y1, x2, -y2, aperture=aperture, unit=MM)
 
         if self.fill == Atom.solid:
-            yield go.Region([(pt.x, pt.y) for pt in self.pts.xy], unit=MM)
+            yield go.Region([(pt.x, -pt.y) for pt in self.pts.xy], unit=MM)
 
 
 @sexp_type('fp_curve')
@@ -449,7 +449,7 @@ class Pad:
         else:
             aperture = self.aperture(margin)
 
-        yield go.Flash(self.at.x+ox, self.at.y+oy, aperture, unit=MM)
+        yield go.Flash(self.at.x+ox, -(self.at.y+oy), aperture, unit=MM)
 
     def aperture(self, margin=None):
         rotation = math.radians(self.at.rotation)
@@ -581,14 +581,14 @@ class Pad:
                 dy = 0
 
             aperture = ap.ExcellonTool(min(dia, w), plated=plated, unit=MM)
-            l = go.Line(ox-dx, oy-dy, ox+dx, oy+dy, aperture=aperture, unit=MM) 
+            l = go.Line(ox-dx, -(oy-dy), ox+dx, -(oy+dy), aperture=aperture, unit=MM) 
             l.rotate(math.radians(self.at.rotation))
-            l.offset(self.at.x, self.at.y)
+            l.offset(self.at.x, -self.at.y)
             yield l
 
         else:
             aperture = ap.ExcellonTool(self.drill.diameter, plated=plated, unit=MM)
-            yield go.Flash(self.at.x, self.at.y, aperture=aperture, unit=MM) 
+            yield go.Flash(self.at.x, -self.at.y, aperture=aperture, unit=MM) 
 
 
 @sexp_type('model')
@@ -907,7 +907,7 @@ class Footprint:
 
             for fe in obj.render(variables=variables):
                 fe.rotate(rotation)
-                fe.offset(x, y, MM)
+                fe.offset(x, -y, MM)
                 layer_stack[layer].objects.append(fe)
 
         for obj in self.pads:
@@ -939,7 +939,7 @@ class Footprint:
 
                     for fe in obj.render(margin=margin, cache=cache):
                         fe.rotate(rotation)
-                        fe.offset(x, y, MM)
+                        fe.offset(x, -y, MM)
                         if isinstance(fe, go.Flash) and fe.aperture:
                             fe.aperture = fe.aperture.rotated(rotation)
                         layer_stack[layer_map[layer]].objects.append(fe)
@@ -947,7 +947,7 @@ class Footprint:
         for obj in self.pads:
             for fe in obj.render_drill():
                 fe.rotate(rotation)
-                fe.offset(x, y, MM)
+                fe.offset(x, -y, MM)
 
                 if obj.type == Atom.np_thru_hole:
                     layer_stack.drill_npth.append(fe)

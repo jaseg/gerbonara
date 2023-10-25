@@ -501,7 +501,7 @@ class Symbol:
     power: Wrap(Flag()) = False
     pin_numbers: OmitDefault(PinNumberSpec) = field(default_factory=PinNumberSpec)
     pin_names: OmitDefault(PinNameSpec) = field(default_factory=PinNameSpec)
-    exclude_from_sim: Named(YesNoAtom()) = False
+    exclude_from_sim: OmitDefault(Named(YesNoAtom())) = False
     in_bom: Named(YesNoAtom()) = True
     on_board: Named(YesNoAtom()) = True
     properties: List(Property) = field(default_factory=list)

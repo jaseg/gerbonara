@@ -194,9 +194,9 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
     stack.add_layer('mechanical drawings')
     stack.add_layer('mechanical comments')
     fp.render(stack)
-    color_map = {gn_id: KICAD_LAYER_COLORS[kicad_id] for gn_id, kicad_id in LAYER_MAP_G2K.items()}
-    color_map[('drill', 'pth')] = (255, 255, 255, 1)
-    color_map[('drill', 'npth')] = (255, 255, 255, 1)
+    color_map = {f'{side} {use}': KICAD_LAYER_COLORS[kicad_id] for (side, use), kicad_id in LAYER_MAP_G2K.items()}
+    color_map['drill pth'] = (255, 255, 255, 1)
+    color_map['drill npth'] = (255, 255, 255, 1)
     # Remove alpha since overlaid shapes won't work correctly with non-1 alpha without complicated svg filter hacks
     color_map = {key: (f'#{r:02x}{g:02x}{b:02x}', '1') for key, (r, g, b, _a) in color_map.items()}
 
@@ -223,7 +223,7 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
     print_on_error('Gerbonara bounds:', bounds, f'w={w:.6f}', f'h={h:.6f}')
 
     out_svg = tmpfile('Output', '.svg')
-    out_svg.write_text(str(stack.to_svg(color_map=color_map, force_bounds=bounds, margin=margin)))
+    out_svg.write_text(str(stack.to_svg(colors=color_map, force_bounds=bounds, margin=margin)))
 
     print_on_error('Input footprint:', kicad_mod_file)
     ref_svg = tmpfile('Reference render', '.svg')

@@ -165,11 +165,10 @@ class ArcPoly(GraphicPrimitive):
 
         yield f'M {float(self.outline[0][0]):.6} {float(self.outline[0][1]):.6}'
 
-        for old, new, arc in self.segments:
-            if not arc:
+        for old, new, (clockwise, center) in self.segments:
+            if clockwise is None:
                 yield f'L {float(new[0]):.6} {float(new[1]):.6}'
             else:
-                clockwise, center = arc
                 yield svg_arc(old, new, center, clockwise)
 
     def to_svg(self, fg='black', bg='white', tag=Tag):

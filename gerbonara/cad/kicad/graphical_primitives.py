@@ -53,7 +53,7 @@ class TextBox:
             raise ValueError('Vector font text with empty render cache')
 
         for poly in render_cache.polygons:
-            reg = go.Region([(p.x, p.y) for p in poly.pts.xy], unit=MM)
+            reg = go.Region([(p.x, -p.y) for p in poly.pts.xy], unit=MM)
 
             if self.stroke:
                 if self.stroke.type not in (None, Atom.default, Atom.solid):
@@ -91,7 +91,7 @@ class Line:
         dasher.line(self.end.x, self.end.y)
 
         for x1, y1, x2, y2 in dasher:
-            yield go.Line(x1, y1, x2, y2, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
+            yield go.Line(x1, -y1, x2, -y2, aperture=ap.CircleAperture(dasher.width, unit=MM), unit=MM)
         # FIXME render all primitives using dasher, maybe share code w/ fp_ prefix primitives
 
     def offset(self, x=0, y=0):
@@ -105,11 +105,11 @@ class FillMode:
     fill: AtomChoice(Atom.solid, Atom.yes, Atom.no, Atom.none) = False
 
     @classmethod
-    def __map__(self, obj, parent=None):
+    def __map__(kls, obj, parent=None):
         return obj[1] in (Atom.solid, Atom.yes)
 
     @classmethod
-    def __sexp__(self, value):
+    def __sexp__(kls, value):
         yield [Atom.fill, Atom.solid if value else Atom.none]
 
 @sexp_type('gr_rect')
@@ -123,8 +123,8 @@ class Rectangle:
     tstamp: Timestamp = None
 
     def render(self, variables=None):
-        rect = go.Region.from_rectangle(self.start.x, self.start.y,
-                                       self.end.x-self.start.x, self.end.y-self.start.y,
+        rect = go.Region.from_rectangle(self.start.x, -self.start.y,
+                                       self.end.x-self.start.x, -(self.end.y-self.start.y),
                                        unit=MM)
 
         if self.fill:
@@ -155,9 +155,9 @@ class Circle:
     tstamp: Timestamp = None
 
     def render(self, variables=None):
-        r = math.dist((self.center.x, self.center.y), (self.end.x, self.end.y))
+        r = math.dist((self.center.x, -self.center.y), (self.end.x, -self.end.y))
         aperture = ap.CircleAperture(self.width or 0, unit=MM)
-        arc = go.Arc.from_circle(self.center.x, self.center.y, r, aperture=aperture, unit=MM)
+        arc = go.Arc.from_circle(self.center.x, -self.center.y, r, aperture=aperture, unit=MM)
 
         if self.width:
             # FIXME stroke support
@@ -186,8 +186,11 @@ class Arc:
     def __post_init__(self):
         self.start = XYCoord(self.start)
         self.end = XYCoord(self.end)
-        self.mid = XYCoord(self.mid) if self.mid else center_arc_to_kicad_mid(XYCoord(self.center), self.start, self.end)
-        self.center = None
+        if self.mid or self.center is None:
+            self.mid = XYCoord(self.mid)
+        elif self.center:
+            self.mid = center_arc_to_kicad_mid(XYCoord(self.center), self.start, self.end)
+            self.center = None
 
     def rotate(self, angle, cx=None, cy=None):
         self.start.x, self.start.y = rotate_point(self.start.x, self.start.y, angle, cx, cy)
@@ -203,7 +206,7 @@ class Arc:
         cx, cy = self.mid.x, self.mid.y
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
-        yield go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, aperture=aperture, clockwise=True, unit=MM)
+        yield go.Arc(x1, -y1, x2, -y2, cx-x1, -(cy-y1), aperture=aperture, clockwise=True, unit=MM)
 
     def offset(self, x=0, y=0):
         self.start = self.start.with_offset(x, y)
@@ -213,7 +216,7 @@ class Arc:
 
 @sexp_type('gr_poly')
 class Polygon:
-    pts: PointList = field(default_factory=PointList)
+    pts: ArcPointList = field(default_factory=list)
     layer: Named(str) = None
     width: Named(float) = None
     stroke: Stroke = field(default_factory=Stroke)
@@ -221,7 +224,7 @@ class Polygon:
     tstamp: Timestamp = None
 
     def render(self, variables=None):
-        reg = go.Region([(pt.x, pt.y) for pt in self.pts.xy], unit=MM)
+        reg = go.Region([(pt.x, -pt.y) for pt in self.pts.xy], unit=MM)
         
         # FIXME stroke support
         if self.width and self.width >= 0.005 or self.stroke.width and self.stroke.width > 0.005:

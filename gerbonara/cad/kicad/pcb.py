@@ -180,7 +180,7 @@ class TrackSegment:
             return
 
         aperture = ap.CircleAperture(self.width, unit=MM)
-        yield go.Line(self.start.x, self.start.y, self.end.x, self.end.y, aperture=aperture, unit=MM)
+        yield go.Line(self.start.x, -self.start.y, self.end.x, -self.end.y, aperture=aperture, unit=MM)
 
     def rotate(self, angle, cx=None, cy=None):
         if cx is None or cy is None:
@@ -225,7 +225,7 @@ class TrackArc:
         cx, cy = self.mid.x, self.mid.y
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
-        yield go.Arc(x1, y1, x2, y2, cx-x1, cy-y1, aperture=aperture, clockwise=True, unit=MM)
+        yield go.Arc(x1, -y1, x2, -y2, cx-x1, -(cy-y1), aperture=aperture, clockwise=True, unit=MM)
 
     def rotate(self, angle, cx=None, cy=None):
         self.start.x, self.start.y = rotate_point(self.start.x, self.start.y, angle, cx, cy)
@@ -287,11 +287,11 @@ class Via:
 
     def render_drill(self):
         aperture = ap.ExcellonTool(self.drill, plated=True, unit=MM)
-        yield go.Flash(self.at.x, self.at.y, aperture=aperture, unit=MM) 
+        yield go.Flash(self.at.x, -self.at.y, aperture=aperture, unit=MM) 
 
     def render(self, variables=None, cache=None):
         aperture = ap.CircleAperture(self.size, unit=MM)
-        yield go.Flash(self.at.x, self.at.y, aperture, unit=MM)
+        yield go.Flash(self.at.x, -self.at.y, aperture, unit=MM)
 
     def rotate(self, angle, cx=None, cy=None):
         if cx is None or cy is None:
@@ -763,7 +763,7 @@ class Board:
 
             for fe in obj.render(variables=variables):
                 fe.rotate(rotation)
-                fe.offset(x, y, MM)
+                fe.offset(x, -y, MM)
                 layer_stack[layer].objects.append(fe)
 
         for obj in self.vias:
@@ -771,13 +771,13 @@ class Board:
                 for layer in fnmatch.filter(layer_map, glob):
                     for fe in obj.render(cache=cache):
                         fe.rotate(rotation)
-                        fe.offset(x, y, MM)
+                        fe.offset(x, -y, MM)
                         fe.aperture = fe.aperture.rotated(rotation)
                         layer_stack[layer_map[layer]].objects.append(fe)
 
             for fe in obj.render_drill():
                 fe.rotate(rotation)
-                fe.offset(x, y, MM)
+                fe.offset(x, -y, MM)
                 layer_stack.drill_pth.append(fe)
 
     def bounding_box(self, unit=MM):

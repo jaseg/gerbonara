@@ -196,8 +196,10 @@ class XYCoord:
     x: float = 0
     y: float = 0
 
-    def __init__(self, x=0, y=0):
-        if isinstance(x, XYCoord):
+    def __init__(self, x=None, y=None):
+        if x is None:
+            self.x, self.y = None, None
+        elif isinstance(x, XYCoord):
             self.x, self.y = x.x, x.y
         elif isinstance(x, (tuple, list)):
             self.x, self.y = x
@@ -225,6 +227,25 @@ class XYCoord:
 @sexp_type('pts')
 class PointList:
     xy : List(XYCoord) = field(default_factory=list)
+
+
+@sexp_type('arc')
+class Arc:
+    start: Rename(XYCoord) = None
+    mid: Rename(XYCoord) = None
+    end: Rename(XYCoord) = None
+
+
+@sexp_type('pts')
+class ArcPointList:
+    @classmethod
+    def __map__(kls, obj, parent=None):
+        _tag, *values = obj
+        return [map_sexp((XYCoord if elem[0] == 'xy' else Arc), elem, parent=parent) for elem in values]
+
+    @classmethod
+    def __sexp__(kls, value):
+        yield [kls.name_atom, *(e for elem in value for e in elem.__sexp__(elem))]
 
 
 @sexp_type('xyz')
@@ -322,7 +343,7 @@ class TextMixin:
         x2 = max(max(l.x1, l.x2) for l in lines)
         y2 = max(max(l.y1, l.y2) for l in lines)
         r = self.effects.font.thickness/2
-        return (x1-r, y1-r), (x2+r, y2+r)
+        return (x1-r, -(y1-r)), (x2+r, -(y2+r))
     
     def svg_path_data(self):
         for line in self.render():
@@ -409,7 +430,7 @@ class TextMixin:
                 x, y = x+offx, y+offy
                 x, y = rotate_point(x, y, math.radians(-rot or 0))
                 x, y = x+self.at.x, y+self.at.y
-                points.append((x, y))
+                points.append((x, -y))
 
             for p1, p2 in zip(points[:-1], points[1:]):
                 yield go.Line(*p1, *p2, aperture=aperture, unit=MM)
