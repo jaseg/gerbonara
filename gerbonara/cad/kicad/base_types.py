@@ -97,7 +97,8 @@ class Stroke:
 class Dasher:
     def __init__(self, obj):
         if obj.stroke:
-            w, t = obj.stroke.width or 0.254, obj.stroke.type
+            w = obj.stroke.width if obj.stroke.width is not None else 0.254
+            t = obj.stroke.type
         else:
             w = obj.width or 0
             t = Atom.solid
@@ -209,6 +210,20 @@ class XYCoord:
             self.x, self.y = x.at.x, x.at.y
         else:
             self.x, self.y = x, y
+
+    def __iter__(self):
+        return iter((self.x, self.y))
+
+    def __getitem__(self, index):
+        return (self.x, self.y)[index]
+
+    def __setitem__(self, index, value):
+        if index == 0:
+            self.x = value
+        elif index == 1:
+            self.y = value
+        else:
+            raise IndexError(f'Invalid 2D point coordinate index {index}')
 
     def within_distance(self, x, y, dist):
         return math.dist((x, y), (self.x, self.y)) < dist

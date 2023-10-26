@@ -220,7 +220,7 @@ class Arc:
             cy = ((x1 * x1 + y1 * y1) * (mx - x2) + (x2 * x2 + y2 * y2) * (x1 - mx) + (mx * mx + my * my) * (x2 - x1)) / d
 
         # KiCad only has clockwise arcs.
-        arc = go.Arc(x1, -y1, x2, -y2, cx-x1, -(cy-y1), clockwise=False, aperture=aperture, unit=MM)
+        arc = go.Arc(x1, -y1, x2, -y2, cx-x1, -(cy-y1), clockwise=True, aperture=aperture, unit=MM)
         if dasher.solid:
             yield arc
 
@@ -249,13 +249,14 @@ class Polygon:
 
         dasher = Dasher(self)
         start = self.pts.xy[0]
-        dasher.move(start.x, -start.y)
+        dasher.move(start.x, start.y)
         for point in self.pts.xy[1:]:
             dasher.line(point.x, point.y)
 
-        aperture = ap.CircleAperture(dasher.width, unit=MM)
-        for x1, y1, x2, y2 in dasher:
-            yield go.Line(x1, -y1, x2, -y2, aperture=aperture, unit=MM)
+        if dasher.width > 0:
+            aperture = ap.CircleAperture(dasher.width, unit=MM)
+            for x1, y1, x2, y2 in dasher:
+                yield go.Line(x1, -y1, x2, -y2, aperture=aperture, unit=MM)
 
         if self.fill == Atom.solid:
             yield go.Region([(pt.x, -pt.y) for pt in self.pts.xy], unit=MM)
@@ -466,10 +467,10 @@ class Pad:
                          0, 0, # no hole
                          rotation), unit=MM)
             else:
-                return ap.RectangleAperture(self.size.x+2*margin, self.size.y+2*margin, unit=MM).rotated(rotation)
+                return ap.RectangleAperture(self.size.x+2*margin, self.size.y+2*margin, unit=MM).rotated(-rotation)
 
         elif self.shape == Atom.oval:
-            return ap.ObroundAperture(self.size.x+2*margin, self.size.y+2*margin, unit=MM).rotated(rotation)
+            return ap.ObroundAperture(self.size.x+2*margin, self.size.y+2*margin, unit=MM).rotated(-rotation)
 
         elif self.shape == Atom.trapezoid:
             # KiCad's trapezoid aperture "rect_delta" param is just weird to the point that I think it's probably
@@ -495,14 +496,14 @@ class Pad:
                         (x+dy+2*margin*math.cos(alpha), y+2*margin,
                          2*dy,
                          0, 0, # no hole
-                         rotation), unit=MM)
+                         -rotation + math.pi), unit=MM)
 
             else:
                 return ap.ApertureMacroInstance(GenericMacros.rounded_isosceles_trapezoid,
                         (x+dy, y,
                          2*dy, margin,
                          0, 0, # no hole
-                         rotation), unit=MM)
+                         -rotation + math.pi), unit=MM)
 
         elif self.shape == Atom.roundrect:
             x, y = self.size.x, self.size.y
@@ -514,7 +515,7 @@ class Pad:
                          0, 0, # no hole
                          rotation), unit=MM)
             else:
-                return ap.RectangleAperture(x+margin, y+margin, unit=MM).rotated(rotation)
+                return ap.RectangleAperture(x+margin, y+margin, unit=MM).rotated(-rotation)
 
         elif self.shape == Atom.custom:
             primitives = []
@@ -556,7 +557,7 @@ class Pad:
                 elif self.options.anchor == Atom.circle and self.size.x > 0:
                     primitives.append(amp.Circle(MM, 1, self.size.x+2*margin, 0, 0, 0))
 
-            macro = ApertureMacro(primitives=tuple(primitives)).rotated(rotation)
+            macro = ApertureMacro(primitives=tuple(primitives)).rotated(-rotation)
             return ap.ApertureMacroInstance(macro, unit=MM)
 
     def render_drill(self):
@@ -881,7 +882,7 @@ class Footprint:
         for text in self.texts:
             text.at.rotation = (text.at.rotation + delta) % 360
 
-    def objects(self, text=False, pads=True, groups=True):
+    def objects(self, text=False, pads=True, groups=True, zones=True):
         return chain(
                 (self.texts if text else []),
                 (self.text_boxes if text else []),
@@ -893,7 +894,7 @@ class Footprint:
                 self.curves,
                 (self.dimensions if text else []),
                 (self.pads if pads else []),
-                self.zones,
+                (self.zones if zones else []),
                 self.groups if groups else [])
 
     def render(self, layer_stack, layer_map, x=0, y=0, rotation=0, text=False, flip=False, variables={}, cache=None):
@@ -901,7 +902,7 @@ class Footprint:
         y += self.at.y
         rotation += math.radians(self.at.rotation)
 
-        for obj in self.objects(pads=False, text=text):
+        for obj in self.objects(pads=False, text=text, zones=False):
             if not (layer := layer_map.get(obj.layer)):
                 continue
 

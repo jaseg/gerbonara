@@ -203,10 +203,10 @@ class Arc:
             return
 
         aperture = ap.CircleAperture(self.width, unit=MM)
-        cx, cy = self.mid.x, self.mid.y
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
-        yield go.Arc(x1, -y1, x2, -y2, cx-x1, -(cy-y1), aperture=aperture, clockwise=True, unit=MM)
+        (cx, cy), _r = kicad_mid_to_center_arc(self.mid, self.start, self.end)
+        yield go.Arc(x1, -y1, x2, -y2, cx-x1, -(cy-y1), aperture=aperture, clockwise=False, unit=MM)
 
     def offset(self, x=0, y=0):
         self.start = self.start.with_offset(x, y)
@@ -224,7 +224,23 @@ class Polygon:
     tstamp: Timestamp = None
 
     def render(self, variables=None):
-        reg = go.Region([(pt.x, -pt.y) for pt in self.pts.xy], unit=MM)
+        points = []
+        centers = []
+        for point_or_arc in self.pts:
+            if points:
+                centers.append((None, (None, None)))
+
+            if isinstance(point_or_arc, XYCoord):
+                points.append((point_or_arc.x, -point_or_arc.y))
+
+            else: # base_types.Arc
+                points.append((point_or_arc.start.x, -point_or_arc.start.y))
+                points.append((point_or_arc.end.x, -point_or_arc.end.y))
+                (cx, cy), _r = kicad_mid_to_center_arc(point_or_arc.mid, point_or_arc.start, point_or_arc.end)
+                centers.append((False, (cx, -cy)))
+
+        reg = go.Region(points, centers, unit=MM)
+        reg.close()
         
         # FIXME stroke support
         if self.width and self.width >= 0.005 or self.stroke.width and self.stroke.width > 0.005:

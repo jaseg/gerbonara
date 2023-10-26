@@ -59,6 +59,31 @@ def center_arc_to_kicad_mid(center, start, end):
     return XYCoord(mx, my)
 
 
+def kicad_mid_to_center_arc(mid, start, end):
+    """ Convert kicad's slightly insane midpoint notation to standrad center/p1/p2 notation.
+
+    Returns the center and radius of the circle passing the given 3 points.
+    In case the 3 points form a line, raises a ValueError.
+    """
+    # https://stackoverflow.com/questions/28910718/give-3-points-and-a-plot-circle
+    p1, p2, p3 = start, mid, end
+
+    temp = p2[0] * p2[0] + p2[1] * p2[1]
+    bc = (p1[0] * p1[0] + p1[1] * p1[1] - temp) / 2
+    cd = (temp - p3[0] * p3[0] - p3[1] * p3[1]) / 2
+    det = (p1[0] - p2[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p2[1])
+
+    if abs(det) < 1.0e-6:
+        raise ValueError()
+
+    # Center of circle
+    cx = (bc*(p2[1] - p3[1]) - cd*(p1[1] - p2[1])) / det
+    cy = ((p1[0] - p2[0]) * cd - (p2[0] - p3[0]) * bc) / det
+
+    radius = math.sqrt((cx - p1[0])**2 + (cy - p1[1])**2)
+    return ((cx, cy), radius)
+
+
 @sexp_type('hatch')
 class Hatch:
     style: AtomChoice(Atom.none, Atom.edge, Atom.full) = Atom.edge

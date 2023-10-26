@@ -23,6 +23,7 @@ from pathlib import Path
 import tempfile
 import textwrap
 import os
+import stat
 from functools import total_ordering
 import shutil
 import bs4
@@ -156,10 +157,14 @@ def kicad_fp_export(mod_file, out_svg):
         print(f'Building cache for {mod_file.name}')
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            os.chmod(tmpdir, 0o1777)
             pretty_dir = mod_file.parent
             fp_name = mod_file.name[:-len('.kicad_mod')]
-            cmd = ['kicad-cli', 'fp', 'export', 'svg', '--output', tmpdir, '--footprint', fp_name, pretty_dir]
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            cmd = ['podman', 'run', '--mount', f'type=bind,src={pretty_dir},dst=/{pretty_dir.name}',
+                   '--mount', f'type=bind,src={tmpdir},dst=/out',
+                   'registry.gitlab.com/kicad/kicad-ci/kicad-cli-docker/kicad:nightly',
+                   'kicad-cli', 'fp', 'export', 'svg', '--output', '/out', '--footprint', fp_name, f'/{pretty_dir.name}']
+            subprocess.run(cmd, check=True) #, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             out_file = Path(tmpdir) / f'{fp_name}.svg'
             shutil.copy(out_file, cachefile)
     else:

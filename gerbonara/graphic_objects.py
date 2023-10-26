@@ -294,6 +294,7 @@ class Region(GraphicObject):
         self.polarity_dark = polarity_dark
         self.outline = [] if outline is None else outline
         self.arc_centers = [] if arc_centers is None else arc_centers
+        self.close()
 
     def __len__(self):
         return len(self.outline)
@@ -318,6 +319,12 @@ class Region(GraphicObject):
         self.arc_centers = [
                 (arc[0], (arc[1][0]*factor, arc[1][1]*factor)) if arc else None
                 for p, arc in zip_longest(self.outline, self.arc_centers) ]
+
+    def close(self):
+        if self.outline and self.outline[-1] != self.outline[0]:
+            self.outline.append(self.outline[-1])
+            if self.arc_centers:
+                self.arc_centers.append((None, (None, None)))
 
     @classmethod
     def from_rectangle(kls, x, y, w, h, unit=MM):
@@ -364,7 +371,7 @@ class Region(GraphicObject):
 
     def outline_objects(self, aperture=None):
         for p1, p2, (clockwise, center) in self.iter_segments():
-            if center:
+            if clockwise is not None:
                 yield Arc(*p1, *p2, *center, clockwise, aperture=aperture, unit=self.unit, polarity_dark=self.polarity_dark)
             else:
                 yield Line(*p1, *p2, aperture=aperture, unit=self.unit, polarity_dark=self.polarity_dark)
@@ -377,13 +384,17 @@ class Region(GraphicObject):
 
         points = []
         for p1, p2, (clockwise, center) in self.iter_segments():
-            if center:
+            if clockwise is not None:
                 for p in approximate_arc(*center, *p1, *p2, clockwise,
                                              max_error=max_error, clip_max_error=clip_max_error):
                     points.append(p)
                     points.pop()
             else:
                 points.append(p1)
+        points.append(p2)
+
+        if points[0] != points[-1]:
+            points.append(points[0])
 
         yield amp.Outline(self.unit, int(self.polarity_dark), len(points)-1, tuple(coord for p in points for coord in p))
 

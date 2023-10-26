@@ -286,9 +286,9 @@ def approximate_arc(cx, cy, x1, y1, x2, y2, clockwise, max_error=1e-2, clip_max_
     l = math.sqrt(r**2 - (r - max_error)**2)
 
     angle_max = math.asin(l/r)
-    sweep_angle = sweep_angle(cx, cy, x1, y1, x2, y2, clockwise)
-    num_segments = math.ceil(sweep_angle / angle_max)
-    angle = sweep_angle / num_segments
+    alpha = sweep_angle(cx, cy, x1, y1, x2, y2, clockwise)
+    num_segments = math.ceil(alpha / angle_max)
+    angle = alpha / num_segments
 
     if not clockwise:
         angle = -angle

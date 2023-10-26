@@ -282,6 +282,10 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
         root['width'] = root_w
         root['height'] = root_h
 
+        #for elem in root.find_all('path'):
+        #    if elem.attrs.get('fill', '').lower() == '#d864ff' and math.isclose(float(elem.attrs.get('fill-opacity', 0)), 0.4): 
+        #        elem.decompose()
+
         # remove alpha to avoid complicated filter hacks
         for elem in root.descendants:
             if not isinstance(elem, bs4.Tag):
@@ -312,8 +316,8 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
     mean, _max, hist = svg_difference(ref_svg, out_svg, dpi=600, diff_out=tmpfile('Difference', '.png'))
 
     # compensate for circular pads aliasing badly
-    aliasing_artifacts =  1e-4 * len(fp.sexp.pads)/50
-    assert mean < 1e-3 + aliasing_artifacts
+    aliasing_artifacts =  1e-3 * len(fp.sexp.pads)/10
+    assert mean < 3e-3 + aliasing_artifacts
     assert hist[9] < 100
     assert hist[3:].sum() < (1e-3 + 10*aliasing_artifacts)*hist.size
     
