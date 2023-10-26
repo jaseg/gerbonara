@@ -14,7 +14,7 @@ build:archlinux:
     GIT_SUBMODULE_STRATEGY: none
   script:
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
-    - pip3 install --user wheel setuptools
+    - pip3 install --user --break-system-packages wheel setuptools
     - python3 setup.py sdist bdist_wheel
   artifacts:
     name: "gerbolyze-$CI_COMMIT_REF_NAME-gerbonara"
@@ -41,11 +41,11 @@ test:archlinux:
     paths:
       - gerbonara_test_failures/*
 
-test:ubuntu2204:
+test:ubuntu-rolling:
   stage: test
-  image: "registry.gitlab.com/gerbolyze/build-containers/ubuntu:22.04"
+  image: "registry.gitlab.com/gerbolyze/build-containers/ubuntu:rolling"
   script:
-    - python3 -m pip install pytest beautifulsoup4 pillow numpy slugify lxml click scipy
+    - python3 -m pip install --break-system-packages pytest beautifulsoup4 pillow numpy slugify lxml click scipy
     - git clone --depth 1 https://gitlab.com/kicad/libraries/kicad-symbols
     - git clone --depth 1 https://gitlab.com/kicad/libraries/kicad-footprints
     - env KICAD_SYMBOLS=kicad-symbols KICAD_FOOTPRINTS=kicad-footprints python3 -m pytest -o 'testpaths=gerbonara/tests' -o 'norecursedirs=*'
@@ -83,7 +83,7 @@ publish:gerbonara:
   cache: {}
   script:
     - export TWINE_USERNAME TWINE_PASSWORD
-    - pip3 install --user twine rich
+    - pip3 install --user --break-system-packages twine rich
     - twine upload dist/*
   dependencies:
     - build:archlinux
