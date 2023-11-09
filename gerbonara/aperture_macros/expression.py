@@ -232,7 +232,6 @@ class OperatorExpression(Expression):
     def optimized(self, variable_binding={}):
         l = self.l.optimized(variable_binding)
         r = self.r.optimized(variable_binding)
-        print(self.r, '->', r)
         
         match (l, self.op, r):
             case (ConstantExpression(), op, ConstantExpression()):
