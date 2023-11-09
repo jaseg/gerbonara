@@ -118,41 +118,32 @@ class ApertureMacro:
                 pass
         return replace(self, primitives=tuple(new_primitives))
 
+    def substitute_params(self, params, unit=None, macro_name=None):
+        params = dict(enumerate(params, start=1))
+        return replace(self,
+                       num_parameters=0,
+                       name=macro_name,
+                       primitives=tuple(p.substitute_params(params, unit) for p in self.primitives),
+                       comments=(f'Fully substituted instance of {self.name} macro',
+                                 f'Original parameters {"X".join(map(str, params.values()))}'))
+
     def to_gerber(self, settings):
         """ Serialize this macro's content (without the name) into Gerber using the given file unit """
         comments = [ f'0 {c.replace("*", "_").replace("%", "_")}' for c in self.comments ]
 
         subexpression_variables = {}
         def register_variable(expr):
-            if not settings.allow_mixed_operators_in_aperture_macros:
-                expr = expr.replace_mixed_subexpressions(unit=settings.unit)
-
             expr_str = expr.to_gerber(register_variable, settings.unit)
             if expr_str not in subexpression_variables:
                 subexpression_variables[expr_str] = self.num_parameters + 1 + len(subexpression_variables)
-
             return subexpression_variables[expr_str]
 
-        primitive_defs = []
-        for prim in self.primitives:
-            if not settings.allow_mixed_operators_in_aperture_macros:
-                prim = prim.replace_mixed_subexpressions(unit=settings.unit)
-
-            primitive_defs.append(prim.to_gerber(register_variable, settings))
-
-        variable_defs = []
-        for expr_str, num in subexpression_variables.items():
-            variable_defs.append(f'${num}={expr_str}')
-
+        primitive_defs = [prim.to_gerber(register_variable, settings) for prim in self.primitives]
+        variable_defs = [f'${num}={expr_str}' for expr_str, num in subexpression_variables.items()]
         return '*\n'.join(comments + variable_defs + primitive_defs)
 
     def to_graphic_primitives(self, offset, rotation, parameters : [float], unit=None, polarity_dark=True):
-        variables = {i: v for i, v in enumerate(self.variables, start=1) if v is not None}
-        for number, value in enumerate(parameters, start=1):
-            if number in variables:
-                raise SyntaxError(f'Re-definition of aperture macro variable {number} through parameter {value}')
-            variables[number] = value
-
+        parameters = dict(enumerate(parameters, start=1))
         for primitive in self.primitives:
             yield from primitive.to_graphic_primitives(offset, rotation, variables, unit, polarity_dark)
 

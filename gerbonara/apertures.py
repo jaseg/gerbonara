@@ -446,6 +446,11 @@ class ApertureMacroInstance(Aperture):
     def scaled(self, scale):
         return replace(self, macro=self.macro.scaled(scale))
 
+    def calculate_out(self, unit=None, macro_name=None):
+        return replace(self,
+                       parameters=tuple(),
+                       macro=self.macro.substitute_params(self._params(unit), unit, macro_name))
+
     def _params(self, unit=None):
         # We ignore "unit" here as we convert the actual macro, not this instantiation.
         # We do this because here we do not have information about which parameter has which physical units.
@@ -454,5 +459,4 @@ class ApertureMacroInstance(Aperture):
             warnings.warn('Aperture definition using macro {self.macro.name} has more parameters than the macro uses.')
             parameters = parameters[:self.macro.num_parameters]
         return tuple(parameters)
-
 

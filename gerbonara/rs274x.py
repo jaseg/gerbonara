@@ -284,12 +284,23 @@ class GerberFile(CamFile):
         self.dedup_apertures()
 
         am_stmt = lambda macro: f'%AM{macro.name}*\n{macro.to_gerber(settings)}*\n%'
-        for macro in self.aperture_macros():
-            yield am_stmt(macro)
-
         aperture_map = {ap: num for num, ap in enumerate(self.apertures(), start=10)}
-        for aperture, number in aperture_map.items():
-            yield f'%ADD{number}{aperture.to_gerber(settings)}*%'
+
+        if settings.calculate_out_all_aperture_macros:
+            adds = []
+            for aperture, number in aperture_map.items():
+                if isinstance(aperture, apertures.ApertureMacroInstance):
+                    aperture = aperture.calculate_out(settings.unit, macro_name=f'CALCM{number}')
+                    yield am_stmt(aperture.macro)
+                adds.append(f'%ADD{number}{aperture.to_gerber(settings)}*%')
+            yield from adds
+
+        else:
+            for macro in self.aperture_macros():
+                yield am_stmt(macro)
+
+            for aperture, number in aperture_map.items():
+                yield f'%ADD{number}{aperture.to_gerber(settings)}*%'
 
         def warn(msg, kls=SyntaxWarning):
             warnings.warn(msg, kls)

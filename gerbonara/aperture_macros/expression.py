@@ -31,9 +31,6 @@ class Expression:
     def converted(self, unit):
         return self
 
-    def replace_mixed_subexpressions(self, unit):
-        return self
-
     def calculate(self, variable_binding={}, unit=None):
         expr = self.converted(unit).optimized(variable_binding)
         if not isinstance(expr, ConstantExpression):
@@ -103,9 +100,6 @@ class UnitExpression(Expression):
 
     def __repr__(self):
         return f'<UE {self.expr.to_gerber()} {self.unit}>'
-
-    def replace_mixed_subexpressions(self, unit):
-        return self.converted(unit).replace_mixed_subexpressions(unit)
 
     def converted(self, unit):
         if self.unit is None or unit is None or self.unit == unit:
@@ -197,9 +191,6 @@ class VariableExpression(Expression):
 
     def __eq__(self, other):
         return type(self) == type(other) and self.expr == other.expr
-
-    def replace_mixed_subexpressions(self, unit):
-        return VariableExpression(self.expr.replace_mixed_subexpressions(unit))
 
     def to_gerber(self, register_variable=None, unit=None):
         if register_variable is None:
@@ -356,17 +347,6 @@ class OperatorExpression(Expression):
 
         return expr(rv).optimized(variable_binding)
 
-    def replace_mixed_subexpressions(self, unit):
-        l = self.l.replace_mixed_subexpressions(unit)
-        if l._operator not in (None, self.op):
-            l = VariableExpression(self.l)
-
-        r = self.r.replace_mixed_subexpressions(unit)
-        if r._operator not in (None, self.op):
-            r = VariableExpression(self.r)
-
-        return OperatorExpression(self.op, l, r)
-        
     def to_gerber(self, register_variable=None, unit=None):
         lval = self.l.to_gerber(register_variable, unit)
         rval = self.r.to_gerber(register_variable, unit)

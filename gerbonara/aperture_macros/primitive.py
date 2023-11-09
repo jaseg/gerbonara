@@ -51,14 +51,10 @@ class Primitive:
                 getattr(self, field.name).optimized().to_gerber(register_variable, settings.unit)
                 for field in fields(self) if issubclass(field.type, Expression))
     
-    def replace_mixed_subexpressions(self, unit):
-        print('prim rms')
-        import pprint
-        out = replace(self, **{
-                       field.name: getattr(self, field.name).optimized().replace_mixed_subexpressions(unit)
+    def substitute_params(self, binding, unit):
+        out = replace(self, unit=unit, **{
+                       field.name: getattr(self, field.name).calculate(binding, unit)
                        for field in fields(self) if issubclass(field.type, Expression)})
-        pprint.pprint(self)
-        pprint.pprint(out)
         return out
 
     def __str__(self):
@@ -111,6 +107,12 @@ class Circle(Primitive):
             x, y = x+offset[0], y+offset[1]
             return [ gp.Circle(x, y, calc.diameter/2, polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
 
+    def substitute_params(self, binding, unit):
+        with self.Calculator(self, binding, unit) as calc:
+            x, y = rotate_point(calc.x, calc.y, -deg_to_rad(calc.rotation), 0, 0)
+            new =  Circle(unit, self.exposure, calc.diameter, x, y)
+            return new
+
     def dilated(self, offset, unit):
         return replace(self, diameter=self.diameter + UnitExpression(offset, unit))
 
@@ -144,6 +146,12 @@ class VectorLine(Primitive):
             return [ gp.Rectangle(center_x, center_y, length, calc.width, rotation=rotation,
                         polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
 
+    def substitute_params(self, binding, unit):
+        with self.Calculator(self, binding, unit) as calc:
+            x1, y1 = rotate_point(calc.start_x, calc.start_y, -deg_to_rad(calc.rotation), 0, 0)
+            x2, y2 = rotate_point(calc.end_x, calc.end_y, -deg_to_rad(calc.rotation), 0, 0)
+            return VectorLine(unit, calc.exposure, calc.width, x1, y1, x2, y2)
+
     def dilated(self, offset, unit):
         return replace(self, width=self.width + UnitExpression(2*offset, unit))
 
@@ -173,6 +181,12 @@ class CenterLine(Primitive):
             w, h = calc.width, calc.height
 
             return [ gp.Rectangle(x, y, w, h, rotation, polarity_dark=(bool(calc.exposure) == polarity_dark)) ]
+
+    def substitute_params(self, binding, unit):
+        with self.Calculator(self, binding, unit) as calc:
+            x1, y1 = rotate_point(calc.x, calc.y-calc.height/2, -deg_to_rad(calc.rotation), 0, 0)
+            x2, y2 = rotate_point(calc.x, calc.y+calc.height/2, -deg_to_rad(calc.rotation), 0, 0)
+            return VectorLine(unit, calc.exposure, calc.width, x1, y1, x2, y2)
 
     def dilated(self, offset, unit):
         return replace(self, width=self.width + UnitExpression(2*offset, unit))
@@ -293,26 +307,17 @@ class Outline(Primitive):
         return f'<Outline {len(self.coords)} points>'
 
     def to_gerber(self, register_variable=None, settings=None):
-        # Calculate out rotation since at least gerbv mis-renders Outlines with rotation other than zero.
         rotation = self.rotation.optimized()
-        coords = self.coords
-        if isinstance(rotation, ConstantExpression) and rotation != 0:
-            rotation = math.radians(rotation.value)
-            # This will work even with variables in x and y, we just need to pass in cx and cy as UnitExpressions
-            unit_zero = UnitExpression(expr(0), MM)
-            coords = [ rotate_point(x, y, -rotation, cx=unit_zero, cy=unit_zero) for x, y in self.points ]
-            coords = [ e for point in coords for e in point ]
-            if not settings.allow_mixed_operators_in_aperture_macros:
-                coords = [e.replace_mixed_subexpressions(unit=settings.unit) for e in coords]
-
-            rotation = ConstantExpression(0)
-
-        coords = ','.join(coord.optimized().to_gerber(register_variable, settings.unit) for coord in coords)
+        coords = ','.join(coord.optimized().to_gerber(register_variable, settings.unit) for coord in self.coords)
         return f'{self.code},{self.exposure.optimized().to_gerber(register_variable)},{len(self.coords)//2-1},{coords},{rotation.to_gerber(register_variable)}'
 
-    def replace_mixed_subexpressions(self, unit):
-        return replace(Primitive.replace_mixed_subexpressions(self, unit),
-                       coords=[e.replace_mixed_subexpressions(unit) for e in self.coords])
+    def substitute_params(self, binding, unit):
+        with self.Calculator(self, binding, unit) as calc:
+            rotation = calc.rotation
+            coords = [ rotate_point(x.calculate(binding, unit), y.calculate(binding, unit), -deg_to_rad(rotation), 0, 0)
+                      for x, y in self.points ]
+            coords = [ e for point in coords for e in point ]
+            return Outline(unit, calc.exposure, calc.length, coords)
 
     def parameters(self):
         yield from Primitive.parameters(self)
