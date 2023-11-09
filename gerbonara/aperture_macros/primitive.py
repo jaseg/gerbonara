@@ -7,7 +7,7 @@
 import warnings
 import contextlib
 import math
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 
 from .expression import Expression, UnitExpression, ConstantExpression, expr
 
@@ -46,9 +46,20 @@ class Primitive:
             elif field.type == Expression:
                 object.__setattr__(self, field.name, expr(getattr(self, field.name)))
 
-    def to_gerber(self, unit=None):
+    def to_gerber(self, register_variable=None, settings=None):
         return f'{self.code},' + ','.join(
-                getattr(self, field.name).optimized().to_gerber(unit) for field in fields(self) if field.name != 'unit')
+                getattr(self, field.name).optimized().to_gerber(register_variable, settings.unit)
+                for field in fields(self) if issubclass(field.type, Expression))
+    
+    def replace_mixed_subexpressions(self, unit):
+        print('prim rms')
+        import pprint
+        out = replace(self, **{
+                       field.name: getattr(self, field.name).optimized().replace_mixed_subexpressions(unit)
+                       for field in fields(self) if issubclass(field.type, Expression)})
+        pprint.pprint(self)
+        pprint.pprint(out)
+        return out
 
     def __str__(self):
         attrs = ','.join(str(getattr(self, name)).strip('<>') for name in type(self).__annotations__)
@@ -60,6 +71,11 @@ class Primitive:
     @classmethod
     def from_arglist(kls, unit, arglist):
         return kls(unit, *arglist)
+
+    def parameters(self):
+        for field in fields(self):
+            if issubclass(field.type, Expression):
+                yield from getattr(self, field.name).parameters()
 
     class Calculator:
         def __init__(self, instance, variable_binding={}, unit=None):
@@ -253,9 +269,6 @@ class Outline(Primitive):
         object.__setattr__(self, 'exposure', expr(self.exposure))
 
         if self.length.calculate() != len(self.coords)//2-1:
-            print(self.length, self.length.calculate(), len(self.coords))
-            import pprint
-            pprint.pprint(self.coords)
             raise ValueError('length must exactly equal number of segments, which is the number of points minus one')
 
         if self.coords[-2:] != self.coords[:2]:
@@ -279,21 +292,33 @@ class Outline(Primitive):
     def __str__(self):
         return f'<Outline {len(self.coords)} points>'
 
-    def to_gerber(self, unit=None):
+    def to_gerber(self, register_variable=None, settings=None):
         # Calculate out rotation since at least gerbv mis-renders Outlines with rotation other than zero.
         rotation = self.rotation.optimized()
         coords = self.coords
-        if isinstance(rotation, ConstantExpression):
+        if isinstance(rotation, ConstantExpression) and rotation != 0:
             rotation = math.radians(rotation.value)
             # This will work even with variables in x and y, we just need to pass in cx and cy as UnitExpressions
             unit_zero = UnitExpression(expr(0), MM)
             coords = [ rotate_point(x, y, -rotation, cx=unit_zero, cy=unit_zero) for x, y in self.points ]
             coords = [ e for point in coords for e in point ]
+            if not settings.allow_mixed_operators_in_aperture_macros:
+                coords = [e.replace_mixed_subexpressions(unit=settings.unit) for e in coords]
 
             rotation = ConstantExpression(0)
 
-        coords = ','.join(coord.optimized().to_gerber(unit) for coord in coords)
-        return f'{self.code},{self.exposure.optimized().to_gerber()},{len(self.coords)//2-1},{coords},{rotation.to_gerber()}'
+        coords = ','.join(coord.optimized().to_gerber(register_variable, settings.unit) for coord in coords)
+        return f'{self.code},{self.exposure.optimized().to_gerber(register_variable)},{len(self.coords)//2-1},{coords},{rotation.to_gerber(register_variable)}'
+
+    def replace_mixed_subexpressions(self, unit):
+        return replace(Primitive.replace_mixed_subexpressions(self, unit),
+                       coords=[e.replace_mixed_subexpressions(unit) for e in self.coords])
+
+    def parameters(self):
+        yield from Primitive.parameters(self)
+
+        for expr in self.coords:
+            yield from expr.parameters()
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
@@ -316,7 +341,7 @@ class Comment:
     code = 0
     comment: str
 
-    def to_gerber(self, unit=None):
+    def to_gerber(self, register_variable=None, settings=None):
         return f'0 {self.comment}'
 
     def dilated(self, offset, unit):

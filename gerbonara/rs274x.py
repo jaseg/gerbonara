@@ -131,7 +131,7 @@ class GerberFile(CamFile):
             nonlocal cache, settings
             if isinstance(aperture, apertures.ApertureMacroInstance):
                 macro = aperture.macro
-                macro_def = macro.to_gerber(unit=settings.unit)
+                macro_def = macro.to_gerber(settings)
                 if macro_def not in cache:
                     cache[macro_def] = macro
 
@@ -283,7 +283,7 @@ class GerberFile(CamFile):
 
         self.dedup_apertures()
 
-        am_stmt = lambda macro: f'%AM{macro.name}*\n{macro.to_gerber(unit=settings.unit)}*\n%'
+        am_stmt = lambda macro: f'%AM{macro.name}*\n{macro.to_gerber(settings)}*\n%'
         for macro in self.aperture_macros():
             yield am_stmt(macro)
 

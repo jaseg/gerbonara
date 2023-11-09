@@ -43,28 +43,28 @@ def file_mock():
 
 
 class TestRender:
-    def invoke(self, *args):
+    def invoke(self, outfile, *args):
         runner = CliRunner()
         res = runner.invoke(cli.render, list(map(str, args)))
-        print(res.output)
+        outfile.write_text(str(res.output))
         if res.exception:
             raise res.exception
         assert res.exit_code == 0
         return res.output
 
-    def test_basic(self):
-        assert self.invoke('--version').startswith('Version ')
+    def test_basic(self, tmpfile):
+        assert self.invoke(tmpfile('Standard output', '.svg'), '--version').startswith('Version ')
 
     @pytest.mark.parametrize('reference', ['example_flash_obround.gbr'], indirect=True)
-    def test_warnings(self, reference):
+    def test_warnings(self, reference, tmpfile):
         with pytest.warns(UserWarning):
-            self.invoke(reference, '--warnings=once')
+            self.invoke(tmpfile('Standard output', '.svg'), reference, '--warnings=once')
 
     @pytest.mark.parametrize('reference', ['kicad-older'], indirect=True)
-    def test_side(self, reference):
-        without = self.invoke(reference, '--warnings=ignore')
-        top = self.invoke(reference, '--top', '--warnings=ignore')
-        bottom = self.invoke(reference, '--bottom', '--warnings=ignore')
+    def test_side(self, reference, tmpfile):
+        without = self.invoke(tmpfile('Standard output, without args', '.svg'), reference, '--warnings=ignore')
+        top = self.invoke(tmpfile('Standard output, --top', '.svg'), reference, '--top', '--warnings=ignore')
+        bottom = self.invoke(tmpfile('Standard output, --bottom', '.svg'), reference, '--bottom', '--warnings=ignore')
         assert top.strip().startswith('<?xml')
         assert bottom.strip().startswith('<?xml')
         assert '<path' in top
@@ -133,22 +133,22 @@ class TestRender:
 
 
 class TestRewrite:
-    def invoke(self, *args):
+    def invoke(self, outfile, *args):
         runner = CliRunner()
         res = runner.invoke(cli.rewrite, list(map(str, args)))
-        print(res.output)
+        outfile.write_text(res.output)
         if res.exception:
             raise res.exception
         assert res.exit_code == 0
         return res.output
 
-    def test_basic(self):
-        assert self.invoke('--version').startswith('Version ')
+    def test_basic(self, tmpfile):
+        assert self.invoke(tmpfile('Standard output', '.svg'), '--version').startswith('Version ')
 
     @pytest.mark.parametrize('reference', ['example_flash_obround.gbr'], indirect=True)
-    def test_transforms(self, reference, file_mock):
+    def test_transforms(self, reference, file_mock, tmpfile):
         with tempfile.NamedTemporaryFile() as tmpout:
-            self.invoke(reference, tmpout.name, '--transform', 'rotate(90); translate(10, 10); rotate(-45.5); scale(2)')
+            self.invoke(tmpfile('Standard output', '.svg'), reference, tmpout.name, '--transform', 'rotate(90); translate(10, 10); rotate(-45.5); scale(2)')
             file_mock.rotate.assert_has_calls([
                 mock.call(math.radians(90), 0, 0, MM),
                 mock.call(math.radians(-45.5), 0, 0, MM)])
@@ -158,9 +158,9 @@ class TestRewrite:
             assert file_mock.save.call_args[0][0] == tmpout.name
 
     @pytest.mark.parametrize('reference', ['example_flash_obround.gbr'], indirect=True)
-    def test_real_invocation(self, reference):
+    def test_real_invocation(self, reference, tmpfile):
         with tempfile.NamedTemporaryFile() as tmpout:
-            self.invoke(reference, tmpout.name, '--transform', 'rotate(45); translate(10, 0)')
+            self.invoke(tmpfile('Standard output', '.svg'), reference, tmpout.name, '--transform', 'rotate(45); translate(10, 0)')
             assert tmpout.read()
 
 
@@ -188,19 +188,19 @@ class TestMerge:
 
 
 class TestMeta:
-    def invoke(self, *args):
+    def invoke(self, outfile, *args):
         runner = CliRunner()
         res = runner.invoke(cli.meta, list(map(str, args)))
-        print(res.output)
+        outfile.write_text(str(res.output))
         if res.exception:
             raise res.exception
         assert res.exit_code == 0
         return res.output
 
-    def test_basic(self):
-        assert self.invoke('--version').startswith('Version ')
+    def test_basic(self, tmpfile):
+        assert self.invoke(tmpfile('Standard output', '.svg'), '--version').startswith('Version ')
 
     @pytest.mark.parametrize('reference', ['example_flash_obround.gbr'], indirect=True)
-    def test_real_invocation(self, reference):
-        j = json.loads(self.invoke(reference, '--warnings', 'ignore'))
+    def test_real_invocation(self, reference, tmpfile):
+        j = json.loads(self.invoke(tmpfile('Standard output', '.svg'), reference, '--warnings', 'ignore'))
 

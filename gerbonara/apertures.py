@@ -16,6 +16,7 @@
 # limitations under the License.
 #
 
+import warnings
 import math
 from dataclasses import dataclass, replace, field, fields, InitVar, KW_ONLY
 from functools import lru_cache
@@ -448,6 +449,10 @@ class ApertureMacroInstance(Aperture):
     def _params(self, unit=None):
         # We ignore "unit" here as we convert the actual macro, not this instantiation.
         # We do this because here we do not have information about which parameter has which physical units.
-        return tuple(self.parameters)
+        parameters = self.parameters
+        if len(parameters) > self.macro.num_parameters:
+            warnings.warn('Aperture definition using macro {self.macro.name} has more parameters than the macro uses.')
+            parameters = parameters[:self.macro.num_parameters]
+        return tuple(parameters)
 
 

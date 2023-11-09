@@ -162,7 +162,7 @@ def kicad_fp_export(mod_file, out_svg):
             fp_name = mod_file.name[:-len('.kicad_mod')]
             cmd = ['podman', 'run', '--mount', f'type=bind,src={pretty_dir},dst=/{pretty_dir.name}',
                    '--mount', f'type=bind,src={tmpdir},dst=/out',
-                   'registry.gitlab.com/kicad/kicad-ci/kicad-cli-docker/kicad:nightly',
+                   'registry.hub.docker.com/kicad/kicad:nightly',
                    'kicad-cli', 'fp', 'export', 'svg', '--output', '/out', '--footprint', fp_name, f'/{pretty_dir.name}']
             subprocess.run(cmd, check=True) #, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             out_file = Path(tmpdir) / f'{fp_name}.svg'

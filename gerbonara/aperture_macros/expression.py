@@ -31,10 +31,13 @@ class Expression:
     def converted(self, unit):
         return self
 
+    def replace_mixed_subexpressions(self, unit):
+        return self
+
     def calculate(self, variable_binding={}, unit=None):
         expr = self.converted(unit).optimized(variable_binding)
         if not isinstance(expr, ConstantExpression):
-            raise IndexError(f'Cannot fully resolve expression due to unresolved variables: {expr} with variables {variable_binding}')
+            raise IndexError(f'Cannot fully resolve expression due to unresolved parameters: residual expression {expr} under parameters {variable_binding}')
         return expr.value
 
     def __add__(self, other):
@@ -67,6 +70,13 @@ class Expression:
     def __pos__(self):
         return self
 
+    def parameters(self):
+        return tuple()
+
+    @property
+    def _operator(self):
+        return None
+
 
 @dataclass(frozen=True, slots=True)
 class UnitExpression(Expression):
@@ -80,8 +90,8 @@ class UnitExpression(Expression):
         object.__setattr__(self, 'expr', expr)
         object.__setattr__(self, 'unit', unit)
 
-    def to_gerber(self, unit=None):
-        return self.converted(unit).optimized().to_gerber()
+    def to_gerber(self, register_variable=None, unit=None):
+        return self.converted(unit).optimized().to_gerber(register_variable)
 
     def __eq__(self, other):
         return type(other) == type(self) and \
@@ -93,6 +103,9 @@ class UnitExpression(Expression):
 
     def __repr__(self):
         return f'<UE {self.expr.to_gerber()} {self.unit}>'
+
+    def replace_mixed_subexpressions(self, unit):
+        return self.converted(unit).replace_mixed_subexpressions(unit)
 
     def converted(self, unit):
         if self.unit is None or unit is None or self.unit == unit:
@@ -148,6 +161,10 @@ class UnitExpression(Expression):
     def __pos__(self):
         return self
 
+    def parameters(self):
+        return self.expr.parameters()
+
+
 @dataclass(frozen=True, slots=True)
 class ConstantExpression(Expression):
     value: float
@@ -161,12 +178,38 @@ class ConstantExpression(Expression):
         except TypeError:
             return False
 
-    def to_gerber(self, unit=None):
+    def to_gerber(self, register_variable=None, unit=None):
+        if self == 0: # Avoid producing "-0" for negative floating point zeros
+            return '0'
         return f'{self.value:.6f}'.rstrip('0').rstrip('.')
 
     
 @dataclass(frozen=True, slots=True)
 class VariableExpression(Expression):
+    expr: Expression
+
+    def optimized(self, variable_binding={}):
+        opt = self.expr.optimized(variable_binding)
+        if isinstance(opt, OperatorExpression):
+            return self
+        else:
+            return opt
+
+    def __eq__(self, other):
+        return type(self) == type(other) and self.expr == other.expr
+
+    def replace_mixed_subexpressions(self, unit):
+        return VariableExpression(self.expr.replace_mixed_subexpressions(unit))
+
+    def to_gerber(self, register_variable=None, unit=None):
+        if register_variable is None:
+            return self.expr.to_gerber(None, unit)
+        else:
+            num = register_variable(self.expr.converted(unit).optimized())
+            return f'${num}'
+
+@dataclass(frozen=True, slots=True)
+class ParameterExpression(Expression):
     number: int
 
     def optimized(self, variable_binding={}):
@@ -178,8 +221,12 @@ class VariableExpression(Expression):
         return type(self) == type(other) and \
                 self.number == other.number
 
-    def to_gerber(self, unit=None):
+    def to_gerber(self, register_variable=None, unit=None):
         return f'${self.number}'
+
+    def parameters(self):
+        yield self
+
 
 @dataclass(frozen=True, slots=True)
 class NegatedExpression(Expression):
@@ -196,17 +243,24 @@ class NegatedExpression(Expression):
             # -(x-y) == y-x
             case OperatorExpression(operator.sub, l, r):
                 return OperatorExpression(operator.sub, r, l)
-
+            # Round very small values and negative floating point zeros to a (positive) zero
+            case 0:
+                return expr(0)
+            # Default case
             case x:
                 return NegatedExpression(x)
+
+    @property
+    def _operator(self):
+        return self.value._operator
 
     def __eq__(self, other):
         return type(self) == type(other) and \
                 self.value == other.value
 
-    def to_gerber(self, unit=None):
-        val_str = self.value.to_gerber(unit)
-        if isinstance(self.value, VariableExpression):
+    def to_gerber(self, register_variable=None, unit=None):
+        val_str = self.value.to_gerber(register_variable, unit)
+        if isinstance(self.value, (VariableExpression, ParameterExpression)):
             return f'-{val_str}'
         else:
             return f'-({val_str})'
@@ -228,6 +282,10 @@ class OperatorExpression(Expression):
                 self.op == other.op and \
                 self.l == other.l and \
                 self.r == other.r
+
+    @property
+    def _operator(self):
+        return self.op
 
     def optimized(self, variable_binding={}):
         l = self.l.optimized(variable_binding)
@@ -297,10 +355,21 @@ class OperatorExpression(Expression):
                 return OperatorExpression(self.op, l, r)
 
         return expr(rv).optimized(variable_binding)
+
+    def replace_mixed_subexpressions(self, unit):
+        l = self.l.replace_mixed_subexpressions(unit)
+        if l._operator not in (None, self.op):
+            l = VariableExpression(self.l)
+
+        r = self.r.replace_mixed_subexpressions(unit)
+        if r._operator not in (None, self.op):
+            r = VariableExpression(self.r)
+
+        return OperatorExpression(self.op, l, r)
         
-    def to_gerber(self, unit=None):
-        lval = self.l.to_gerber(unit)
-        rval = self.r.to_gerber(unit)
+    def to_gerber(self, register_variable=None, unit=None):
+        lval = self.l.to_gerber(register_variable, unit)
+        rval = self.r.to_gerber(register_variable, unit)
 
         if isinstance(self.l, OperatorExpression):
             lval = f'({lval})'
@@ -313,4 +382,8 @@ class OperatorExpression(Expression):
               operator.truediv: '/'} [self.op]
 
         return f'{lval}{op}{rval}'
+
+    def parameters(self):
+        yield from self.l.parameters()
+        yield from self.r.parameters()
 

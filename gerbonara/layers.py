@@ -881,7 +881,7 @@ class LayerStack:
 
         sc_y, tl_y = -1, (bounds[0][1] + bounds[1][1])
         if side == 'bottom':
-            sc_x, sc_y = -1, (bounds[0][0] + bounds[1][0])
+            sc_x, tl_x = -1, (bounds[0][0] + bounds[1][0])
         else:
             sc_x, tl_x =  1, 0
         layer_group = tag('g', layers, transform=f'translate({tl_x} {tl_y}) scale({sc_x} {sc_y})')

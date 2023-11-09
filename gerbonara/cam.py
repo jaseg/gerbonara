@@ -54,6 +54,13 @@ class FileSettings:
     zeros : bool = None
     #: Number format. ``(integer, decimal)`` tuple of number of integer and decimal digits. At most ``(6,7)`` by spec.
     number_format : tuple = (None, None)
+    #: At least the aperture macro implementations of gerbv and whatever JLCPCB uses are severely broken and simply
+    #: ignore parentheses in numeric expressions without throwing an error or a warning, leading to broken rendering.
+    #: To avoid trouble with severely broken software like this, we split out any non-trivial numeric sub-expressions
+    #: into separate internal macro variables by default.
+    #: If you want to export the macros with their original formulaic expressions (which is completely fine by the
+    #: Gerber standard, btw), set this parameter to ``True`` before exporting.
+    allow_mixed_operators_in_aperture_macros: bool = False
 
     # input validation
     def __setattr__(self, name, value):
