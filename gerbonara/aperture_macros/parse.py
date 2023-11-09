@@ -125,7 +125,7 @@ class ApertureMacro:
                        name=macro_name,
                        primitives=tuple(p.substitute_params(params, unit) for p in self.primitives),
                        comments=(f'Fully substituted instance of {self.name} macro',
-                                 f'Original parameters {"X".join(map(str, params.values()))}'))
+                                 f'Original parameters: {"X".join(map(str, params.values())) if params else "none"}'))
 
     def to_gerber(self, settings):
         """ Serialize this macro's content (without the name) into Gerber using the given file unit """
@@ -145,7 +145,7 @@ class ApertureMacro:
     def to_graphic_primitives(self, offset, rotation, parameters : [float], unit=None, polarity_dark=True):
         parameters = dict(enumerate(parameters, start=1))
         for primitive in self.primitives:
-            yield from primitive.to_graphic_primitives(offset, rotation, variables, unit, polarity_dark)
+            yield from primitive.to_graphic_primitives(offset, rotation, parameters, unit, polarity_dark)
 
     def rotated(self, angle):
         # aperture macro primitives use degree counter-clockwise, our API uses radians clockwise
