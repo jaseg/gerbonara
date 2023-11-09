@@ -30,7 +30,7 @@ def _map_expression(node):
         if type(node.op) == ast.UAdd:
             return _map_expression(node.operand)
         else:
-            return OperatorExpression(operator.sub, ConstantExpression(0), _map_expression(node.operand))
+            return NegatedExpression(_map_expression(node.operand))
 
     elif isinstance(node, ast.Name):
         return VariableExpression(int(node.id[3:])) # node.id has format var[0-9]+

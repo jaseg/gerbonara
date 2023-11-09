@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import operator
 import re
 import ast
+import math
 
 from ..utils import LengthUnit, MM, Inch, MILLIMETERS_PER_INCH
 
@@ -61,7 +62,7 @@ class Expression:
         return expr(other) / self
 
     def __neg__(self):
-        return 0 - self
+        return NegatedExpression(self)
 
     def __pos__(self):
         return self
@@ -155,9 +156,12 @@ class ConstantExpression(Expression):
         return float(self.value)
 
     def __eq__(self, other):
-        return type(self) == type(other) and self.value == other.value
+        try:
+            return math.isclose(self.value, float(other), abs_tol=1e-9)
+        except TypeError:
+            return False
 
-    def to_gerber(self, _unit=None):
+    def to_gerber(self, unit=None):
         return f'{self.value:.6f}'.rstrip('0').rstrip('.')
 
     
@@ -174,8 +178,44 @@ class VariableExpression(Expression):
         return type(self) == type(other) and \
                 self.number == other.number
 
-    def to_gerber(self, _unit=None):
+    def to_gerber(self, unit=None):
         return f'${self.number}'
+
+@dataclass(frozen=True, slots=True)
+class NegatedExpression(Expression):
+    value: Expression
+
+    def optimized(self, variable_binding={}):
+        match self.value.optimized(variable_binding):
+            # -(-x) == x
+            case NegatedExpression(inner_value):
+                return inner_value
+            # -(x) == -x
+            case ConstantExpression(inner_value):
+                return ConstantExpression(-inner_value)
+            # -(x-y) == y-x
+            case OperatorExpression(operator.sub, l, r):
+                return OperatorExpression(operator.sub, r, l)
+            # -(x [*/] y) == -x [*/] y
+            case OperatorExpression((operator.mul | operator.truediv) as op, ConstantExpression(l), r):
+                return OperatorExpression(op, ConstantExpression(-l), r)
+            # -(x [*/] y) == x [*/] -y
+            case OperatorExpression((operator.mul | operator.truediv) as op, l, ConstantExpression(r)):
+                return OperatorExpression(op, l, ConstantExpression(-r))
+
+            case x:
+                return NegatedExpression(x)
+
+    def __eq__(self, other):
+        return type(self) == type(other) and \
+                self.value == other.value
+
+    def to_gerber(self, unit=None):
+        val_str = self.value.to_gerber(unit)
+        if isinstance(self.value, VariableExpression):
+            return f'-{val_str}'
+        else:
+            return f'-({val_str})'
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,15 +238,83 @@ class OperatorExpression(Expression):
     def optimized(self, variable_binding={}):
         l = self.l.optimized(variable_binding)
         r = self.r.optimized(variable_binding)
+        print(self.r, '->', r)
         
-        #if self.op in (operator.add, operator.mul):
-        #    if id(r) < id(l):
-        #        l, r = r, l
+        match (l, self.op, r):
+            case (ConstantExpression(), op, ConstantExpression()):
+                return ConstantExpression(self.op(float(l), float(r)))
 
-        if isinstance(l, ConstantExpression) and isinstance(r, ConstantExpression):
-            return ConstantExpression(self.op(float(l), float(r)))
+            # Minimize operations with neutral elements and zeros
+            # 0 + x == x
+            case (0, operator.add, r):
+                return r
+            # x + 0 == x
+            case (l, operator.add, 0):
+                return l
+            # 0 * x == 0
+            case (0, operator.mul, r):
+                return expr(0)
+            # x * 0 == 0
+            case (l, operator.mul, 0):
+                return expr(0)
+            # x * 1 == x
+            case (l, operator.mul, 1):
+                return l
+            # 1 * x == x
+            case (1, operator.mul, r):
+                return r
+            # x * -1 == -x
+            case (l, operator.mul, -1):
+                rv = -l
+            # -1 * x == -x
+            case (-1, operator.mul, r):
+                rv = -r
+            # x - 0 == x
+            case (l, operator.sub, 0):
+                return l
+            # 0 - x == -x (unary minus)
+            case (0, operator.sub, r):
+                rv = -r
+            # x - x == 0
+            case (l, operator.sub, r) if l == r:
+                return expr(0)
+            # x - -y == x + y
+            case (l, operator.sub, NegatedExpression(r)):
+                rv = (l + r)
+            # x / 1 == x
+            case (l, operator.truediv, 1):
+                return l
+            # x / -1 == -x
+            case (l, operator.truediv, -1):
+                rv = -l
+            # x / x == 1
+            case (l, operator.truediv, r) if l == r:
+                return expr(1)
+            # -x [*/] -y == x [*/] y
+            case (NegatedExpression(l), (operator.truediv | operator.mul) as op, NegatedExpression(r)):
+                rv = op(l, r)
+            # -x + -y == -(x + y)
+            case (NegatedExpression(l), operator.add, NegatedExpression(r)):
+                rv = -(l+r)
+            # -x + y == y - x
+            case (NegatedExpression(l), operator.add, r):
+                rv = r-l
+            # x + x == 2 * x
+            case (l, operator.add, r) if l == r:
+                rv = 2*r
+            case ((l, op, OperatorExpression(operator.mul, ConstantExpression(cons), r)) |
+                  (l, op, OperatorExpression(operator.mul, r, ConstantExpression(cons)))) \
+                 if l == r and op in (operator.add, operator.sub):
+                return op(1, cons) * r
+            case ((OperatorExpression(operator.mul, ConstantExpression(cons), r), op, l) |
+                  (OperatorExpression(operator.mul, r, ConstantExpression(cons)), op, l)) \
+                 if l == r and op in (operator.add, operator.sub):
+                return op(cons, 1) * r
 
-        return OperatorExpression(self.op, l, r)
+            case _: # default
+                return OperatorExpression(self.op, l, r)
+
+        return expr(rv).optimized(variable_binding)
         
     def to_gerber(self, unit=None):
         lval = self.l.to_gerber(unit)

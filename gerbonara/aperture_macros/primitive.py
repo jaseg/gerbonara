@@ -48,7 +48,7 @@ class Primitive:
 
     def to_gerber(self, unit=None):
         return f'{self.code},' + ','.join(
-                getattr(self, field.name).to_gerber(unit) for field in fields(self) if field.name != 'unit')
+                getattr(self, field.name).optimized().to_gerber(unit) for field in fields(self) if field.name != 'unit')
 
     def __str__(self):
         attrs = ','.join(str(getattr(self, name)).strip('<>') for name in type(self).__annotations__)
@@ -253,6 +253,9 @@ class Outline(Primitive):
         object.__setattr__(self, 'exposure', expr(self.exposure))
 
         if self.length.calculate() != len(self.coords)//2-1:
+            print(self.length, self.length.calculate(), len(self.coords))
+            import pprint
+            pprint.pprint(self.coords)
             raise ValueError('length must exactly equal number of segments, which is the number of points minus one')
 
         if self.coords[-2:] != self.coords[:2]:
@@ -289,8 +292,8 @@ class Outline(Primitive):
 
             rotation = ConstantExpression(0)
 
-        coords = ','.join(coord.to_gerber(unit) for coord in coords)
-        return f'{self.code},{self.exposure.to_gerber()},{len(self.coords)//2-1},{coords},{rotation.to_gerber()}'
+        coords = ','.join(coord.optimized().to_gerber(unit) for coord in coords)
+        return f'{self.code},{self.exposure.optimized().to_gerber()},{len(self.coords)//2-1},{coords},{rotation.to_gerber()}'
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
         with self.Calculator(self, variable_binding, unit) as calc:
