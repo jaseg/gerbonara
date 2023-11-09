@@ -196,12 +196,6 @@ class NegatedExpression(Expression):
             # -(x-y) == y-x
             case OperatorExpression(operator.sub, l, r):
                 return OperatorExpression(operator.sub, r, l)
-            # -(x [*/] y) == -x [*/] y
-            case OperatorExpression((operator.mul | operator.truediv) as op, ConstantExpression(l), r):
-                return OperatorExpression(op, ConstantExpression(-l), r)
-            # -(x [*/] y) == x [*/] -y
-            case OperatorExpression((operator.mul | operator.truediv) as op, l, ConstantExpression(r)):
-                return OperatorExpression(op, l, ConstantExpression(-r))
 
             case x:
                 return NegatedExpression(x)
@@ -293,23 +287,12 @@ class OperatorExpression(Expression):
             # -x [*/] -y == x [*/] y
             case (NegatedExpression(l), (operator.truediv | operator.mul) as op, NegatedExpression(r)):
                 rv = op(l, r)
-            # -x + -y == -(x + y)
-            case (NegatedExpression(l), operator.add, NegatedExpression(r)):
-                rv = -(l+r)
+            # x + -y == x - y
+            case (l, operator.add, NegatedExpression(r)):
+                rv = l-r
             # -x + y == y - x
             case (NegatedExpression(l), operator.add, r):
                 rv = r-l
-            # x + x == 2 * x
-            case (l, operator.add, r) if l == r:
-                rv = 2*r
-            case ((l, op, OperatorExpression(operator.mul, ConstantExpression(cons), r)) |
-                  (l, op, OperatorExpression(operator.mul, r, ConstantExpression(cons)))) \
-                 if l == r and op in (operator.add, operator.sub):
-                return op(1, cons) * r
-            case ((OperatorExpression(operator.mul, ConstantExpression(cons), r), op, l) |
-                  (OperatorExpression(operator.mul, r, ConstantExpression(cons)), op, l)) \
-                 if l == r and op in (operator.add, operator.sub):
-                return op(cons, 1) * r
 
             case _: # default
                 return OperatorExpression(self.op, l, r)
