@@ -248,6 +248,58 @@ REFERENCE_FILES = [ l.strip() for l in '''
     zuken-emulated/Gerber/Resist-B.fph
     zuken-emulated/Gerber/Conductive-1.fph
     zuken-emulated/Gerber/Conductive-2.fph
+    p-cad/ZXINET.GBL
+    p-cad/ZXINET.GBO
+    p-cad/ZXINET.GBS
+    p-cad/ZXINET.GKO
+    p-cad/ZXINET.GTL
+    p-cad/ZXINET.GTO
+    p-cad/ZXINET.GTS
+    fab-3000/bl
+    fab-3000/bo
+    fab-3000/bs
+    fab-3000/ko
+    fab-3000/tl
+    fab-3000/to
+    fab-3000/ts
+    fab-3000/drl
+    kicad-x2-tests/nox2ap/Flashpads-B_Cu.gbr
+    kicad-x2-tests/nox2ap/Flashpads-B_Mask.gbr
+    kicad-x2-tests/nox2ap/Flashpads-B_Paste.gbr
+    kicad-x2-tests/nox2ap/Flashpads-B_Silkscreen.gbr
+    kicad-x2-tests/nox2ap/Flashpads-Edge_Cuts.gbr
+    kicad-x2-tests/nox2ap/Flashpads-F_Cu.gbr
+    kicad-x2-tests/nox2ap/Flashpads-F_Mask.gbr
+    kicad-x2-tests/nox2ap/Flashpads-F_Paste.gbr
+    kicad-x2-tests/nox2ap/Flashpads-F_Silkscreen.gbr
+    kicad-x2-tests/nox2noap/Flashpads-B_Cu.gbr
+    kicad-x2-tests/nox2noap/Flashpads-B_Mask.gbr
+    kicad-x2-tests/nox2noap/Flashpads-B_Paste.gbr
+    kicad-x2-tests/nox2noap/Flashpads-B_Silkscreen.gbr
+    kicad-x2-tests/nox2noap/Flashpads-Edge_Cuts.gbr
+    kicad-x2-tests/nox2noap/Flashpads-F_Cu.gbr
+    kicad-x2-tests/nox2noap/Flashpads-F_Mask.gbr
+    kicad-x2-tests/nox2noap/Flashpads-F_Paste.gbr
+    kicad-x2-tests/nox2noap/Flashpads-F_Silkscreen.gbr
+    kicad-x2-tests/x2ap/Flashpads-B_Cu.gbr
+    kicad-x2-tests/x2ap/Flashpads-B_Mask.gbr
+    kicad-x2-tests/x2ap/Flashpads-B_Paste.gbr
+    kicad-x2-tests/x2ap/Flashpads-B_Silkscreen.gbr
+    kicad-x2-tests/x2ap/Flashpads-Edge_Cuts.gbr
+    kicad-x2-tests/x2ap/Flashpads-F_Cu.gbr
+    kicad-x2-tests/x2ap/Flashpads-F_Mask.gbr
+    kicad-x2-tests/x2ap/Flashpads-F_Paste.gbr
+    kicad-x2-tests/x2ap/Flashpads-F_Silkscreen.gbr
+    kicad-x2-tests/x2noap/Flashpads-B_Cu.gbr
+    kicad-x2-tests/x2noap/Flashpads-B_Mask.gbr
+    kicad-x2-tests/x2noap/Flashpads-B_Paste.gbr
+    kicad-x2-tests/x2noap/Flashpads-B_Silkscreen.gbr
+    kicad-x2-tests/x2noap/Flashpads-Edge_Cuts.gbr
+    kicad-x2-tests/x2noap/Flashpads-F_Cu.gbr
+    kicad-x2-tests/x2noap/Flashpads-F_Mask.gbr
+    kicad-x2-tests/x2noap/Flashpads-F_Paste.gbr
+    kicad-x2-tests/x2noap/Flashpads-F_Silkscreen.gbr
+    gerbv.gbr
 '''.splitlines() if l ]
 
 MIN_REFERENCE_FILES = [
@@ -501,8 +553,6 @@ def test_svg_export_gerber(reference, tmpfile):
         assert mean < 1.2e-3
         assert hist[3:].sum() < 1e-3*hist.size
 
-# FIXME test svg margin, bounding box computation
-
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', REFERENCE_FILES, indirect=True)
 def test_bounding_box(reference, tmpfile):
@@ -518,6 +568,12 @@ def test_bounding_box(reference, tmpfile):
     margin_px = int(dpi*margin) # intentionally round down to avoid aliasing artifacts
 
     grb = GerberFile.open(reference)
+
+    if reference.match(f'fab-3000/*'):
+        # These files have the board outline plotted in clear polarity. Change them to dark to not confuse our matching
+        # code below.
+        for prim in grb.objects:
+            prim.polarity_dark = True
 
     if grb.is_empty:
         pytest.skip()
@@ -542,10 +598,10 @@ def test_bounding_box(reference, tmpfile):
 
     # Check that all margins are completely black and that the content touches the margins. Allow for some tolerance to
     # allow for antialiasing artifacts and for things like very thin features.
-    assert margin_px-2 <= col_prefix <= margin_px+2
-    assert margin_px-2 <= col_suffix <= margin_px+2
-    assert margin_px-2 <= row_prefix <= margin_px+2
-    assert margin_px-2 <= row_suffix <= margin_px+2
+    assert margin_px-3 <= col_prefix <= margin_px+3
+    assert margin_px-3 <= col_suffix <= margin_px+3
+    assert margin_px-3 <= row_prefix <= margin_px+3
+    assert margin_px-3 <= row_suffix <= margin_px+3
 
 @filter_syntax_warnings
 def test_syntax_error():

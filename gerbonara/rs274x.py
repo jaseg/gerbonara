@@ -602,6 +602,7 @@ class GerberParser:
             fr"(?:D0?([123]))?$",
         'region_start': r'G36$',
         'region_end': r'G37$',
+        'eof': r"(D02)?M0?[02]", # P-CAD 2006 files have a spurious D02 before M02 as in "D02M02"
         'aperture': r"(G54|G55)?\s*D(?P<number>\d+)",
         # Allegro combines format spec and unit into one long illegal extended command.
         'allegro_format_spec': r"FS(?P<zero>(L|T|D))?(?P<notation>(A|I))[NG0-9]*X(?P<x>[0-7][0-7])Y(?P<y>[0-7][0-7])[DM0-9]*\*MO(?P<unit>IN|MM)",
@@ -624,7 +625,6 @@ class GerberParser:
         'siemens_garbage': r'^ICAS$',
         'old_unit':r'(?P<mode>G7[01])',
         'old_notation': r'(?P<mode>G9[01])',
-        'eof': r"M0?[02]",
         'ignored': r"(?P<stmt>M01)",
         # NOTE: The official spec says names can be empty or contain commas. I think that doesn't make sense.
         'attribute': r"(?P<eagle_garbage>G04 #@! %)?(?P<type>TF|TA|TO|TD)(?P<name>[._$a-zA-Z][._$a-zA-Z0-9]*)?(,(?P<value>.*))?",

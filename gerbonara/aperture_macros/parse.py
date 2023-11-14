@@ -8,6 +8,7 @@ import operator
 import re
 import ast
 import copy
+import warnings
 import math
 
 from . import primitive as ap
@@ -88,16 +89,22 @@ class ApertureMacro:
             block = re.sub(r'\s', '', block)
 
             if block[0] == '$': # variable definition
-                name, expr = block.partition('=')
-                number = int(name[1:])
-                if number in variables:
-                    raise SyntaxError(f'Re-definition of aperture macro variable ${number} inside macro. Previous definition of ${number} was ${variables[number]}.')
-                variables[number] = _parse_expression(expr, variables, parameters)
+                try:
+                    name, _, expr = block.partition('=')
+                    number = int(name[1:])
+                    if number in variables:
+                        warnings.warn(f'Re-definition of aperture macro variable ${number} inside macro. Previous definition of ${number} was ${variables[number]}.')
+                    variables[number] = _parse_expression(expr, variables, parameters)
+                except Exception as e:
+                    raise SyntaxError(f'Error parsing variable definition {block!r}') from e
 
             else: # primitive
                 primitive, *args = block.split(',')
                 args = [ _parse_expression(arg, variables, parameters) for arg in args ]
-                primitives.append(ap.PRIMITIVE_CLASSES[int(primitive)].from_arglist(unit, args))
+                try:
+                    primitives.append(ap.PRIMITIVE_CLASSES[int(primitive)].from_arglist(unit, args))
+                except KeyError as e:
+                    raise SyntaxError(f'Unknown aperture macro primitive code {int(primitive)}')
 
         return kls(macro_name, max(parameters, default=0), tuple(primitives), tuple(comments))
 

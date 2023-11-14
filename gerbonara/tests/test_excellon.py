@@ -50,6 +50,15 @@ REFERENCE_FILES = {
         'diptrace/keyboard.drl': (None, 'diptrace/keyboard_Bottom.gbr'),
         'zuken-emulated/Drill/8seg_Driver__routed_Drill_thru_plt.fdr/8seg_Driver__routed_Drill_thru_plt.fdr': (('inch', 'trailing', 4), 'zuken-emulated/Gerber/Conductive-1.fph'),
         'zuken-emulated/Drill/8seg_Driver__routed_Drill_thru_nplt.fdr': (('inch', 'trailing', 4), None),
+        'p-cad/ZXINET.DRL': (None, None),
+        'kicad-x2-tests/nox2ap/Flashpads-NPTH.drl': (None, None),
+        'kicad-x2-tests/nox2ap/Flashpads-PTH.drl': (None, None),
+        'kicad-x2-tests/nox2noap/Flashpads-NPTH.drl': (None, None),
+        'kicad-x2-tests/nox2noap/Flashpads-PTH.drl': (None, None),
+        'kicad-x2-tests/x2ap/Flashpads-NPTH.drl': (None, None),
+        'kicad-x2-tests/x2ap/Flashpads-PTH.drl': (None, None),
+        'kicad-x2-tests/x2noap/Flashpads-NPTH.drl': (None, None),
+        'kicad-x2-tests/x2noap/Flashpads-PTH.drl': (None, None),
         }
 
 @filter_syntax_warnings

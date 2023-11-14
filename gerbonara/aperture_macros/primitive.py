@@ -34,7 +34,6 @@ def rad_to_deg(a):
 @dataclass(frozen=True, slots=True)
 class Primitive:
     unit: LengthUnit
-    exposure : Expression
 
     def __post_init__(self):
         for field in fields(self):
@@ -95,6 +94,7 @@ class Primitive:
 @dataclass(frozen=True, slots=True)
 class Circle(Primitive):
     code = 1
+    exposure : Expression
     diameter : UnitExpression
     # center x/y
     x : UnitExpression
@@ -124,6 +124,7 @@ class Circle(Primitive):
 @dataclass(frozen=True, slots=True)
 class VectorLine(Primitive):
     code = 20
+    exposure : Expression
     width : UnitExpression
     start_x : UnitExpression
     start_y : UnitExpression
@@ -166,6 +167,7 @@ class VectorLine(Primitive):
 @dataclass(frozen=True, slots=True)
 class CenterLine(Primitive):
     code = 21
+    exposure : Expression
     width : UnitExpression
     height : UnitExpression
     # center x/y
@@ -202,6 +204,7 @@ class CenterLine(Primitive):
 @dataclass(frozen=True, slots=True)
 class Polygon(Primitive):
     code = 5
+    exposure : Expression
     n_vertices : Expression
     # center x/y
     x : UnitExpression
@@ -228,8 +231,56 @@ class Polygon(Primitive):
             
 
 @dataclass(frozen=True, slots=True)
+class Moire(Primitive):
+    """ Deprecated, but still found in some really old gerber files. """
+    code = 6
+    # center x/y
+    x : UnitExpression
+    y : UnitExpression
+    d_outer : UnitExpression
+    line_thickness : UnitExpression
+    gap_w : UnitExpression
+    num_circles : Expression
+    crosshair_thickness : UnitExpression = 0
+    crosshair_length : UnitExpression =0
+    rotation : Expression = 0
+
+    def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):
+        with self.Calculator(self, variable_binding, unit) as calc:
+            rotation += deg_to_rad(calc.rotation)
+            x, y = rotate_point(calc.x, calc.y, -rotation, 0, 0)
+            x, y = x+offset[0], y+offset[1]
+
+            pitch = calc.line_thickness + calc.gap_w
+            for i in range(int(round(calc.num_circles))):
+                yield gp.Circle(x, y, calc.d_outer/2 - i*pitch, polarity_dark=True)
+                yield gp.Circle(x, y, calc.d_inner/2 - i*pitch - calc.line_thickness, polarity_dark=False)
+
+            if math.isclose(calc.crosshair_thickness, 0, abs_tol=1e-6) or\
+                    math.isclose(calc.crosshair_length, 0, abs_tol=1e-6):
+                return
+
+            yield gp.Rectangle(x, y, crosshair_length, crosshair_thickness, rotation=rotation, polarity_dark=True)
+            yield gp.Rectangle(x, y, crosshair_thickness, crosshair_length, rotation=rotation, polarity_dark=True)
+
+    def dilate(self, offset, unit):
+        # I'd rather print a warning and produce graphically slightly incorrect output in these few cases here than
+        # producing macros that may evaluate to primitives with negative values.
+        warnings.warn('Attempted dilation of macro aperture thermal primitive. This is not supported.')
+
+    def scale(self, scale):
+        return replace(self, 
+                       d_outer=self.d_outer * UnitExpression(scale),
+                       d_inner=self.d_inner * UnitExpression(scale),
+                       gap_w=self.gap_w * UnitExpression(scale),
+                       x=self.x * UnitExpression(scale),
+                       y=self.y * UnitExpression(scale))
+
+
+@dataclass(frozen=True, slots=True)
 class Thermal(Primitive):
     code = 7
+    exposure : Expression
     # center x/y
     x : UnitExpression
     y : UnitExpression
@@ -270,6 +321,7 @@ class Thermal(Primitive):
 @dataclass(frozen=True, slots=True)
 class Outline(Primitive):
     code = 4
+    exposure : Expression
     length: Expression
     coords: tuple
     rotation: Expression = 0
@@ -364,6 +416,7 @@ PRIMITIVE_CLASSES = {
         CenterLine,
         Outline,
         Polygon,
+        Moire,
         Thermal,
     ]},
     # alternative codes
