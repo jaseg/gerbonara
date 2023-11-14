@@ -298,7 +298,16 @@ def test_idempotence(reference, tmpfile):
 
     GerberFile.open(reference).save(tmp_gbr_1)
     GerberFile.open(tmp_gbr_1).save(tmp_gbr_2)
-    assert tmp_gbr_1.read_text() == tmp_gbr_2.read_text()
+    for left, right in zip(tmp_gbr_1.read_text().splitlines(), tmp_gbr_2.read_text().splitlines()):
+        # Substituted aperture macros have automatically generated names that are not stable between the first two
+        # generations, and the parametrization will be absent in the second generation.
+        ignored = [
+                '0 Fully substituted instance of',
+                '0 Original parameters:']
+        if any(left.startswith(s) and right.startswith(s) for s in ignored):
+            continue
+
+        assert left == right
 
 
 TEST_ANGLES = [90, 180, 270, 1.5, 30, 360, 1024, -30]

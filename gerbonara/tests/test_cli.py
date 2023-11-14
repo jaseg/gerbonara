@@ -73,9 +73,9 @@ class TestRender:
         assert top != bottom
 
     @pytest.mark.parametrize('reference', ['kicad-older'], indirect=True)
-    def test_margin(self, reference):
-        no_margin = BeautifulSoup(self.invoke(reference, '--top', '--warnings=ignore'), features='xml')
-        with_margin = BeautifulSoup(self.invoke(reference, '--top', '--warnings=ignore', '--margin=25'), features='xml')
+    def test_margin(self, reference, tmpfile):
+        no_margin = BeautifulSoup(self.invoke(tmpfile('Without margin', '.svg'), reference, '--top', '--warnings=ignore'), features='xml')
+        with_margin = BeautifulSoup(self.invoke(tmpfile('With margin', '.svg'), reference, '--top', '--warnings=ignore', '--margin=25'), features='xml')
 
         s = no_margin.find('svg')
         w_no = float(s['width'].rstrip('m'))
@@ -89,8 +89,8 @@ class TestRender:
         assert math.isclose(h_with, h_no+2*25, abs_tol=1e-6)
 
     @pytest.mark.parametrize('reference', ['kicad-older'], indirect=True)
-    def test_force_bounds(self, reference):
-        out = self.invoke(reference, '--top', '--warnings=ignore', '--force-bounds=10,10,50,50')
+    def test_force_bounds(self, reference, tmpfile):
+        out = self.invoke(tmpfile('Standard output', '.svg'), reference, '--top', '--warnings=ignore', '--force-bounds=10,10,50,50')
         s = BeautifulSoup(out, features='xml').find('svg')
         w = float(s['width'].rstrip('m'))
         h = float(s['height'].rstrip('m'))
@@ -99,15 +99,15 @@ class TestRender:
         assert math.isclose(h, 40, abs_tol=1e-6)
 
     @pytest.mark.parametrize('reference', ['kicad-older'], indirect=True)
-    def test_inkscape(self, reference):
-        out_with = self.invoke(reference, '--top', '--warnings=ignore', '--inkscape')
-        out_without = self.invoke(reference, '--top', '--warnings=ignore', '--standard-svg')
+    def test_inkscape(self, reference, tmpfile):
+        out_with = self.invoke(tmpfile('Inkscape SVG', '.svg'), reference, '--top', '--warnings=ignore', '--inkscape')
+        out_without = self.invoke(tmpfile('Standard SVG', '.svg'), reference, '--top', '--warnings=ignore', '--standard-svg')
         assert 'sodipodi' in out_with
         assert 'sodipodi' not in out_without
 
     @pytest.mark.parametrize('reference', ['kicad-older'], indirect=True)
-    def test_colorscheme(self, reference):
-        out_without = self.invoke(reference, '--top', '--warnings=ignore')
+    def test_colorscheme(self, reference, tmpfile):
+        out_without = self.invoke(tmpfile('Standard output', '.svg'), reference, '--top', '--warnings=ignore')
         find_colors = lambda s: { m.group(0) for m in re.finditer(r'#[0-9a-fA-F]{6,}', s) }
         colors_without = find_colors(out_without)
 
@@ -124,7 +124,7 @@ class TestRender:
             json.dump(test_colorscheme, f)
             f.flush()
 
-            out_with = self.invoke(reference, '--top', '--warnings=ignore', f'--colorscheme={f.name}')
+            out_with = self.invoke(tmpfile('Output with colorscheme', '.svg'), reference, '--top', '--warnings=ignore', f'--colorscheme={f.name}')
             for color in colors_without:
                 colors_with = find_colors(out_with)
                 assert not colors_without & colors_with
