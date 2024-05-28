@@ -97,7 +97,7 @@ class Stroke:
 class Dasher:
     def __init__(self, obj):
         if obj.stroke:
-            w = obj.stroke.width if obj.stroke.width is not None else 0.254
+            w = obj.stroke.width if obj.stroke.width not in (None, 0, 0.0) else 0.254
             t = obj.stroke.type
         else:
             w = obj.width or 0

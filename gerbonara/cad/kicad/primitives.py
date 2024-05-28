@@ -81,7 +81,7 @@ def kicad_mid_to_center_arc(mid, start, end):
     cy = ((p1[0] - p2[0]) * cd - (p2[0] - p3[0]) * bc) / det
 
     radius = math.sqrt((cx - p1[0])**2 + (cy - p1[1])**2)
-    return ((cx, cy), radius)
+    return (cx, cy), radius
 
 
 @sexp_type('hatch')

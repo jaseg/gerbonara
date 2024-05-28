@@ -260,6 +260,7 @@ class HierarchicalLabel(TextMixin):
 class Pin:
     name: str = '1'
     uuid: UUID = field(default_factory=UUID)
+    alternate: Named(str) = None
 
 
 # Suddenly, we're doing syntax like this is yaml or something.
@@ -354,7 +355,7 @@ class SymbolInstance:
     pins: List(Pin) = field(default_factory=list)
     # AFAICT this property, too,  is completely redundant. It ultimately just lists paths and references of at most
     # three other uses of the same symbol in this schematic.
-    instances: Named(List(SymbolCrosslinkProject)) = field(default_factory=list)
+    instances: Named(Array(SymbolCrosslinkProject)) = field(default_factory=list)
     _ : SEXP_END = None
     schematic: object = None
 

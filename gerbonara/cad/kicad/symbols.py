@@ -20,7 +20,7 @@ from .base_types import *
 from ...utils import rotate_point, Tag, arc_bounds
 from ...newstroke import Newstroke
 from .schematic_colors import *
-from .primitives import center_arc_to_kicad_mid
+from .primitives import kicad_mid_to_center_arc
 
 
 PIN_ETYPE = AtomChoice(Atom.input, Atom.output, Atom.bidirectional, Atom.tri_state, Atom.passive, Atom.free,
@@ -259,7 +259,7 @@ class Arc:
     fill: Fill = field(default_factory=Fill)
 
     def bounding_box(self, default=None):
-        (cx, cy), r = center_arc_to_kicad_mid(self.mid, self.start, self.end)
+        (cx, cy), r = kicad_mid_to_center_arc(self.mid, self.start, self.end)
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.mid.x-x1, self.mid.y-x2
         x3, y3 = (self.end.x - x1)/2, (self.end.y - y1)/2
@@ -268,7 +268,7 @@ class Arc:
 
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        (cx, cy), r = center_arc_to_kicad_mid(self.mid, self.start, self.end)
+        (cx, cy), r = kicad_mid_to_center_arc(self.mid, self.start, self.end)
 
         x1r = self.start.x - cx
         y1r = self.start.y - cy
