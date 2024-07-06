@@ -4,7 +4,7 @@ import math
 import warnings
 from copy import copy
 from itertools import zip_longest, chain
-from dataclasses import dataclass, field, KW_ONLY
+from dataclasses import dataclass, field, replace, KW_ONLY
 from collections import defaultdict
 
 from ..utils import LengthUnit, MM, rotate_point, svg_arc, sum_bounds, bbox_intersect, Tag, offset_bounds
@@ -13,6 +13,9 @@ from ..graphic_objects import Line, Arc, Flash
 from ..apertures import Aperture, CircleAperture, ObroundAperture, RectangleAperture, ExcellonTool
 from ..newstroke import Newstroke
 
+
+class UNDEFINED:
+    pass
 
 def sgn(x):
     return -1 if x < 0 else 1
@@ -329,16 +332,16 @@ class Text(Positioned):
         else:
             raise ValueError('h_align must be one of "left", "center", or "right".')
 
-        if self.v_align == 'top':
+        if self.v_align == 'bottom':
             y0 = -(max_y - min_y)
         elif self.v_align == 'middle':
-            y0 = -(max_y - min_y)/2
-        elif self.v_align == 'bottom':
+            y0 = (max_y - min_y)/2
+        elif self.v_align == 'top':
             y0 = 0
         else:
             raise ValueError('v_align must be one of "top", "middle", or "bottom".')
 
-        if self.side == 'bottom':
+        if self.flip:
             x0 += min_x + max_x
             x_sign = -1
         else:
@@ -348,7 +351,7 @@ class Text(Positioned):
 
         for stroke in strokes:
             for (x1, y1), (x2, y2) in zip(stroke[:-1], stroke[1:]):
-                obj = Line(x0+x_sign*x1, y0-y1, x0+x_sign*x2, y0-y2, aperture=ap, unit=self.unit, polarity_dark=self.polarity_dark)
+                obj = Line(x0+x_sign*x1, y0+y1, x0+x_sign*x2, y0+y2, aperture=ap, unit=self.unit, polarity_dark=self.polarity_dark)
                 obj.rotate(rotation)
                 obj.offset(obj_x, obj_y)
                 layer_stack['bottom' if flip else 'top', self.layer].objects.append(obj)
@@ -396,20 +399,20 @@ class PadStack:
     def flashes(self, x, y, rotation: float = 0, flip: bool = False):
         for ap in self.apertures:
             aperture = ap.aperture.rotated(ap.rotation + rotation)
-            fl = Flash(ap.offset_x, ap.offset_y)
+            fl = Flash(ap.offset_x, ap.offset_y, aperture, unit=self.unit)
             fl.rotate(rotation)
             fl.offset(x, y)
-            side = fl.side
+            side = ap.side
             if flip:
                 side = {'top': 'bottom', 'bottom': 'top'}.get(side, side)
-            yield side, fl.layer, fl
+            yield side, ap.layer, fl
 
     def render(self, layer_stack, x, y, rotation: float = 0, flip: bool = False):
         for side, layer, flash in self.flashes(x, y, rotation, flip):
-            if side == 'drill' and use == 'plated':
+            if side == 'drill' and layer == 'plated':
                 layer_stack.drill_pth.objects.append(flash)
 
-            elif side == 'drill' and use == 'nonplated':
+            elif side == 'drill' and layer == 'nonplated':
                 layer_stack.drill_npth.objects.append(flash)
 
             elif (side, layer) in layer_stack:
@@ -450,16 +453,36 @@ class SMDStack(PadStack):
     
 
 @dataclass(frozen=True, slots=True)
+class MechanicalHoleStack(PadStack):
+    drill_dia: float
+    mask_expansion: float = 0.0
+    mask_aperture = None
+
+    @property
+    def apertures(self):
+        mask_aperture = self.mask_aperture or CircleAperture(self.drill_dia + self.mask_expansion, unit=self.unit)
+        yield PadStackAperture(mask_aperture, 'top', 'mask')
+        yield PadStackAperture(mask_aperture, 'bottom', 'mask')
+
+    @property
+    def single_sided(self):
+        return False
+
+
+@dataclass(frozen=True, slots=True)
 class THTPad(PadStack):
     drill_dia: float
     pad_top: SMDStack
     pad_bottom: SMDStack = None
-    aperture_inner: Aperture = None
+    aperture_inner: Aperture = UNDEFINED
     plated: bool = True
 
     def __post_init__(self):
         if self.pad_bottom is None:
             object.__setattr__(self, 'pad_bottom', replace(self.pad_top, flip=True))
+        
+        if self.aperture_inner is UNDEFINED:
+            object.__setattr__(self, 'aperture_inner', self.pad_top.aperture)
 
         if self.pad_top.flip:
             raise ValueError('top pad cannot be flipped')
@@ -472,7 +495,8 @@ class THTPad(PadStack):
     def apertures(self):
         yield from self.pad_top.apertures
         yield from self.pad_bottom.apertures
-        yield PadStackAperture(self.aperture_inner, 'inner', 'copper')
+        if self.aperture_inner is not None:
+            yield PadStackAperture(self.aperture_inner, 'inner', 'copper')
         yield PadStackAperture(ExcellonTool(self.drill_dia, plated=self.plated, unit=self.unit), 'drill', self.plating)
 
     @property
@@ -537,6 +561,10 @@ class Via(FrozenPositioned):
 @dataclass
 class Pad(Positioned):
     pad_stack: PadStack
+
+    def render(self, layer_stack, cache=None):
+        x, y, rotation, flip = self.abs_pos
+        self.pad_stack.render(layer_stack, x, y, rotation, flip)
 
     @property
     def single_sided(self):

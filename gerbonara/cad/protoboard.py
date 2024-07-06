@@ -29,10 +29,11 @@ class ProtoBoard(Board):
             mounting_hole_offset = mounting_hole_offset or mounting_hole_dia*2
             ko = mounting_hole_offset*2
 
-            self.add(Hole(mounting_hole_offset, mounting_hole_offset, mounting_hole_dia, unit=unit))
-            self.add(Hole(w-mounting_hole_offset, mounting_hole_offset, mounting_hole_dia, unit=unit))
-            self.add(Hole(mounting_hole_offset, h-mounting_hole_offset, mounting_hole_dia, unit=unit))
-            self.add(Hole(w-mounting_hole_offset, h-mounting_hole_offset, mounting_hole_dia, unit=unit))
+            stack = MechanicalHoleStack(mounting_hole_dia, unit=unit)
+            self.add(Pad(mounting_hole_offset, mounting_hole_offset, pad_stack=stack, unit=unit))
+            self.add(Pad(w-mounting_hole_offset, mounting_hole_offset, pad_stack=stack, unit=unit))
+            self.add(Pad(mounting_hole_offset, h-mounting_hole_offset, pad_stack=stack, unit=unit))
+            self.add(Pad(w-mounting_hole_offset, h-mounting_hole_offset, pad_stack=stack, unit=unit))
 
             self.keepouts.append(((0, 0), (ko, ko)))
             self.keepouts.append(((w-ko, 0), (w, ko)))
@@ -235,7 +236,7 @@ class PatternProtoArea:
         off_y = (h % unit(self.pitch_y, self.unit)) / 2
 
         if self.numbers:
-            for i, lno_i in list(zip(range(n_y), self.number_y_gen())):
+            for i, lno_i in list(zip(reversed(range(n_y)), self.number_y_gen())):
                 if i == 0 or i == n_y - 1 or (i+1) % self.interval_y == 0:
                     t_y = off_y + y + (n_y - 1 - i + 0.5) * self.pitch_y
 
@@ -243,13 +244,13 @@ class PatternProtoArea:
                         t_x = x + off_x
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit)
                         if not self.single_sided:
-                            yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', side='bottom', unit=self.unit)
+                            yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', flip=True, unit=self.unit)
 
                     if border_text[1]:
                         t_x = x + w - off_x
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit)
                         if not self.single_sided:
-                            yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', side='bottom', unit=self.unit)
+                            yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', flip=True, unit=self.unit)
 
             for i, lno_i in zip(range(n_x), self.number_x_gen()):
                 if i == 0 or i == n_x - 1 or (i+1) % self.interval_x == 0:
@@ -259,18 +260,24 @@ class PatternProtoArea:
                         t_y = y + off_y
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit)
                         if not self.single_sided:
-                            yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', side='bottom', unit=self.unit)
+                            yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', flip=True, unit=self.unit)
 
                     if border_text[0]:
-                        t_y = y + h - off_y
+                        t_y = y + h + off_y
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
                         if not self.single_sided:
-                            yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', side='bottom', unit=self.unit)
+                            yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', flip=True, unit=self.unit)
 
 
         for i in range(n_x):
             for j in range(n_y):
-                if hasattr(self.obj, 'inst'):
+                if isinstance(self.obj, PadStack):
+                    px = self.unit(off_x + x, unit) + (i + 0.5) * self.pitch_x
+                    py = self.unit(off_y + y, unit) + (j + 0.5) * self.pitch_y
+                    yield Pad(px, py, pad_stack=self.obj, unit=self.unit)
+                    continue
+
+                elif hasattr(self.obj, 'inst'):
                     inst = self.obj.inst(i, j, i == n_x-1, j == n_y-1)
                     if not inst:
                         continue

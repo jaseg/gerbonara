@@ -8,6 +8,7 @@ from quart import Quart, request, Response, send_file, abort
 
 from . import protoboard as pb
 from . import protoserve_data
+from .primitives import SMDStack
 from ..utils import MM, Inch
 
 
@@ -62,10 +63,10 @@ def deserialize(obj, unit):
         case 'smd':
             match obj['pad_shape']:
                 case 'rect':
-                    pad = pb.SMDPad.rect(0, 0, pitch_x-clearance, pitch_y-clearance, paste=False, unit=unit)
+                    stack = SMDStack.rect(pitch_x-clearance, pitch_y-clearance, paste=False, unit=unit)
                 case 'circle':
-                    pad = pb.SMDPad.circle(0, 0, min(pitch_x, pitch_y)-clearance, paste=False, unit=unit)
-            return pb.PatternProtoArea(pitch_x, pitch_y, obj=pad, unit=unit)
+                    stack = SMDStack.circle(min(pitch_x, pitch_y)-clearance, paste=False, unit=unit)
+            return pb.PatternProtoArea(pitch_x, pitch_y, obj=stack, unit=unit)
 
         case 'tht':
             hole_dia = mil(float(obj['hole_dia']))
@@ -79,11 +80,11 @@ def deserialize(obj, unit):
 
             match obj['pad_shape']:
                 case 'rect':
-                    pad = pb.THTPad.rect(0, 0, hole_dia, pitch_x-clearance, pitch_y-clearance, paste=False, plated=plated, unit=unit)
+                    pad = pb.THTPad.rect(hole_dia, pitch_x-clearance, pitch_y-clearance, paste=False, plated=plated, unit=unit)
                 case 'circle':
-                    pad = pb.THTPad.circle(0, 0, hole_dia, min(pitch_x, pitch_y)-clearance, paste=False, plated=plated, unit=unit)
+                    pad = pb.THTPad.circle(hole_dia, min(pitch_x, pitch_y)-clearance, paste=False, plated=plated, unit=unit)
                 case 'obround':
-                    pad = pb.THTPad.obround(0, 0, hole_dia, pitch_x-clearance, pitch_y-clearance, paste=False, plated=plated, unit=unit)
+                    pad = pb.THTPad.obround(hole_dia, pitch_x-clearance, pitch_y-clearance, paste=False, plated=plated, unit=unit)
 
             if oneside:
                 pad.pad_bottom = None
