@@ -12,7 +12,7 @@ from ..utils import MM, rotate_point
 from .primitives import *
 from ..graphic_objects import Region
 from ..apertures import RectangleAperture, CircleAperture, ApertureMacroInstance
-from ..aperture_macros.parse import ApertureMacro, VariableExpression
+from ..aperture_macros.parse import ApertureMacro, ParameterExpression, VariableExpression
 from ..aperture_macros import primitive as amp
 from .kicad import footprints as kfp
 from . import data as package_data
@@ -272,9 +272,13 @@ class PatternProtoArea:
         for i in range(n_x):
             for j in range(n_y):
                 if isinstance(self.obj, PadStack):
+                    obj = self.obj.grid_variant(i, j, i == n_x-1, j == n_y-1)
+                    if obj is None:
+                        continue
+
                     px = self.unit(off_x + x, unit) + (i + 0.5) * self.pitch_x
                     py = self.unit(off_y + y, unit) + (j + 0.5) * self.pitch_y
-                    yield Pad(px, py, pad_stack=self.obj, unit=self.unit)
+                    yield Pad(px, py, pad_stack=obj, unit=self.unit)
                     continue
 
                 elif hasattr(self.obj, 'inst'):
@@ -313,110 +317,126 @@ class EmptyProtoArea:
         return True
 
 
-class ManhattanPads(ObjectGroup):
-    def __init__(self, w, h=None, gap=0.2, unit=MM):
-        super().__init__(0, 0)
-        h = h or w
-        self.gap = gap
-        self.unit = unit
+@dataclass(frozen=True, slots=True)
+class ManhattanPads(PadStack):
+    w: float = None
+    h: float = None
+    gap: float = 0.2
 
-        p = (w-2*gap)/2
-        q = (h-2*gap)/2
-        small_ap = RectangleAperture(p, q, unit=unit)
+    @property
+    def apertures(self):
+        w = self.w
+        h = self.h or w
+
+        p = (w-2*self.gap)/2
+        q = (h-2*self.gap)/2
+        small_ap = RectangleAperture(p, q, unit=self.unit)
 
         s = min(w, h) / 2 / math.sqrt(2)
-        large_ap = RectangleAperture(s, s, unit=unit).rotated(math.pi/4)
-        large_ap_neg = RectangleAperture(s+2*gap, s+2*gap, unit=unit).rotated(math.pi/4)
+        large_ap = RectangleAperture(s, s, unit=self.unit).rotated(math.pi/4)
+        large_ap_neg = RectangleAperture(s+2*self.gap, s+2*self.gap, unit=self.unit).rotated(math.pi/4)
 
-        a = gap/2 + p/2
-        b = gap/2 + q/2
+        a = self.gap/2 + p/2
+        b = self.gap/2 + q/2
 
-        self.top_copper.append(Flash(-a, -b, aperture=small_ap, unit=unit))
-        self.top_copper.append(Flash(-a,  b, aperture=small_ap, unit=unit))
-        self.top_copper.append(Flash( a, -b, aperture=small_ap, unit=unit))
-        self.top_copper.append(Flash( a,  b, aperture=small_ap, unit=unit))
-        self.top_copper.append(Flash(0, 0, aperture=large_ap_neg, polarity_dark=False, unit=unit))
-        self.top_copper.append(Flash(0, 0, aperture=large_ap, unit=unit))
-        self.top_mask = self.top_copper
+        for layer in ('copper', 'mask'):
+            yield PadStackAperture(small_ap, 'top', layer, -a, -b)
+            yield PadStackAperture(small_ap, 'top', layer, -a,  b)
+            yield PadStackAperture(small_ap, 'top', layer,  a, -b)
+            yield PadStackAperture(small_ap, 'top', layer,  a,  b)
+            yield PadStackAperture(large_ap_neg, 'top', layer,  0,  0, invert=True)
+            yield PadStackAperture(large_ap, 'top', layer,  0,  0)
 
 
-class RFGroundProto(ObjectGroup):
-    def __init__(self, pitch=None, drill=None, clearance=None, via_dia=None, via_drill=None, pad_dia=None, trace_width=None, unit=MM):
-        super().__init__(0, 0)
-        self.unit = unit
-        self.pitch = pitch = pitch or unit(2.54, MM)
-        self.drill = drill = drill or unit(0.9, MM)
-        self.clearance = clearance = clearance or unit(0.3, MM)
-        self.via_drill = via_drill = via_drill or unit(0.4, MM)
-        self.via_dia = via_dia = via_dia or unit(0.8, MM)
+@dataclass(frozen=True, slots=True)
+class RFGroundProto(PadStack):
+    pitch: float = 2.54
+    drill: float = 0.9
+    clearance: float = 0.3
+    via_drill: float = 0.4
+    via_dia: float = 0.8
+    pad_dia: float = None
+    trace_width: float = None
+    _: KW_ONLY = None
+    suppress_via: bool = False
+
+    @property
+    def apertures(self):
+        unit = self.unit
+        pitch = self.pitch
+        trace_width, pad_dia = self.trace_width, self.pad_dia
 
         if pad_dia is None:
-            self.trace_width = trace_width = trace_width or unit(0.3, MM)
-            pad_dia = pitch - trace_width - 2*clearance 
+            if trace_width is None:
+                trace_width = 0.3
+            pad_dia = pitch - trace_width - 2*self.clearance 
         elif trace_width is None:
-            trace_width = pitch - pad_dia - 2*clearance
-        self.pad_dia = pad_dia
+            trace_width = pitch - pad_dia - 2*self.clearance
 
-        via_ap = RectangleAperture(via_dia, via_dia, unit=unit).rotated(math.pi/4)
+        via_ap = RectangleAperture(self.via_dia, self.via_dia, unit=unit).rotated(math.pi/4)
         pad_ap = CircleAperture(pad_dia, unit=unit)
-        pad_neg_ap = CircleAperture(pad_dia+2*clearance, unit=unit)
+        pad_neg_ap = CircleAperture(pad_dia+2*self.clearance, unit=unit)
         ground_ap = RectangleAperture(pitch + unit(0.01, MM), pitch + unit(0.01, MM), unit=unit)
-        pad_drill = ExcellonTool(drill, plated=True, unit=unit)
-        via_drill = ExcellonTool(via_drill, plated=True, unit=unit)
+        pad_drill = ExcellonTool(self.drill, plated=True, unit=unit)
+        via_drill = ExcellonTool(self.via_drill, plated=True, unit=unit)
 
-        self.top_copper.append(Flash(0, 0, aperture=ground_ap, unit=unit))
-        self.top_copper.append(Flash(0, 0, aperture=pad_neg_ap, polarity_dark=False, unit=unit))
-        self.top_copper.append(Flash(0, 0, aperture=pad_ap, unit=unit))
-        self.top_mask.append(Flash(0, 0, aperture=pad_ap, unit=unit))
-        self.top_copper.append(Flash(pitch/2, pitch/2, aperture=via_ap, unit=unit))
-        self.top_mask.append(Flash(pitch/2, pitch/2, aperture=via_ap, unit=unit))
-        self.drill_pth.append(Flash(0, 0, aperture=pad_drill, unit=unit))
-        self.drill_pth.append(Flash(pitch/2, pitch/2, aperture=via_drill, unit=unit))
+        for side in 'top', 'bottom':
+            yield PadStackAperture(ground_ap, side, 'copper')
+            yield PadStackAperture(pad_neg_ap, side, 'copper', invert=True)
+            yield PadStackAperture(pad_ap, side, 'copper')
+            yield PadStackAperture(pad_ap, side, 'mask')
 
-        self.bottom_copper = self.top_copper
-        self.bottom_mask = self.top_mask
+            if not self.suppress_via:
+                yield PadStackAperture(via_ap, side, 'copper', pitch/2, pitch/2)
+                yield PadStackAperture(via_ap, side, 'mask', pitch/2, pitch/2)
 
-    def inst(self, x, y, border_x, border_y):
-        inst = copy(self)
+        yield PadStackAperture(pad_drill, 'drill', 'plated')
+        if not self.suppress_via:
+            yield PadStackAperture(via_drill, 'drill', 'plated', pitch/2, pitch/2)
+
+    def grid_variant(self, x, y, border_x, border_y):
         if border_x or border_y:
-            inst.drill_pth = inst.drill_pth[:-1]
-            inst.top_copper = inst.bottom_copper = inst.top_copper[:-1]
-            inst.top_mask = inst.bottom_mask = inst.top_mask[:-1]
-        return inst
+            return replace(self, suppress_via=True)
+        else:
+            return self
 
 
-class THTFlowerProto(ObjectGroup):
-    def __init__(self, pitch=None, drill=None, diameter=None, unit=MM):
-        super().__init__(0, 0, unit=unit)
-        self.pitch = pitch = pitch or unit(2.54, MM)
-        drill = drill or unit(0.9, MM)
-        diameter = diameter or unit(2.0, MM)
+@dataclass(frozen=True, slots=True)
+class THTFlowerProto(PadStack):
+    pitch: float = 2.54
+    drill: float = 0.9
+    diameter: float = 2.0
 
-        p = pitch / 2
-        self.objects.append(THTPad.circle(-p, 0, drill, diameter, paste=False, unit=unit))
-        self.objects.append(THTPad.circle( p, 0, drill, diameter, paste=False, unit=unit))
-        self.objects.append(THTPad.circle(0, -p, drill, diameter, paste=False, unit=unit))
-        self.objects.append(THTPad.circle(0,  p, drill, diameter, paste=False, unit=unit))
+    @property
+    def apertures(self):
+        p = self.pitch / 2
 
-        middle_ap = CircleAperture(diameter, unit=unit)
-        self.top_copper.append(Flash(0, 0, aperture=middle_ap, unit=unit))
-        self.bottom_copper = self.top_mask = self.bottom_mask = self.top_copper
+        pad = THTPad.circle(self.drill, self.diameter, paste=False, unit=self.unit)
+
+        for ox, oy in ((-p, 0), (p, 0), (0, -p), (0, p)):
+            for stack_ap in pad.apertures:
+                yield replace(stack_ap, offset_x=ox, offset_y=oy)
+
+        middle_ap = CircleAperture(self.diameter, unit=self.unit)
+        for side in ('top', 'bottom'):
+            for layer in ('copper', 'mask'):
+                yield PadStackAperture(middle_ap, side, layer)
     
-    def inst(self, x, y, border_x, border_y):
+    def grid_variant(self, x, y, border_x, border_y):
         if (x % 2 == 0) and (y % 2 == 0):
-            return copy(self)
+            return self
 
         if (x % 2 == 1) and (y % 2 == 1):
-            return copy(self)
+            return self
 
         return None
 
-    def bounding_box(self, unit=MM):
-        x, y, rotation = self.abs_pos
-        p = self.pitch/2
-        return unit.convert_bounds_from(self.unit, ((x-p, y-p), (x+p, y+p)))
+#    def bounding_box(self, unit=MM):
+#        x, y, rotation = self.abs_pos
+#        p = self.pitch/2
+#        return unit.convert_bounds_from(self.unit, ((x-p, y-p), (x+p, y+p)))
 
-class PoweredProto(ObjectGroup):
+class PoweredProto(Graphics):
     """ Cell primitive for "powered" THT breadboards. This cell type is based on regular THT pads in a 100 mil grid, but
     adds small SMD pads diagonally between the THT pads. These SMD pads are interconnected with traces and vias in such
     a way that every second one is inter-linked, forming two fully connected grids. Next to every THT pad you have one
@@ -493,7 +513,7 @@ class PoweredProto(ObjectGroup):
         return inst
 
     def bounding_box(self, unit=MM):
-        x, y, rotation = self.abs_pos
+        x, y, rotation, flip = self.abs_pos
         p = self.pitch/2
         return unit.convert_bounds_from(self.unit, ((x-p, y-p), (x+p, y+p)))
 
@@ -540,7 +560,7 @@ class SpikyProto(ObjectGroup):
         return inst
 
 
-class AlioCell(ObjectGroup):
+class AlioCell(Positioned):
     """ Cell primitive for the ALio protoboard designed by arief ibrahim adha and published on hackaday.io at the URL
     below. Similar to electroniceel's spiky protoboard, this layout has small-ish standard THT pads, but in between
     these pads it puts a grid of SMD pads that are designed for easy solder bridging to allow for the construction of
@@ -571,68 +591,61 @@ class AlioCell(ObjectGroup):
         return inst
 
     def bounding_box(self, unit):
-        x, y, rotation = self.abs_pos
+        x, y, rotation, flip = self.abs_pos
         # FIXME hack
         return self.unit.convert_bounds_to(unit, ((x-self.pitch/2, y-self.pitch/2), (x+self.pitch/2, y+self.pitch/2)))
 
     def render(self, layer_stack, cache=None):
-        x, y, rotation = self.abs_pos
+        x, y, rotation, flip = self.abs_pos
         def xf(fe):
             fe = copy(fe)
             fe.rotate(rotation)
             fe.offset(x, y, self.unit)
             return fe
 
-        var = VariableExpression
+        var = ParameterExpression
+        foo = VariableExpression(var(2)/2 - var(1)/2 + var(4))
+        bar = VariableExpression(var(4)+var(6))
         # parameters: [1: total height = pad width, 2: pitch, 3: trace width, 4: corner radius, 5: rotation, 6: clearance]
-        alio_main_macro = ApertureMacro('ALIOM', (
+        alio_main_macro = ApertureMacro('ALIOM', 6, primitives=(
             amp.CenterLine(MM, 1, var(2)-var(6), var(2)-var(3)-2*var(6), 0, 0, var(5)),
             amp.Outline(MM, 0, 5, (
                 -var(2)/2,          -var(2)/2,
-                -var(2)/2,          -(var(7)-var(8)),
-                -var(7),            -(var(7)-var(8)),
-                -(var(7)-var(8)),   -var(7),
-                -(var(7)-var(8)),   -var(2)/2, 
+                -var(2)/2,          -(foo-bar),
+                -foo,               -(foo-bar),
+                -(foo-bar),         -foo,
+                -(foo-bar),         -var(2)/2, 
                 -var(2)/2,          -var(2)/2,
                 ), var(5)),
             amp.Outline(MM, 0, 5, (
-                -var(2)/2,           var(2)/2,
-                -var(2)/2,           (var(7)-var(8)),
-                -var(7),             (var(7)-var(8)),
-                -(var(7)-var(8)),    var(7),
-                -(var(7)-var(8)),    var(2)/2, 
-                -var(2)/2,           var(2)/2,
+                -var(2)/2,          var(2)/2,
+                -var(2)/2,          (foo-bar),
+                -foo,               (foo-bar),
+                -(foo-bar),         foo,
+                -(foo-bar),         var(2)/2, 
+                -var(2)/2,          var(2)/2,
                 ), var(5)),
             amp.Outline(MM, 0, 5, (
                  var(2)/2,          -var(2)/2,
-                 var(2)/2,          -(var(7)-var(8)),
-                 var(7),            -(var(7)-var(8)),
-                 (var(7)-var(8)),   -var(7),
-                 (var(7)-var(8)),   -var(2)/2, 
+                 var(2)/2,          -(foo-bar),
+                 foo,               -(foo-bar),
+                 (foo-bar),         -foo,
+                 (foo-bar),         -var(2)/2, 
                  var(2)/2,          -var(2)/2,
                 ), var(5)),
             amp.Outline(MM, 0, 5, (
-                 var(2)/2,           var(2)/2,
-                 var(2)/2,           (var(7)-var(8)),
-                 var(7),             (var(7)-var(8)),
-                 (var(7)-var(8)),    var(7),
-                 (var(7)-var(8)),    var(2)/2, 
-                 var(2)/2,           var(2)/2,
+                 var(2)/2,          var(2)/2,
+                 var(2)/2,          (foo-bar),
+                 foo,               (foo-bar),
+                 (foo-bar),         foo,
+                 (foo-bar),         var(2)/2, 
+                 var(2)/2,          var(2)/2,
                 ), var(5)),
-            amp.Circle(MM, 0, 2*var(8), -var(7), -var(7), var(5)),
-            amp.Circle(MM, 0, 2*var(8), -var(7),  var(7), var(5)),
-            amp.Circle(MM, 0, 2*var(8),  var(7), -var(7), var(5)),
-            amp.Circle(MM, 0, 2*var(8),  var(7),  var(7), var(5)),
-            ), (
-                None, # 1
-                None, # 2
-                None, # 3
-                None, # 4
-                None, # 5
-                None, # 6
-                var(2)/2 - var(1)/2 + var(4),   # 7
-                var(4)+var(6),                  # 8
-                ))
+            amp.Circle(MM, 0, 2*bar, -foo, -foo, var(5)),
+            amp.Circle(MM, 0, 2*bar, -foo,  foo, var(5)),
+            amp.Circle(MM, 0, 2*bar,  foo, -foo, var(5)),
+            amp.Circle(MM, 0, 2*bar,  foo,  foo, var(5)),
+            ))
         corner_radius = (self.link_pad_width - self.link_trace_width)/3
         main_ap = ApertureMacroInstance(alio_main_macro, (self.link_pad_width,         # 1
                                                           self.pitch,                  # 2
@@ -650,7 +663,7 @@ class AlioCell(ObjectGroup):
         via_drill = ExcellonTool(self.via_size, plated=True, unit=self.unit)
 
         # parameters: [1: total height = pad width, 2: total width, 3: trace width, 4: corner radius, 5: rotation]
-        alio_macro = ApertureMacro('ALIOP', (
+        alio_macro = ApertureMacro('ALIOP', primitives=(
             amp.CenterLine(MM, 1, var(1)-2*var(4), var(1), 0, 0, var(5)),
             amp.CenterLine(MM, 1, var(1), var(1)-2*var(4), 0, 0, var(5)),
             amp.Circle(MM, 1, 2*var(4), -var(1)/2+var(4), -var(1)/2+var(4), var(5)),

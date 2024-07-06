@@ -368,11 +368,11 @@ class Text(Positioned):
             x0 = -approx_w
 
         if self.v_align == 'top':
-            y0 = -approx_h
+            y0 = 0
         elif self.v_align == 'middle':
             y0 = -approx_h/2
         elif self.v_align == 'bottom':
-            y0 = 0
+            y0 = -approx_h
 
         return (self.x+x0, self.y+y0), (self.x+x0+approx_w, self.y+y0+approx_h)
 
@@ -385,6 +385,7 @@ class PadStackAperture:
     offset_x: float = 0 # in PadStack units
     offset_y: float = 0
     rotation: float = 0
+    invert: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -399,7 +400,7 @@ class PadStack:
     def flashes(self, x, y, rotation: float = 0, flip: bool = False):
         for ap in self.apertures:
             aperture = ap.aperture.rotated(ap.rotation + rotation)
-            fl = Flash(ap.offset_x, ap.offset_y, aperture, unit=self.unit)
+            fl = Flash(ap.offset_x, ap.offset_y, aperture, polarity_dark=not ap.invert, unit=self.unit)
             fl.rotate(rotation)
             fl.offset(x, y)
             side = ap.side
