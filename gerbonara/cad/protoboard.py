@@ -538,7 +538,7 @@ class SpikyProto(ObjectGroup):
 
         self.fp_between = kfp.Footprint.load(res.joinpath('pad-between-spiked.kicad_mod').read_text(encoding='utf-8'))
         self.right_pad = kfp.FootprintInstance(1.27, 0, self.fp_between, unit=MM)
-        self.top_pad = kfp.FootprintInstance(0, 1.27, self.fp_between, rotation=math.pi/2, unit=MM)
+        self.top_pad = kfp.FootprintInstance(0, 1.27, self.fp_between, rotation=-math.pi/2, unit=MM)
 
     @property
     def objects(self):

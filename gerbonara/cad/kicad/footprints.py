@@ -908,7 +908,7 @@ class Footprint:
 
             for fe in obj.render(variables=variables):
                 fe.rotate(rotation)
-                fe.offset(x, -y, MM)
+                fe.offset(x, y, MM)
                 layer_stack[layer].objects.append(fe)
 
         for obj in self.pads:
@@ -940,7 +940,7 @@ class Footprint:
 
                     for fe in obj.render(margin=margin, cache=cache):
                         fe.rotate(rotation)
-                        fe.offset(x, -y, MM)
+                        fe.offset(x, y, MM)
                         if isinstance(fe, go.Flash) and fe.aperture:
                             fe.aperture = fe.aperture.rotated(rotation)
                         layer_stack[layer_map[layer]].objects.append(fe)
@@ -948,7 +948,7 @@ class Footprint:
         for obj in self.pads:
             for fe in obj.render_drill():
                 fe.rotate(rotation)
-                fe.offset(x, -y, MM)
+                fe.offset(x, y, MM)
 
                 if obj.type == Atom.np_thru_hole:
                     layer_stack.drill_npth.append(fe)

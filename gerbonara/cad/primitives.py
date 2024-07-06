@@ -118,7 +118,7 @@ class Board:
 
     def layer_stack(self, layer_stack=None):
         if layer_stack is None:
-            layer_stack = LayerStack()
+            layer_stack = LayerStack(board_name='proto')
 
         cache = {}
         for obj in chain(self.objects):
@@ -127,6 +127,7 @@ class Board:
         layer_stack['mechanical', 'outline'].objects.extend(self.outline)
         layer_stack['top', 'silk'].objects.extend(self.extra_silk_top)
         layer_stack['bottom', 'silk'].objects.extend(self.extra_silk_bottom)
+        print('layer stack is', repr(layer_stack['top', 'copper'].objects)[:1000])
 
         return layer_stack
 
