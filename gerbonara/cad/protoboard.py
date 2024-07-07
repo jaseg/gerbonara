@@ -30,10 +30,13 @@ class ProtoBoard(Board):
             ko = mounting_hole_offset + mounting_hole_dia*(0.5 + 0.25)
 
             stack = MechanicalHoleStack(mounting_hole_dia, unit=unit)
-            self.add(Pad(mounting_hole_offset, mounting_hole_offset, pad_stack=stack, unit=unit))
-            self.add(Pad(w-mounting_hole_offset, mounting_hole_offset, pad_stack=stack, unit=unit))
-            self.add(Pad(mounting_hole_offset, h-mounting_hole_offset, pad_stack=stack, unit=unit))
-            self.add(Pad(w-mounting_hole_offset, h-mounting_hole_offset, pad_stack=stack, unit=unit))
+            self.mounting_holes = [
+                    Pad(mounting_hole_offset, mounting_hole_offset, pad_stack=stack, unit=unit),
+                    Pad(w-mounting_hole_offset, mounting_hole_offset, pad_stack=stack, unit=unit),
+                    Pad(mounting_hole_offset, h-mounting_hole_offset, pad_stack=stack, unit=unit),
+                    Pad(w-mounting_hole_offset, h-mounting_hole_offset, pad_stack=stack, unit=unit)]
+            for hole in self.mounting_holes:
+                self.add(hole)
 
             self.keepouts.append(((0, 0), (ko, ko)))
             self.keepouts.append(((w-ko, 0), (w, ko)))
@@ -45,9 +48,13 @@ class ProtoBoard(Board):
     def generate(self, unit=MM):
         bbox = ((self.margin, self.margin), (self.w-self.margin, self.h-self.margin))
         bbox = unit.convert_bounds_from(self.unit, bbox)
+        hole_bboxes = [hole.bounding_box(unit) for hole in self.mounting_holes]
         for obj in self.content.generate(bbox, (True, True, True, True), self.keepouts, self.margin, unit):
             if isinstance(obj, Text):
-                self.add(obj, keepout_errors='ignore')
+                # It's okay for the text to go into the mounting hole keepouts, we just don't want it to overlap with
+                # the actual mounting holes.
+                if not any(bbox_intersect(obj.bounding_box(unit), hole_bbox) for hole_bbox in hole_bboxes):
+                    self.add(obj, keepout_errors='ignore')
             else:
                 self.add(obj, keepout_errors='skip')
 
@@ -118,6 +125,8 @@ class PropLayout:
 
             sizes.append(((this_x, this_y), (this_w, this_h)))
 
+        # We don't want to pull in a whole bin packing implementation here, but we also don't want to be too dumb. Thus,
+        # we just take the leftover space and distribute it to the children in descending increment (grid / pitch size).
         children_sorted = reversed(sorted(enumerate(self.content),
                                   key=lambda e: e[1].increment_x() if self.direction == 'h' else e[1].increment_y()))
 
@@ -272,10 +281,10 @@ class PatternProtoArea:
         (x, y), (w, h) = bbox
         w, h = w-x, h-y
 
-        n_x = int(w//unit(self.pitch_x, self.unit))
-        n_y = int(h//unit(self.pitch_y, self.unit))
-        off_x = (w % unit(self.pitch_x, self.unit)) / 2
-        off_y = (h % unit(self.pitch_y, self.unit)) / 2
+        n_x = int((w + 0.001)//unit(self.pitch_x, self.unit))
+        n_y = int((h + 0.001)//unit(self.pitch_y, self.unit))
+        off_x = (w - n_x*unit(self.pitch_x, self.unit)) / 2
+        off_y = (h - n_y*unit(self.pitch_y, self.unit)) / 2
 
         if self.numbers:
             # Center row/column numbers in available margin. Note the swapped axes below - the Y (row) numbers are
@@ -709,9 +718,10 @@ class AlioCell(Positioned):
     def single_sided(self):
         return False
 
-    def inst(self, x, y, border_x, border_y):
+    def inst(self, x, y, border):
+        border_s, border_w, border_n, border_e = border
         inst = copy(self)
-        inst.border_x, inst.border_y = border_x, border_y
+        inst.border_x, inst.border_y = border_e, border_s
         inst.inst_x, inst.inst_y = x, y
         return inst
 
