@@ -27,7 +27,7 @@ class ProtoBoard(Board):
 
         if mounting_hole_dia:
             mounting_hole_offset = mounting_hole_offset or mounting_hole_dia*2
-            ko = mounting_hole_offset*2
+            ko = mounting_hole_offset + mounting_hole_dia*(0.5 + 0.25)
 
             stack = MechanicalHoleStack(mounting_hole_dia, unit=unit)
             self.add(Pad(mounting_hole_offset, mounting_hole_offset, pad_stack=stack, unit=unit))
