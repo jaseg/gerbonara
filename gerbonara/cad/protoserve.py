@@ -159,11 +159,11 @@ def to_board(obj):
                        mounting_hole_offset=mounting_hole_offset,
                        unit=unit)
 
-@app.route('/preview.svg', methods=['POST'])
-async def preview():
+@app.route('/preview_<side>.svg', methods=['POST'])
+async def preview(side):
     obj = await request.get_json()
     board = to_board(obj)
-    return Response(str(board.pretty_svg()), mimetype='image/svg+xml')
+    return Response(str(board.pretty_svg(side=side)), mimetype='image/svg+xml')
 
 @app.route('/gerbers.zip', methods=['POST'])
 async def gerbers():

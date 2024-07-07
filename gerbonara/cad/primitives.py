@@ -135,6 +135,7 @@ class Board:
                                                  force_bounds=force_bounds)
 
     def pretty_svg(self, side='top', margin=0, arg_unit=MM, svg_unit=MM, force_bounds=None, inkscape=False, colors=None):
+        print('Pretty svg', side)
         return self.layer_stack().to_pretty_svg(side=side, margin=margin, arg_unit=arg_unit, svg_unit=svg_unit,
                                                    force_bounds=force_bounds, inkscape=inkscape, colors=colors)
 

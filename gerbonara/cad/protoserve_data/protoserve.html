@@ -177,11 +177,14 @@ input[type="text"]:focus:valid {
     position: relative;
     grid-area: main;
     padding: 20px;
+    display: flex;
+    flex-direction: column;
+    flex-wrap: wrap;
+    align-items: stretch;
 }
 
-#preview-image {
-    width: 100%;
-    height: 100%;
+#preview > img {
+    flex-grow: 1;
     object-fit: contain;
 }
 
@@ -316,7 +319,8 @@ input[type="text"]:focus:valid {
             </form>
         </div>
         <div id="preview">
-            <img id="preview-image" alt="Automatically generated preview image"/>
+            <img id="preview-image-top" alt="Automatically generated top side preview image"/>
+            <img id="preview-image-bottom" alt="Automatically generated bottom side preview image"/>
             <div id="preview-message"></div>
         </div>
         <div id="links">
@@ -985,26 +989,43 @@ input[type="text"]:focus:valid {
                 }
             }
 
-            let previewBlobURL = null;
+            let previewTopBlobURL = null;
+            let previewBotBlobURL = null;
             previewReloader = new RateLimiter(async () => {
                 if (document.querySelector('form').checkValidity()) {
                     document.querySelector('#preview-message').textContent = 'Reloading...';
                     document.querySelector('#preview-message').classList.add('loading');
-                    const response = await fetch('preview.svg', {
+
+                    const response_top = await fetch('preview_top.svg', {
                         method: 'POST',
                         mode: 'same-origin',
                         cache: 'no-cache',
                         headers: {'Content-Type': 'application/json'},
                         body: serialize(),
                     });
-                    const data = await response.blob();
-                    if (previewBlobURL) {
-                        URL.revokeObjectURL(previewBlobURL);
+                    const data_top = await response_top.blob();
+                    if (previewTopBlobURL) {
+                        URL.revokeObjectURL(previewTopBlobURL);
                     }
-                    previewBlobURL = URL.createObjectURL(data);
-                    document.querySelector('#preview-image').src = previewBlobURL;
+                    previewTopBlobURL = URL.createObjectURL(data_top);
+                    document.querySelector('#preview-image-top').src = previewTopBlobURL;
+
                     document.querySelector('#preview-message').textContent = '';
                     document.querySelector('#preview-message').classList.remove('loading');
+
+                    const response_bot = await fetch('preview_bottom.svg', {
+                        method: 'POST',
+                        mode: 'same-origin',
+                        cache: 'no-cache',
+                        headers: {'Content-Type': 'application/json'},
+                        body: serialize(),
+                    });
+                    const data_bot = await response_bot.blob();
+                    if (previewBotBlobURL) {
+                        URL.revokeObjectURL(previewBotBlobURL);
+                    }
+                    previewBotBlobURL = URL.createObjectURL(data_bot);
+                    document.querySelector('#preview-image-bottom').src = previewBotBlobURL;
                 } else {
                     document.querySelector('#preview-message').classList.add('loading');
                     document.querySelector('#preview-message').textContent = 'Please correct any invalid fields.';
