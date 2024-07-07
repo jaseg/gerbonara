@@ -69,6 +69,18 @@ class PropLayout:
         if len(content) != len(proportions):
             raise ValueError('proportions and content must have same length')
 
+    def increment_x(self):
+        if self.direction == 'h':
+            return 0
+        else:
+            return max(obj.increment_x() for obj in self.content) 
+
+    def increment_y(self):
+        if self.direction == 'v':
+            return 0
+        else:
+            return max(obj.increment_y() for obj in self.content) 
+
     def generate(self, bbox, border_text, keepouts, text_margin, unit=MM):
         for i, (bbox, child) in enumerate(self.layout_2d(bbox, unit)):
             first = bool(i == 0)
@@ -179,10 +191,10 @@ class TwoSideLayout:
             warnings.warn('Two-sided pattern used on one side of a TwoSideLayout')
 
     def increment_x(self):
-        return max(self.top.increment_x, self.bottom.increment_x)
+        return max(self.top.increment_x(), self.bottom.increment_x())
 
     def increment_y(self):
-        return max(self.top.increment_y, self.bottom.increment_y)
+        return max(self.top.increment_y(), self.bottom.increment_y())
 
     def fit_size(self, w, h, unit=MM):
         w1, h1 = self.top.fit_size(w, h, unit)
@@ -198,7 +210,7 @@ class TwoSideLayout:
     def generate(self, bbox, border_text, keepouts, text_margin, unit=MM):
         yield from self.top.generate(bbox, border_text, keepouts, text_margin, unit)
         for obj in self.bottom.generate(bbox, border_text, keepouts, text_margin, unit):
-            obj.side = 'bottom'
+            obj.flip = not obj.flip
             yield obj
 
 
@@ -711,7 +723,7 @@ class AlioCell(Positioned):
         self.link_pad_width = link_pad_width or unit(1.1, MM)
         self.link_trace_width = link_trace_width or unit(0.5, MM)
         self.via_size = via_size or unit(0.4, MM)
-        self.border_x, self.border_y = False, False
+        self.border_s, self.border_w, self.border_n, self.border_e = False, False, False, False
         self.inst_x, self.inst_y = None, None
 
     @property
@@ -719,9 +731,8 @@ class AlioCell(Positioned):
         return False
 
     def inst(self, x, y, border):
-        border_s, border_w, border_n, border_e = border
         inst = copy(self)
-        inst.border_x, inst.border_y = border_e, border_s
+        inst.border_s, inst.border_w, inst.border_n, inst.border_e = border
         inst.inst_x, inst.inst_y = x, y
         return inst
 
@@ -822,15 +833,15 @@ class AlioCell(Positioned):
         for side, use in (('top', 'copper'), ('top', 'mask'), ('bottom', 'copper'), ('bottom', 'mask')):
             if side == 'top':
                 layer_stack[side, use].objects.insert(0, xf(Flash(0, 0, aperture=main_ap, unit=self.unit)))
-                if not self.border_y:
+                if not self.border_s and not self.border_e:
                     layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_dark, unit=self.unit)))
             else:
                 layer_stack[side, use].objects.insert(0, xf(Flash(0, 0, aperture=main_ap_90, unit=self.unit)))
-                if not self.border_x:
+                if not self.border_e and not self.border_n:
                     layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_dark_90, unit=self.unit)))
 
         layer_stack.drill_pth.append(Flash(x, y, aperture=main_drill, unit=self.unit))
-        if not (self.border_x or self.border_y):
+        if not (self.border_e or self.border_s):
             layer_stack.drill_pth.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=via_drill, unit=self.unit)))
 
 
