@@ -45,7 +45,7 @@ class ProtoBoard(Board):
     def generate(self, unit=MM):
         bbox = ((self.margin, self.margin), (self.w-self.margin, self.h-self.margin))
         bbox = unit.convert_bounds_from(self.unit, bbox)
-        for obj in self.content.generate(bbox, (True, True, True, True), self.keepouts, unit):
+        for obj in self.content.generate(bbox, (True, True, True, True), self.keepouts, self.margin, unit):
             if isinstance(obj, Text):
                 self.add(obj, keepout_errors='ignore')
             else:
@@ -62,7 +62,7 @@ class PropLayout:
         if len(content) != len(proportions):
             raise ValueError('proportions and content must have same length')
 
-    def generate(self, bbox, border_text, keepouts, unit=MM):
+    def generate(self, bbox, border_text, keepouts, text_margin, unit=MM):
         for i, (bbox, child) in enumerate(self.layout_2d(bbox, unit)):
             first = bool(i == 0)
             last = bool(i == len(self.content)-1)
@@ -71,7 +71,7 @@ class PropLayout:
                 border_text[1] and (last or self.direction == 'v'),
                 border_text[2] and (first or self.direction == 'h'),
                 border_text[3] and (first or self.direction == 'v'),
-                ), keepouts, unit)
+                ), keepouts, text_margin, unit)
 
     def fit_size(self, w, h, unit=MM):
         widths = []
@@ -153,9 +153,9 @@ class TwoSideLayout:
             return w1, h1
         return max(w1, w2), max(h1, h2)
 
-    def generate(self, bbox, border_text, keepouts, unit=MM):
-        yield from self.top.generate(bbox, border_text, keepouts, unit)
-        for obj in self.bottom.generate(bbox, border_text, keepouts, unit):
+    def generate(self, bbox, border_text, keepouts, text_margin, unit=MM):
+        yield from self.top.generate(bbox, border_text, keepouts, text_margin, unit)
+        for obj in self.bottom.generate(bbox, border_text, keepouts, text_margin, unit):
             obj.side = 'bottom'
             yield obj
 
@@ -199,7 +199,7 @@ def alphabetic(case='upper'):
 
 
 class PatternProtoArea:
-    def __init__(self, pitch_x, pitch_y=None, obj=None, numbers=True, font_size=None, font_stroke=None, number_x_gen=alphabetic(), number_y_gen=numeric(), interval_x=5, interval_y=None, margin=0, unit=MM):
+    def __init__(self, pitch_x, pitch_y=None, obj=None, numbers=True, font_size=None, font_stroke=None, number_x_gen=alphabetic(), number_y_gen=numeric(), interval_x=None, interval_y=None, margin=0, unit=MM):
         self.pitch_x = pitch_x
         self.pitch_y = pitch_y or pitch_x
         self.margin = margin
@@ -209,7 +209,7 @@ class PatternProtoArea:
         self.font_size = font_size or unit(1.0, MM)
         self.font_stroke = font_stroke or unit(0.2, MM)
         self.interval_x = interval_x
-        self.interval_y = interval_y or (1 if MM(self.pitch_y, unit) >= 2.0 else 5)
+        self.interval_y = interval_y
         self.number_x_gen, self.number_y_gen = number_x_gen, number_y_gen
 
     def fit_size(self, w, h, unit=MM):
@@ -229,7 +229,7 @@ class PatternProtoArea:
         y = y + (h-h_fit)/2
         return (x, y), (x+w_fit, y+h_fit)
 
-    def generate(self, bbox, border_text, keepouts, unit=MM):
+    def generate(self, bbox, border_text, keepouts, text_margin, unit=MM):
         (x, y), (w, h) = bbox
         w, h = w-x, h-y
 
@@ -239,34 +239,60 @@ class PatternProtoArea:
         off_y = (h % unit(self.pitch_y, self.unit)) / 2
 
         if self.numbers:
+            # Center row/column numbers in available margin. Note the swapped axes below - the Y (row) numbers are
+            # centered in X direction, and vice versa.
+            _idx, max_x_num = list(zip(range(n_x), self.number_x_gen()))[-1]
+            _idx, max_y_num = list(zip(range(n_y), self.number_y_gen()))[-1]
+            bbox_test_x = Text(0, 0, max_y_num, self.font_size, self.font_stroke, 'left', 'top', unit=self.unit)
+            bbox_test_y = Text(0, 0, max_x_num, self.font_size, self.font_stroke, 'left', 'top', unit=self.unit)
+            test_w = abs(bbox_test_x.bounding_box()[1][0] - bbox_test_x.bounding_box()[0][0])
+            test_h = abs(bbox_test_y.bounding_box()[1][1] - bbox_test_y.bounding_box()[0][1])
+            text_off_x = max(0, (off_x + text_margin - test_w)) / 2
+            text_off_y = max(0, (off_y + text_margin - test_h)) / 2
+            print(f'{test_w=} {off_x=} {text_margin=} {text_off_x=} {max_y_num=}')
+            print(f'{test_h=} {off_y=} {text_margin=} {text_off_y=} {max_x_num=}')
+
+            test_w = abs(bbox_test_y.bounding_box()[1][0] - bbox_test_y.bounding_box()[0][0])
+            test_h = abs(bbox_test_x.bounding_box()[1][1] - bbox_test_x.bounding_box()[0][1])
+
+            interval_x, interval_y = self.interval_x, self.interval_y
+            if interval_x is None:
+                interval_x = 1 if test_w < 0.8*self.pitch_x else 5
+            if interval_y is None:
+                interval_y = 1 if test_h < 0.8*self.pitch_y else 2
+
             for i, lno_i in list(zip(reversed(range(n_y)), self.number_y_gen())):
-                if i == 0 or i == n_y - 1 or (i+1) % self.interval_y == 0:
+                if i == 0 or i == n_y - 1 or (i+1) % interval_y == 0:
                     t_y = off_y + y + (n_y - 1 - i + 0.5) * self.pitch_y
 
                     if border_text[3]:
-                        t_x = x + off_x
+                        t_x = x + off_x - text_off_x
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit)
                         if not self.single_sided:
                             yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', flip=True, unit=self.unit)
 
                     if border_text[1]:
-                        t_x = x + w - off_x
+                        t_x = x + w - off_x + text_off_x
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit)
                         if not self.single_sided:
                             yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', flip=True, unit=self.unit)
 
             for i, lno_i in zip(range(n_x), self.number_x_gen()):
-                if i == 0 or i == n_x - 1 or (i+1) % self.interval_x == 0:
+                # We print every interval'th number, as well as the first and the last numbers.
+                # The complex condition below is to avoid the corner case where interval is larger than 1, and the last
+                # interval'th number is right next to the last number, and the two could overlap. In this case, we
+                # suppress the last interval'th number.
+                if i == 0 or i == n_x - 1 or ((i+1) % interval_x == 0 and (interval_x == 1 or i != n_x-2)):
                     t_x = off_x + x + (i + 0.5) * self.pitch_x
 
                     if border_text[2]:
-                        t_y = y + off_y
+                        t_y = y + off_y - text_off_y
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit)
                         if not self.single_sided:
                             yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', flip=True, unit=self.unit)
 
                     if border_text[0]:
-                        t_y = y + h - off_y
+                        t_y = y + h - off_y + text_off_y
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
                         if not self.single_sided:
                             yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', flip=True, unit=self.unit)
@@ -335,7 +361,7 @@ class EmptyProtoArea:
     def fit_size(self, w, h, unit=MM):
         return w, h
 
-    def generate(self, bbox, border_text, keepouts, unit=MM):
+    def generate(self, bbox, border_text, keepouts, text_margin, unit=MM):
         if self.copper_fill:
             (min_x, min_y), (max_x, max_y) = bbox
             group = ObjectGroup(0, 0, top_copper=[Region([(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)],
