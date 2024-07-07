@@ -127,7 +127,6 @@ class Board:
         layer_stack['mechanical', 'outline'].objects.extend(self.outline)
         layer_stack['top', 'silk'].objects.extend(self.extra_silk_top)
         layer_stack['bottom', 'silk'].objects.extend(self.extra_silk_bottom)
-        print('layer stack is', repr(layer_stack['top', 'copper'].objects)[:1000])
 
         return layer_stack
 

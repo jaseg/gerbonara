@@ -271,10 +271,12 @@ class PatternProtoArea:
 
         for i in range(n_x):
             for j in range(n_y):
-                if isinstance(self.obj, PadStack):
-                    obj = self.obj.grid_variant(i, j, i == n_x-1, j == n_y-1)
-                    if obj is None:
-                        continue
+                obj = self.obj
+                if isinstance(obj, PadStack):
+                    if hasattr(obj, 'grid_variant'):
+                        obj = obj.grid_variant(i, j, i == n_x-1, j == n_y-1)
+                        if obj is None:
+                            continue
 
                     px = self.unit(off_x + x, unit) + (i + 0.5) * self.pitch_x
                     py = self.unit(off_y + y, unit) + (j + 0.5) * self.pitch_y
@@ -324,6 +326,10 @@ class ManhattanPads(PadStack):
     gap: float = 0.2
 
     @property
+    def single_sided(self):
+        return True
+
+    @property
     def apertures(self):
         w = self.w
         h = self.h or w
@@ -359,6 +365,10 @@ class RFGroundProto(PadStack):
     trace_width: float = None
     _: KW_ONLY = None
     suppress_via: bool = False
+
+    @property
+    def single_sided(self):
+        return False
 
     @property
     def apertures(self):
@@ -406,12 +416,20 @@ class THTFlowerProto(PadStack):
     pitch: float = 2.54
     drill: float = 0.9
     diameter: float = 2.0
+    clearance: float = 0.5
+
+    @property
+    def single_sided(self):
+        return False
 
     @property
     def apertures(self):
-        p = self.pitch / 2
+        p = self.diameter / 2
+        pad_dist_diag = math.sqrt(2) * (self.pitch - p) - self.drill
+        pad_dist_ortho = 2*self.pitch - self.diameter - self.drill
+        pad_dia = self.drill + max(0, min(pad_dist_diag, pad_dist_ortho) - self.clearance)
 
-        pad = THTPad.circle(self.drill, self.diameter, paste=False, unit=self.unit)
+        pad = THTPad.circle(self.drill, pad_dia, paste=False, unit=self.unit)
 
         for ox, oy in ((-p, 0), (p, 0), (0, -p), (0, p)):
             for stack_ap in pad.apertures:
@@ -451,6 +469,10 @@ class PoweredProto(Graphics):
     Akizuki Denshi product page: https://akizukidenshi.com/catalog/g/gP-07214/
     Yajima Manufacturing Corporation website: http://www.yajima-works.co.jp/index.html
     """
+
+    @property
+    def single_sided(self):
+        return False
 
     def __init__(self, pitch=None, drill=None, clearance=None, power_pad_dia=None, via_size=None, trace_width=None, unit=MM):
         super().__init__(0, 0)
