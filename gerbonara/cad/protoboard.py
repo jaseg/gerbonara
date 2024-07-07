@@ -263,7 +263,7 @@ class PatternProtoArea:
                             yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', flip=True, unit=self.unit)
 
                     if border_text[0]:
-                        t_y = y + h + off_y
+                        t_y = y + h - off_y
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
                         if not self.single_sided:
                             yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', flip=True, unit=self.unit)

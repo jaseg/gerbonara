@@ -322,6 +322,7 @@ class Text(Positioned):
         xs = [x for points in strokes for x, _y in points]
         ys = [y for points in strokes for _x, y in points]
         min_x, min_y, max_x, max_y = min(xs), min(ys), max(xs), max(ys)
+        h = (max_y - min_y)
 
         if self.h_align == 'left':
             x0 = 0
@@ -333,9 +334,9 @@ class Text(Positioned):
             raise ValueError('h_align must be one of "left", "center", or "right".')
 
         if self.v_align == 'bottom':
-            y0 = -(max_y - min_y)
+            y0 = h
         elif self.v_align == 'middle':
-            y0 = (max_y - min_y)/2
+            y0 = h/2
         elif self.v_align == 'top':
             y0 = 0
         else:
