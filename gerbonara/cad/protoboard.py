@@ -8,7 +8,7 @@ from copy import copy, deepcopy
 import warnings
 import importlib.resources
 
-from ..utils import MM, rotate_point
+from ..utils import MM, rotate_point, bbox_intersect
 from .primitives import *
 from ..graphic_objects import Region
 from ..apertures import RectangleAperture, CircleAperture, ApertureMacroInstance
@@ -45,8 +45,11 @@ class ProtoBoard(Board):
     def generate(self, unit=MM):
         bbox = ((self.margin, self.margin), (self.w-self.margin, self.h-self.margin))
         bbox = unit.convert_bounds_from(self.unit, bbox)
-        for obj in self.content.generate(bbox, (True, True, True, True), unit):
-            self.add(obj, keepout_errors='skip')
+        for obj in self.content.generate(bbox, (True, True, True, True), self.keepouts, unit):
+            if isinstance(obj, Text):
+                self.add(obj, keepout_errors='ignore')
+            else:
+                self.add(obj, keepout_errors='skip')
 
 
 class PropLayout:
@@ -59,7 +62,7 @@ class PropLayout:
         if len(content) != len(proportions):
             raise ValueError('proportions and content must have same length')
 
-    def generate(self, bbox, border_text, unit=MM):
+    def generate(self, bbox, border_text, keepouts, unit=MM):
         for i, (bbox, child) in enumerate(self.layout_2d(bbox, unit)):
             first = bool(i == 0)
             last = bool(i == len(self.content)-1)
@@ -68,7 +71,7 @@ class PropLayout:
                 border_text[1] and (last or self.direction == 'v'),
                 border_text[2] and (first or self.direction == 'h'),
                 border_text[3] and (first or self.direction == 'v'),
-                ), unit)
+                ), keepouts, unit)
 
     def fit_size(self, w, h, unit=MM):
         widths = []
@@ -150,9 +153,9 @@ class TwoSideLayout:
             return w1, h1
         return max(w1, w2), max(h1, h2)
 
-    def generate(self, bbox, border_text, unit=MM):
-        yield from self.top.generate(bbox, border_text, unit)
-        for obj in self.bottom.generate(bbox, border_text, unit):
+    def generate(self, bbox, border_text, keepouts, unit=MM):
+        yield from self.top.generate(bbox, border_text, keepouts, unit)
+        for obj in self.bottom.generate(bbox, border_text, keepouts, unit):
             obj.side = 'bottom'
             yield obj
 
@@ -226,7 +229,7 @@ class PatternProtoArea:
         y = y + (h-h_fit)/2
         return (x, y), (x+w_fit, y+h_fit)
 
-    def generate(self, bbox, border_text, unit=MM):
+    def generate(self, bbox, border_text, keepouts, unit=MM):
         (x, y), (w, h) = bbox
         w, h = w-x, h-y
 
@@ -269,12 +272,38 @@ class PatternProtoArea:
                             yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', flip=True, unit=self.unit)
 
 
-        for i in range(n_x):
-            for j in range(n_y):
+        for j in range(n_y):
+            for i in range(n_x):
+                x0 = off_x + x + i*self.pitch_x
+                y0 = off_y + y + j*self.pitch_y
+                x1 = x0 + self.pitch_x
+                y1 = y0 + self.pitch_y
+
+                border_n = (j == 0)     or any(bbox_intersect(ko, ((x0, y0-self.pitch_y), (x1, y0))) for ko in keepouts)
+                border_s = (j == n_y-1) or any(bbox_intersect(ko, ((x0, y1), (x1, y1+self.pitch_y))) for ko in keepouts)
+                border_w = (i == 0)     or any(bbox_intersect(ko, ((x0-self.pitch_x, y0), (x0, y1))) for ko in keepouts)
+                border_e = (i == n_x-1) or any(bbox_intersect(ko, ((x1, y0), (x1+self.pitch_x, y1))) for ko in keepouts)
+                border = (border_s, border_w, border_n, border_e)
+
+                print({
+                    (0, 0, 0, 0): '┼',
+                    (1, 0, 0, 0): '┴',
+                    (0, 1, 0, 0): '├',
+                    (0, 0, 1, 0): '┬',
+                    (0, 0, 0, 1): '┤',
+                    (1, 1, 0, 0): '└',
+                    (0, 1, 1, 0): '┌',
+                    (0, 0, 1, 1): '┐',
+                    (1, 0, 0, 1): '┘',
+                    }.get(tuple(map(int, border)), '.'), end=('' if i < n_x-1 else '\n'))
+
+                if any(bbox_intersect(ko, ((x0, y0), (x1, y1))) for ko in keepouts):
+                    continue
+
                 obj = self.obj
                 if isinstance(obj, PadStack):
                     if hasattr(obj, 'grid_variant'):
-                        obj = obj.grid_variant(i, j, i == n_x-1, j == n_y-1)
+                        obj = obj.grid_variant(i, j, border)
                         if obj is None:
                             continue
 
@@ -284,7 +313,7 @@ class PatternProtoArea:
                     continue
 
                 elif hasattr(self.obj, 'inst'):
-                    inst = self.obj.inst(i, j, i == n_x-1, j == n_y-1)
+                    inst = self.obj.inst(i, j, border)
                     if not inst:
                         continue
                 else:
@@ -306,7 +335,7 @@ class EmptyProtoArea:
     def fit_size(self, w, h, unit=MM):
         return w, h
 
-    def generate(self, bbox, border_text, unit=MM):
+    def generate(self, bbox, border_text, keepouts, unit=MM):
         if self.copper_fill:
             (min_x, min_y), (max_x, max_y) = bbox
             group = ObjectGroup(0, 0, top_copper=[Region([(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)],
@@ -404,8 +433,9 @@ class RFGroundProto(PadStack):
         if not self.suppress_via:
             yield PadStackAperture(via_drill, 'drill', 'plated', pitch/2, pitch/2)
 
-    def grid_variant(self, x, y, border_x, border_y):
-        if border_x or border_y:
+    def grid_variant(self, x, y, border):
+        border_s, border_w, border_n, border_e = border
+        if border_e or border_s:
             return replace(self, suppress_via=True)
         else:
             return self
@@ -417,6 +447,10 @@ class THTFlowerProto(PadStack):
     drill: float = 0.9
     diameter: float = 2.0
     clearance: float = 0.5
+    border_s: bool = False
+    border_w: bool = False
+    border_n: bool = False
+    border_e: bool = False
 
     @property
     def single_sided(self):
@@ -431,21 +465,20 @@ class THTFlowerProto(PadStack):
 
         pad = THTPad.circle(self.drill, pad_dia, paste=False, unit=self.unit)
 
-        for ox, oy in ((-p, 0), (p, 0), (0, -p), (0, p)):
-            for stack_ap in pad.apertures:
-                yield replace(stack_ap, offset_x=ox, offset_y=oy)
+        for ox, oy, brd in ((-p, 0, self.border_w), (p, 0, self.border_e), (0, -p, self.border_n), (0, p, self.border_s)):
+            if not brd:
+                for stack_ap in pad.apertures:
+                    yield replace(stack_ap, offset_x=ox, offset_y=oy)
 
         middle_ap = CircleAperture(self.diameter, unit=self.unit)
         for side in ('top', 'bottom'):
             for layer in ('copper', 'mask'):
                 yield PadStackAperture(middle_ap, side, layer)
     
-    def grid_variant(self, x, y, border_x, border_y):
-        if (x % 2 == 0) and (y % 2 == 0):
-            return self
-
-        if (x % 2 == 1) and (y % 2 == 1):
-            return self
+    def grid_variant(self, x, y, border):
+        border_s, border_w, border_n, border_e = border
+        if ((x % 2 == 0) and (y % 2 == 0)) or ((x % 2 == 1) and (y % 2 == 1)):
+            return replace(self, border_s=border_s, border_w=border_w, border_n=border_n, border_e=border_e)
 
         return None
 
@@ -514,7 +547,7 @@ class PoweredProto(Graphics):
         self.bottom_copper.append(Line(-pitch/2, -pitch/2, pitch/2, -pitch/2, aperture=self.line_ap, unit=unit))
         self.bottom_copper.append(Line(-pitch/2, pitch/2, pitch/2, pitch/2, aperture=self.line_ap, unit=unit))
 
-    def inst(self, x, y, border_x, border_y):
+    def inst(self, x, y, border):
         inst = copy(self)
         if (x + y) % 2 == 0:
             inst.drill_pth = inst.drill_pth[:-1]
@@ -570,13 +603,14 @@ class SpikyProto(ObjectGroup):
     def objects(self, value):
         pass
 
-    def inst(self, x, y, border_x, border_y):
+    def inst(self, x, y, border):
+        border_s, border_w, border_n, border_e = border
         inst = copy(self)
 
-        if border_x:
+        if border_e:
             inst.corner_pad = inst.right_pad = None
 
-        if border_y:
+        if border_s:
             inst.corner_pad = inst.top_pad = None
 
         return inst
