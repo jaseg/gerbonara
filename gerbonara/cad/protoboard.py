@@ -360,6 +360,13 @@ class BreadboardArea:
                 sig = 'H' * (i+1)
                 layouts.append(f'{pre}R{sig}')
 
+            for i in range(self.num_holes):
+                sig = 'H' * (i+1)
+                for i in range(self.num_power_rails):
+                    pwr = 'P' * (i+1)
+                    layouts.append(f'{pre}R{sig}C{sig}R{pwr}')
+                layouts.append(f'{pre}R{sig}R{pwr}')
+
             layouts.append(f'{pre}R{sig}C{sig}')
 
             for i in range(self.num_power_rails):
