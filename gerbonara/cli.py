@@ -24,6 +24,7 @@ import re
 import warnings
 import json
 import itertools
+import webbrowser
 from pathlib import Path
 
 from .utils import MM, Inch
@@ -33,6 +34,7 @@ from . import layers as lyr
 from . import __version__
 from .cad.kicad import schematic as kc_schematic
 from .cad.kicad import tmtheme
+from .cad import protoserve
 
 
 def _print_version(ctx, param, value):
@@ -129,6 +131,23 @@ def cli():
     """ The gerbonara CLI allows you to analyze, render, modify and merge both individual Gerber or Excellon files as
     well as sets of those files """
     pass
+
+@cli.group('protoboard')
+def protoboard_group():
+    pass
+
+
+@protoboard_group.command()
+@click.option('-h', '--host', default=None, help='Hostname to listen on. Defaults to localhost.')
+@click.option('-p', '--port', type=int, default=1337, help='Port to listen on. Defaults to 1337')
+def interactive(host, port):
+    ''' Launch gerbonar's interactive protoboard designer in your browser '''
+    
+    if host is None:
+        @protoserve.app.before_serving
+        async def open_browser():
+            webbrowser.open_new(f'http://localhost:{port}/')
+    protoserve.app.run(host=host, port=port, use_reloader=False, debug=False)
 
 
 @cli.group('kicad')
