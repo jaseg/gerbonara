@@ -223,31 +223,35 @@ def numeric(start=1):
     return gen
 
 
-def alphabetic(case='upper'):
+def alphabetic(case='upper', alphabet=None):
     if case not in ('lower', 'upper'):
         raise ValueError('case must be one of "lower" or "upper".')
 
-    index = string.ascii_lowercase if case == 'lower' else string.ascii_uppercase
+    if alphabet is None:
+        index = string.ascii_lowercase if case == 'lower' else string.ascii_uppercase
+    else:
+        index = alphabet
+    n = len(index)
 
     def gen():
-        nonlocal index
+        nonlocal index, n
 
         for i in itertools.count():
-            if i<26:
+            if i<n:
                 yield index[i]
                 continue
 
-            i -= 26
-            if i<26*26:
-                yield index[i//26] + index[i%26]
+            i -= n
+            if i<n*n:
+                yield index[i//n] + index[i%n]
                 continue
 
-            i -= 26*26
-            if i<26*26*26:
-                yield index[i//(26*26)] + index[(i//26)%26] + index[i%26]
+            i -= n*n
+            if i<n*n*n:
+                yield index[i//(n*n)] + index[(i//n)%n] + index[i%n]
 
             else:
-                raise ValueError('row/column index out of range')
+                raise ValueError(f'row/column index {i} out of range {n**3 + n**2 + n}')
 
     return gen
 
@@ -276,7 +280,7 @@ class BreadboardArea:
         w = max(0, w-2*m)
         h = max(0, h-2*m)
         
-        pitch_x = self.width_across
+        pitch_x = self.pitch_x
         pitch_y = self.pitch_y
         if self.horizontal:
             pitch_x, pitch_y = pitch_y, pitch_x
@@ -288,7 +292,7 @@ class BreadboardArea:
 
     @property
     def width_across(self):
-        w = self.pitch_x * num_holes * 2 + self.center_space
+        w = self.pitch_x * self.num_holes * 2 + self.center_space
         if self.num_power_rails > 0:
             # include one power rail pitch unit for the space between adjacent tiles.
             w += 2*self.power_rail_space + (2*self.num_power_rails-1) * self.power_rail_pitch
@@ -440,6 +444,8 @@ class BreadboardArea:
 
         if self.num_power_rails == 2 and best_layout.count('P') >= 2:
             power_rail_labels = ['-', '+'] * best_layout.count('P')
+        else:
+            power_rail_labels = [e for _, e in zip(best_layout, alphabetic(alphabet='ZXYWVU')())]
         signal_labels = alphabetic()() # yes, twice.
 
         line_ap = CircleAperture(self.power_trace_width, unit=self.unit)
@@ -454,7 +460,7 @@ class BreadboardArea:
                     le_line = [Line(*start, *end, aperture=line_ap, unit=self.unit)]
                     yield Graphics(0, 0, top_silk=le_line, bottom_silk=le_line, unit=self.unit)
 
-                label = power_rail_labels.pop()
+                label = power_rail_labels.pop(0)
 
             elif e == 'H':
                 label = next(signal_labels)
@@ -464,16 +470,24 @@ class BreadboardArea:
             if label:
                 tx1, ty1 = start
                 tx2, ty2 = end
+
                 if self.horizontal:
-                    pass
+                    tx1 -= self.pitch_y/2
+                    tx2 += self.pitch_y/2
+
+                    yield Text(tx1, ty1, label, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit)
+                    yield Text(tx1, ty1, label, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit, flip=True)
+                    yield Text(tx2, ty2, label, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit)
+                    yield Text(tx2, ty2, label, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit, flip=True)
+
                 else:
                     ty1 -= self.pitch_y/2
                     ty2 += self.pitch_y/2
 
-                yield Text(tx1, ty1, label, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit)
-                yield Text(tx1, ty1, label, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit, flip=True)
-                yield Text(tx2, ty2, label, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
-                yield Text(tx2, ty2, label, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit, flip=True)
+                    yield Text(tx1, ty1, label, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit)
+                    yield Text(tx1, ty1, label, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit, flip=True)
+                    yield Text(tx2, ty2, label, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
+                    yield Text(tx2, ty2, label, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit, flip=True)
 
 
 class PatternProtoArea:
