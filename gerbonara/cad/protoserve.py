@@ -129,12 +129,19 @@ def deserialize(obj, unit):
                     via_size=via_size
                 ), margin=unit(1.5, MM), unit=unit)
 
+        case 'breadboard':
+            horizontal = obj.get('direction', 'v') == 'h'
+            drill = float(obj.get('hole_dia', 0.9))
+            return pb.BreadboardArea(clearance=clearance, drill=drill, horizontal=horizontal, unit=unit)
+
         case 'starburst':
             trace_width_x = float(obj.get('trace_width_x', 1.8))
             trace_width_y = float(obj.get('trace_width_y', 1.8))
             drill = float(obj.get('hole_dia', 0.9))
             annular_ring = float(obj.get('annular', 1.2))
-            return pb.PatternProtoArea(pitch_x, pitch_y, pb.StarburstPad(pitch_x, pitch_y, trace_width_x, trace_width_y, clearance, drill, annular_ring, unit=unit), unit=unit)
+            clearance = float(obj.get('clearance', 0.4))
+            mask_width = float(obj.get('mask_width', 0.5))
+            return pb.PatternProtoArea(pitch_x, pitch_y, pb.StarburstPad(pitch_x, pitch_y, trace_width_x, trace_width_y, clearance, mask_width, drill, annular_ring, unit=unit), unit=unit)
 
         case 'rf':
             pitch = float(obj.get('pitch', 2.54))

@@ -412,6 +412,7 @@ input[type="text"]:focus:valid {
                     <a href="#" data-placeholder="spiky" class="double-sided-only">Spiky hybrid area</a>
                     <a href="#" data-placeholder="alio" class="double-sided-only">ALio hybrid area</a>
                     <a href="#" data-placeholder="starburst" class="double-sided-only">THT starburst area</a>
+                    <a href="#" data-placeholder="breadboard" class="double-sided-only">Permanent breadboard area</a>
                 </div>
             </div>
         </template>
@@ -479,7 +480,7 @@ input[type="text"]:focus:valid {
                     <span class="unit us">mil</span>
                 </label>
                 <label>Plating
-                    <select name="plating" value="through">
+                    <select name="plating" value="plated">
                         <option value="plated">Double-sided, through-plated</option>
                         <option value="nonplated">Double-sided, non-plated</option>
                         <option value="singleside">Single-sided, non-plated</option>
@@ -499,6 +500,34 @@ input[type="text"]:focus:valid {
                 </label>
                 <label class="only-shape rect">Corner radius
                     <input type="text" name="pad_h" placeholder="length" value="0" pattern="[0-9]+\.?[0-9]*"/>
+                    <span class="unit metric">mm</span>
+                    <span class="unit us">mil</span>
+                </label>
+            </div>
+        </template>
+
+        <template id="tpl-g-breadboard">
+            <div data-type="breadboard" class="group breadboard">
+                <h4>Permanent breadboard area</h4>
+                <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
+                <label class="proportion">Proportion
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
+                </label>
+
+                <h5>Area Settings</h5>
+                <label>Direction
+                    <select name="direction" value="v">
+                        <option value="v">Vertical</option>
+                        <option value="h">Horizontal</option>
+                    </select>
+                </label>
+                <label>Clearance
+                    <input type="text" name="clearance" placeholder="length" value="0.5" pattern="[0-9]+\.?[0-9]*"/>
+                    <span class="unit metric">mm</span>
+                    <span class="unit us">mil</span>
+                </label>
+                <label>Hole diameter
+                    <input type="text" name="hole_dia" placeholder="length" value="0.9" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
@@ -739,8 +768,13 @@ input[type="text"]:focus:valid {
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>
-                <label>Clearance
-                    <input type="text" name="clearance" placeholder="length" value="0.5" pattern="[0-9]+\.?[0-9]*"/>
+                <label>Pad clearance
+                    <input type="text" name="clearance" placeholder="length" value="0.4" pattern="[0-9]+\.?[0-9]*"/>
+                    <span class="unit metric">mm</span>
+                    <span class="unit us">mil</span>
+                </label>
+                <label>Soldermask wall
+                    <input type="text" name="mask_width" placeholder="length" value="0.5" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>

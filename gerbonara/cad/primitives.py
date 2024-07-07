@@ -322,7 +322,7 @@ class Text(Positioned):
         xs = [x for points in strokes for x, _y in points]
         ys = [y for points in strokes for _x, y in points]
         min_x, min_y, max_x, max_y = min(xs), min(ys), max(xs), max(ys)
-        h = (max_y - min_y)
+        h = self.font_size + self.stroke_width # (max_y - min_y)
 
         if self.h_align == 'left':
             x0 = 0
@@ -512,7 +512,7 @@ class THTPad(PadStack):
 
     @classmethod
     def circle(kls, drill_dia, dia, rotation=0, mask_expansion=0.0, paste_expansion=0.0, paste=True, plated=True, unit=MM):
-        pad = SMDStack.circle(dia, rotation, mask_expansion, paste_expansion, paste, unit=unit)
+        pad = SMDStack.circle(dia, mask_expansion, paste_expansion, paste, unit=unit)
         return kls(drill_dia, pad, plated=plated)
 
     @classmethod

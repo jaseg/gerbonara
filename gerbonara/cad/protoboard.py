@@ -10,7 +10,7 @@ import importlib.resources
 
 from ..utils import MM, rotate_point, bbox_intersect
 from .primitives import *
-from ..graphic_objects import Region
+from ..graphic_objects import Region, Line
 from ..apertures import RectangleAperture, CircleAperture, ApertureMacroInstance
 from ..aperture_macros.parse import ApertureMacro, ParameterExpression, VariableExpression
 from ..aperture_macros import primitive as amp
@@ -252,6 +252,230 @@ def alphabetic(case='upper'):
     return gen
 
 
+@dataclass
+class BreadboardArea:
+    drill: float = 0.9
+    clearance: float = 0.5
+    signal_trace_width: float = 0.8
+    power_trace_width: float = 1.5
+    pitch_x: float = 2.54
+    pitch_y: float = 2.54
+    power_rail_pitch: float = 2.54
+    power_rail_space: float = 2.54
+    num_power_rails: int = 2
+    num_holes: int = 5
+    center_space: float = 5.08
+    horizontal: bool = True
+    margin: float = 0
+    font_size: float = 1.0
+    font_stroke: float = 0.2
+    unit: object = MM
+
+    def fit_size(self, w, h, unit=MM):
+        m = unit(self.margin, self.unit)
+        w = max(0, w-2*m)
+        h = max(0, h-2*m)
+        
+        pitch_x = self.width_across
+        pitch_y = self.pitch_y
+        if self.horizontal:
+            pitch_x, pitch_y = pitch_y, pitch_x
+        
+        w_mod = round((w + 5e-7) % unit(pitch_x, self.unit), 6)
+        h_mod = round((h + 5e-7) % unit(pitch_y, self.unit), 6)
+        w_fit, h_fit = round(w - w_mod, 6), round(h - h_mod, 6)
+        return w_fit + 2*m, h_fit + 2*m
+
+    @property
+    def width_across(self):
+        w = self.pitch_x * num_holes * 2 + self.center_space
+        if self.num_power_rails > 0:
+            # include one power rail pitch unit for the space between adjacent tiles.
+            w += 2*self.power_rail_space + (2*self.num_power_rails-1) * self.power_rail_pitch
+        return w
+
+    def increment_x(self):
+        if self.horizontal:
+            return self.pitch_y
+        else:
+            return self.width_across
+
+    def increment_y(self):
+        if self.horizontal:
+            return self.width_across
+        else:
+            return self.pitch_y
+
+    @property
+    def single_sided(self):
+        return False
+
+    def generate(self, bbox, border_text, keepouts, text_margin, two_sided, unit=MM):
+        (x, y), (w, h) = self.unit.convert_bounds_from(unit, bbox)
+        w, h = w-x-self.margin, h-y-self.margin
+        ox, oy = (y, x) if self.horizontal else (x, y)
+
+        signal_ap = CircleAperture(self.signal_trace_width, unit=self.unit)
+        power_ap = CircleAperture(self.power_trace_width, unit=self.unit)
+
+        pad_dia = min(self.pitch_x, self.pitch_y) - self.clearance
+        tht_pad = THTPad.circle(self.drill, pad_dia)
+
+        available_width = h if self.horizontal else w
+        length_along = w if self.horizontal else h
+
+        # Key:
+        #   H - signal pad
+        #   C - center space
+        #   P - power pad
+        #   R - power rail space
+
+        pitch_key = {
+                'H': self.pitch_x,
+                'C': self.center_space,
+                'P': self.power_rail_pitch,
+                'R': self.power_rail_space}
+
+        layouts = []
+
+        for i in range(self.num_holes):
+            sig = 'H' * (i+1)
+            layouts.append(sig)
+
+        layouts.append(f'{sig}C{sig}')
+
+        for i in range(self.num_power_rails):
+            pwr = 'P' * (i+1)
+            layouts.append(f'{pwr}R{sig}C{sig}')
+            layouts.append(f'{pwr}R{sig}C{sig}R{pwr}')
+
+        while len(layouts[-1]) <= available_width // self.pitch_x:
+            pre = layouts[-1]
+
+            for i in range(self.num_holes):
+                sig = 'H' * (i+1)
+                layouts.append(f'{pre}R{sig}')
+
+            layouts.append(f'{pre}R{sig}C{sig}')
+
+            for i in range(self.num_power_rails):
+                pwr = 'P' * (i+1)
+                layouts.append(f'{pre}R{sig}C{sig}R{pwr}')
+
+        best_layout, leftover_space = None, None
+        for layout in layouts:
+            actual_width = sum(pitch_key[e] for e in layout)
+
+            if actual_width <= available_width:
+                best_layout = layout
+                leftover_space = available_width - actual_width
+
+        if best_layout is None:
+            return # We don't have enough space to do anything
+        print(f'Chosen layout: {best_layout} with {leftover_space} left over')
+
+        rail_start = {}
+        rail_end = {}
+        n_y = round(length_along//self.pitch_y)
+        for j in range(n_y):
+            y = oy + self.margin + self.pitch_y*(j + 0.5) + (length_along - (n_y*self.pitch_y))/2
+            pos_across = ox + self.margin + leftover_space/2
+            last_e = 'R'
+            for e, group in itertools.groupby(enumerate(best_layout), key=lambda e: e[1]):
+                group = list(group)
+                num = len(group)
+                local_pitch = pitch_key[e]
+                
+                points = []
+                for k, _e in group:
+                    x = pos_across + local_pitch/2
+                    ax, ay = (y, x) if self.horizontal else (x, y)
+                    px, py = (self.pitch_y, local_pitch) if self.horizontal else (local_pitch, self.pitch_y)
+
+                    if not any(bbox_intersect(ko, ((ax-px/2, ay-py/2), (ax+px/2, ay+py/2))) for ko in keepouts):
+                        points.append((ax, ay))
+
+                        if e == 'H':
+                            yield Pad(ax, ay, pad_stack=tht_pad, unit=self.unit)
+
+                        elif e == 'P':
+                            yield Pad(ax, ay, pad_stack=tht_pad, unit=self.unit)
+
+                        if k not in rail_start:
+                            rail_start[k] = (ax, ay)
+                        rail_end[k] = (ax, ay)
+
+                    pos_across += local_pitch
+
+                if e == 'H':
+                    if len(points) > 1:
+                        yield Trace(self.signal_trace_width, points[0], points[-1], unit=self.unit)
+
+                    label = f'{j+1}'
+
+                    if last_e == 'R':
+                        tx, ty = points[0]
+
+                        if self.horizontal:
+                            ty -= self.pitch_x/2
+                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit)
+                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit, flip=True)
+                        else:
+                            tx -= self.pitch_x/2
+                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit)
+                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit, flip=True)
+
+                    else:
+                        tx, ty = points[-1]
+
+                        if self.horizontal:
+                            ty += self.pitch_x/2
+                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
+                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit, flip=True)
+                        else:
+                            tx += self.pitch_x/2
+                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit)
+                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit, flip=True)
+                last_e = e
+
+        if self.num_power_rails == 2 and best_layout.count('P') >= 2:
+            power_rail_labels = ['-', '+'] * best_layout.count('P')
+        signal_labels = alphabetic()() # yes, twice.
+
+        line_ap = CircleAperture(self.power_trace_width, unit=self.unit)
+
+        for i, e in enumerate(best_layout):
+            start = rail_start.get(i)
+            end = rail_end.get(i)
+
+            if e == 'P':
+                if start not in (None, end):
+                    yield Trace(self.power_trace_width, start, end, unit=self.unit)
+                    le_line = [Line(*start, *end, aperture=line_ap, unit=self.unit)]
+                    yield Graphics(0, 0, top_silk=le_line, bottom_silk=le_line, unit=self.unit)
+
+                label = power_rail_labels.pop()
+
+            elif e == 'H':
+                label = next(signal_labels)
+            else:
+                label = None
+
+            if label:
+                tx1, ty1 = start
+                tx2, ty2 = end
+                if self.horizontal:
+                    pass
+                else:
+                    ty1 -= self.pitch_y/2
+                    ty2 += self.pitch_y/2
+
+                yield Text(tx1, ty1, label, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit)
+                yield Text(tx1, ty1, label, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit, flip=True)
+                yield Text(tx2, ty2, label, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
+                yield Text(tx2, ty2, label, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit, flip=True)
+
+
 class PatternProtoArea:
     def __init__(self, pitch_x, pitch_y=None, obj=None, numbers=True, font_size=None, font_stroke=None, number_x_gen=alphabetic(), number_y_gen=numeric(), interval_x=None, interval_y=None, margin=0, unit=MM):
         self.pitch_x = pitch_x
@@ -278,8 +502,7 @@ class PatternProtoArea:
 
     def fit_rect(self, bbox, unit=MM):
         (x, y), (w, h) = bbox
-        x, y = x+self.margin, y+self.margin
-        w, h = w-x-self.margin, h-y-self.margin
+        w, h = w-x, h-y
 
         w_mod = round((w + 5e-7) % unit(self.pitch_x, self.unit), 6)
         h_mod = round((h + 5e-7) % unit(self.pitch_y, self.unit), 6)
@@ -722,7 +945,8 @@ class StarburstPad(PadStack):
     pitch_y: float = 2.54
     trace_width_x: float = 1.4
     trace_width_y: float = 1.4
-    clearance: float = 0.5
+    solder_clearance: float = 0.4
+    mask_width: float = 0.5
     drill: float = 0.9
     annular_ring: float = 1.2
 
@@ -743,19 +967,19 @@ class StarburstPad(PadStack):
             amp.Circle(MM, 1, var(6)),
             ))
 
-        main_ap = ApertureMacroInstance(starburst_macro, (self.pitch_x - self.clearance,# 1
-                                                          self.trace_width_x,           # 2
-                                                          self.pitch_y - self.clearance,# 3
-                                                          self.trace_width_y,           # 4
-                                                          self.clearance,               # 5
-                                                          self.annular_ring), unit=self.unit)  # 6
+        main_ap = ApertureMacroInstance(starburst_macro, (self.pitch_x - self.solder_clearance, # 1
+                                                          self.trace_width_x,                   # 2
+                                                          self.pitch_y - self.solder_clearance, # 3
+                                                          self.trace_width_y,                   # 4
+                                                          self.mask_width,                      # 5
+                                                          self.annular_ring), unit=self.unit)   # 6
 
-        mask_ap = ApertureMacroInstance(starburst_macro, (self.pitch_x,                 # 1
-                                                          self.trace_width_x,           # 2
-                                                          self.pitch_y,                 # 3
-                                                          self.trace_width_y,           # 4
-                                                          self.clearance,               # 5
-                                                          self.annular_ring), unit=self.unit)  # 6
+        mask_ap = ApertureMacroInstance(starburst_macro, (self.pitch_x,                         # 1
+                                                          self.trace_width_x,                   # 2
+                                                          self.pitch_y,                         # 3
+                                                          self.trace_width_y,                   # 4
+                                                          self.mask_width,                      # 5
+                                                          self.annular_ring), unit=self.unit)   # 6
 
         yield PadStackAperture(main_ap, 'top', 'copper')
         yield PadStackAperture(mask_ap, 'top', 'mask')
