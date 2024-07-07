@@ -49,7 +49,7 @@ class ProtoBoard(Board):
         bbox = ((self.margin, self.margin), (self.w-self.margin, self.h-self.margin))
         bbox = unit.convert_bounds_from(self.unit, bbox)
         hole_bboxes = [hole.bounding_box(unit) for hole in self.mounting_holes]
-        for obj in self.content.generate(bbox, (True, True, True, True), self.keepouts, self.margin, unit):
+        for obj in self.content.generate(bbox, (True, True, True, True), self.keepouts, self.margin, True, unit):
             if isinstance(obj, Text):
                 # It's okay for the text to go into the mounting hole keepouts, we just don't want it to overlap with
                 # the actual mounting holes.
@@ -81,7 +81,7 @@ class PropLayout:
         else:
             return max(obj.increment_y() for obj in self.content) 
 
-    def generate(self, bbox, border_text, keepouts, text_margin, unit=MM):
+    def generate(self, bbox, border_text, keepouts, text_margin, two_sided, unit=MM):
         for i, (bbox, child) in enumerate(self.layout_2d(bbox, unit)):
             first = bool(i == 0)
             last = bool(i == len(self.content)-1)
@@ -90,7 +90,7 @@ class PropLayout:
                 border_text[1] and (last or self.direction == 'v'),
                 border_text[2] and (first or self.direction == 'h'),
                 border_text[3] and (first or self.direction == 'v'),
-                ), keepouts, text_margin, unit)
+                ), keepouts, text_margin, two_sided, unit)
 
     def fit_size(self, w, h, unit=MM):
         widths = []
@@ -207,9 +207,9 @@ class TwoSideLayout:
             return w1, h1
         return max(w1, w2), max(h1, h2)
 
-    def generate(self, bbox, border_text, keepouts, text_margin, unit=MM):
-        yield from self.top.generate(bbox, border_text, keepouts, text_margin, unit)
-        for obj in self.bottom.generate(bbox, border_text, keepouts, text_margin, unit):
+    def generate(self, bbox, border_text, keepouts, text_margin, two_sided, unit=MM):
+        yield from self.top.generate(bbox, border_text, keepouts, text_margin, False, unit)
+        for obj in self.bottom.generate(bbox, border_text, keepouts, text_margin, False, unit):
             obj.flip = not obj.flip
             yield obj
 
@@ -289,7 +289,7 @@ class PatternProtoArea:
         y = y + (h-h_fit)/2
         return (x, y), (x+w_fit, y+h_fit)
 
-    def generate(self, bbox, border_text, keepouts, text_margin, unit=MM):
+    def generate(self, bbox, border_text, keepouts, text_margin, two_sided, unit=MM):
         (x, y), (w, h) = bbox
         w, h = w-x, h-y
 
@@ -326,13 +326,13 @@ class PatternProtoArea:
                     if border_text[3]:
                         t_x = x + off_x - text_off_x
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit)
-                        if not self.single_sided:
+                        if two_sided:
                             yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'right', 'middle', flip=True, unit=self.unit)
 
                     if border_text[1]:
                         t_x = x + w - off_x + text_off_x
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit)
-                        if not self.single_sided:
+                        if two_sided:
                             yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'left', 'middle', flip=True, unit=self.unit)
 
             for i, lno_i in zip(range(n_x), self.number_x_gen()):
@@ -346,13 +346,13 @@ class PatternProtoArea:
                     if border_text[2]:
                         t_y = y + off_y - text_off_y
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit)
-                        if not self.single_sided:
+                        if two_sided:
                             yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'top', flip=True, unit=self.unit)
 
                     if border_text[0]:
                         t_y = y + h - off_y + text_off_y
                         yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
-                        if not self.single_sided:
+                        if two_sided:
                             yield Text(t_x, t_y, lno_i, self.font_size, self.font_stroke, 'center', 'bottom', flip=True, unit=self.unit)
 
 
@@ -394,6 +394,8 @@ class PatternProtoArea:
                     px = self.unit(off_x + x, unit) + (i + 0.5) * self.pitch_x
                     py = self.unit(off_y + y, unit) + (j + 0.5) * self.pitch_y
                     yield Pad(px, py, pad_stack=obj, unit=self.unit)
+                    if two_sided and self.single_sided:
+                        yield Pad(px, py, pad_stack=obj, flip=True, unit=self.unit)
                     continue
 
                 elif hasattr(self.obj, 'inst'):
@@ -406,6 +408,11 @@ class PatternProtoArea:
                 inst.x = inst.unit(off_x + x, unit) + (i + 0.5) * inst.unit(self.pitch_x, self.unit)
                 inst.y = inst.unit(off_y + y, unit) + (j + 0.5) * inst.unit(self.pitch_y, self.unit)
                 yield inst
+
+                if two_sided and self.single_sided:
+                    inst = copy(inst)
+                    inst.flip = not inst.flip
+                    yield inst
 
     @property
     def single_sided(self):
@@ -425,11 +432,13 @@ class EmptyProtoArea:
     def fit_size(self, w, h, unit=MM):
         return w, h
 
-    def generate(self, bbox, border_text, keepouts, text_margin, unit=MM):
+    def generate(self, bbox, border_text, keepouts, text_margin, two_sided, unit=MM):
         if self.copper_fill:
             (min_x, min_y), (max_x, max_y) = bbox
             group = ObjectGroup(0, 0, top_copper=[Region([(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)],
                                                 unit=unit, polarity_dark=True)])
+            if two_sided:
+                group.bottom_copper = group.top_copper
             group.bounding_box = lambda *args, **kwargs: None
             yield group
 
@@ -829,16 +838,23 @@ class AlioCell(Positioned):
                                                           corner_radius,                # 4
                                                           rotation+90), unit=MM)        # 5
 
+        end_pad = RectangleAperture(self.link_trace_width, self.pitch - 2*self.clearance - self.link_pad_width, unit=self.unit)
+        end_pad_90 = end_pad.rotated(math.pi/2)
+
         # all layers are identical here
         for side, use in (('top', 'copper'), ('top', 'mask'), ('bottom', 'copper'), ('bottom', 'mask')):
             if side == 'top':
                 layer_stack[side, use].objects.insert(0, xf(Flash(0, 0, aperture=main_ap, unit=self.unit)))
                 if not self.border_s and not self.border_e:
                     layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_dark, unit=self.unit)))
+                if self.border_e and not self.border_s:
+                    layer_stack[side, use].objects.append(xf(Flash(0, self.pitch/2, aperture=end_pad_90, unit=self.unit)))
             else:
                 layer_stack[side, use].objects.insert(0, xf(Flash(0, 0, aperture=main_ap_90, unit=self.unit)))
-                if not self.border_e and not self.border_n:
+                if not self.border_e and not self.border_s:
                     layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, self.pitch/2, aperture=alio_dark_90, unit=self.unit)))
+                if self.border_s and not self.border_e:
+                    layer_stack[side, use].objects.append(xf(Flash(self.pitch/2, 0, aperture=end_pad, unit=self.unit)))
 
         layer_stack.drill_pth.append(Flash(x, y, aperture=main_drill, unit=self.unit))
         if not (self.border_e or self.border_s):

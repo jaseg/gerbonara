@@ -141,6 +141,7 @@ def to_board(obj):
     w = float(obj.get('width', unit(100, MM)))
     h = float(obj.get('height', unit(80, MM)))
     corner_radius = float(obj.get('round_corners', {}).get('radius', unit(1.5, MM)))
+    margin = float(obj.get('margin', unit(2.0, MM)))
     holes = obj.get('mounting_holes', {})
     mounting_hole_dia = float(holes.get('diameter', unit(3.2, MM)))
     mounting_hole_offset = float(holes.get('offset', unit(5, MM)))
@@ -157,6 +158,7 @@ def to_board(obj):
                        corner_radius=corner_radius,
                        mounting_hole_dia=mounting_hole_dia,
                        mounting_hole_offset=mounting_hole_offset,
+                       margin=margin,
                        unit=unit)
 
 @app.route('/preview_<side>.svg', methods=['POST'])
