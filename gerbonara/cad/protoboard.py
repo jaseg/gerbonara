@@ -88,10 +88,13 @@ class PropLayout:
     def layout_2d(self, bbox, unit=MM):
         (x, y), (w, h) = bbox
         w, h = w-x, h-y
+        total_w, total_h = w, h
 
         actual_l = 0
         target_l = 0
+        total_l = total_w if self.direction == 'h' else total_h
 
+        sizes = []
         for l, child in zip(self.layout(w if self.direction == 'h' else h, unit), self.content):
             this_x, this_y = x, y
             this_w, this_h = w, h
@@ -113,7 +116,31 @@ class PropLayout:
                 actual_l += this_h
                 this_w = w
 
+            sizes.append(((this_x, this_y), (this_w, this_h)))
+
+        children_sorted = reversed(sorted(enumerate(self.content),
+                                  key=lambda e: e[1].increment_x() if self.direction == 'h' else e[1].increment_y()))
+
+        excess_l = total_l - actual_l
+        children_extra = [0] * len(self.content)
+        for child_i, child in children_sorted:
+            increment = child.increment_x() if self.direction=='h' else child.increment_y()
+            adjustment = increment * (excess_l//increment) if increment > 0 else excess_l
+            children_extra[child_i] += adjustment
+            excess_l -= adjustment
+
+        adjust_l = 0
+        for extra, ((this_x, this_y), (this_w, this_h)), child in zip(children_extra, sizes, self.content):
+            if self.direction == 'h':
+                this_x += adjust_l
+                this_w += extra
+            else:
+                this_y += adjust_l
+                this_h += extra
+            adjust_l += extra
+
             yield ((this_x, this_y), (this_x+this_w, this_y+this_h)), child
+
 
     def layout(self, length, unit=MM):
         out = [ eval_value(value, MM(length, unit)) for value in self.proportions ]
@@ -141,6 +168,12 @@ class TwoSideLayout:
 
         if not top.single_sided or not bottom.single_sided:
             warnings.warn('Two-sided pattern used on one side of a TwoSideLayout')
+
+    def increment_x(self):
+        return max(self.top.increment_x, self.bottom.increment_x)
+
+    def increment_y(self):
+        return max(self.top.increment_y, self.bottom.increment_y)
 
     def fit_size(self, w, h, unit=MM):
         w1, h1 = self.top.fit_size(w, h, unit)
@@ -212,6 +245,12 @@ class PatternProtoArea:
         self.interval_y = interval_y
         self.number_x_gen, self.number_y_gen = number_x_gen, number_y_gen
 
+    def increment_x(self):
+        return self.pitch_x
+
+    def increment_y(self):
+        return self.pitch_y
+
     def fit_size(self, w, h, unit=MM):
         (min_x, min_y), (max_x, max_y) = self.fit_rect(((0, 0), (max(0, w-2*self.margin), max(0, h-2*self.margin))))
         return max_x-min_x + 2*self.margin, max_y-min_y + 2*self.margin
@@ -249,8 +288,6 @@ class PatternProtoArea:
             test_h = abs(bbox_test_y.bounding_box()[1][1] - bbox_test_y.bounding_box()[0][1])
             text_off_x = max(0, (off_x + text_margin - test_w)) / 2
             text_off_y = max(0, (off_y + text_margin - test_h)) / 2
-            print(f'{test_w=} {off_x=} {text_margin=} {text_off_x=} {max_y_num=}')
-            print(f'{test_h=} {off_y=} {text_margin=} {text_off_y=} {max_x_num=}')
 
             test_w = abs(bbox_test_y.bounding_box()[1][0] - bbox_test_y.bounding_box()[0][0])
             test_h = abs(bbox_test_x.bounding_box()[1][1] - bbox_test_x.bounding_box()[0][1])
@@ -357,6 +394,12 @@ class PatternProtoArea:
 class EmptyProtoArea:
     def __init__(self, copper_fill=False):
         self.copper_fill = copper_fill
+
+    def increment_x(self):
+        return 0
+
+    def increment_y(self):
+        return 0
 
     def fit_size(self, w, h, unit=MM):
         return w, h
