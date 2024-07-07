@@ -97,8 +97,8 @@ class Circle(Primitive):
     exposure : Expression
     diameter : UnitExpression
     # center x/y
-    x : UnitExpression
-    y : UnitExpression
+    x : UnitExpression = 0
+    y : UnitExpression = 0
     rotation : Expression = 0
 
     def to_graphic_primitives(self, offset, rotation, variable_binding={}, unit=None, polarity_dark=True):

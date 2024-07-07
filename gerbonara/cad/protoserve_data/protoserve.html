@@ -411,6 +411,7 @@ input[type="text"]:focus:valid {
                     <a href="#" data-placeholder="rf" class="double-sided-only">RF THT area</a>
                     <a href="#" data-placeholder="spiky" class="double-sided-only">Spiky hybrid area</a>
                     <a href="#" data-placeholder="alio" class="double-sided-only">ALio hybrid area</a>
+                    <a href="#" data-placeholder="starburst" class="double-sided-only">THT starburst area</a>
                 </div>
             </div>
         </template>
@@ -703,6 +704,53 @@ input[type="text"]:focus:valid {
                 </label>
                 <label>Clearance
                     <input type="text" name="clearance" placeholder="length" value="0.3" pattern="[0-9]+\.?[0-9]*"/>
+                    <span class="unit metric">mm</span>
+                    <span class="unit us">mil</span>
+                </label>
+            </div>
+        </template>
+
+        <template id="tpl-g-starburst">
+            <div data-type="starburst" class="group starburst">
+                <h4>Starburst area</h4>
+                <span class="content area-controls">(<a href="#" class="area-remove">Remove</a><a href="#" class="area-move">Move</a>)</span>
+                <label class="proportion">Proportion
+                    <input type="text" name="layout_prop" value="1" pattern="[0-9]+\.?[0-9]*"/>
+                </label>
+
+                <h5>Area Settings</h5>
+                <label>Pitch X
+                    <input type="text" name="pitch_x" placeholder="length" value="2.54" pattern="[0-9]+\.?[0-9]*"/>
+                    <span class="unit metric">mm</span>
+                    <span class="unit us">mil</span>
+                </label>
+                <label>Pitch Y
+                    <input type="text" name="pitch_y" placeholder="length" value="2.54" pattern="[0-9]+\.?[0-9]*"/>
+                    <span class="unit metric">mm</span>
+                    <span class="unit us">mil</span>
+                </label>
+                <label>Drill diameter
+                    <input type="text" name="drill" placeholder="length" value="0.9" pattern="[0-9]+\.?[0-9]*"/>
+                    <span class="unit metric">mm</span>
+                    <span class="unit us">mil</span>
+                </label>
+                <label>Annular ring
+                    <input type="text" name="annular" placeholder="length" value="1.2" pattern="[0-9]+\.?[0-9]*"/>
+                    <span class="unit metric">mm</span>
+                    <span class="unit us">mil</span>
+                </label>
+                <label>Clearance
+                    <input type="text" name="clearance" placeholder="length" value="0.5" pattern="[0-9]+\.?[0-9]*"/>
+                    <span class="unit metric">mm</span>
+                    <span class="unit us">mil</span>
+                </label>
+                <label>Trace width X
+                    <input type="text" name="trace_width_x" placeholder="length" value="1.40" pattern="[0-9]+\.?[0-9]*"/>
+                    <span class="unit metric">mm</span>
+                    <span class="unit us">mil</span>
+                </label>
+                <label>Trace width Y
+                    <input type="text" name="trace_width_y" placeholder="length" value="1.40" pattern="[0-9]+\.?[0-9]*"/>
                     <span class="unit metric">mm</span>
                     <span class="unit us">mil</span>
                 </label>

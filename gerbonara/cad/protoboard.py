@@ -56,7 +56,7 @@ class ProtoBoard(Board):
                 if not any(bbox_intersect(obj.bounding_box(unit), hole_bbox) for hole_bbox in hole_bboxes):
                     self.add(obj, keepout_errors='ignore')
             else:
-                self.add(obj, keepout_errors='skip')
+                self.add(obj, keepout_errors='ignore')
 
 
 class PropLayout:
@@ -714,6 +714,56 @@ class SpikyProto(ObjectGroup):
 
         return inst
 
+
+@dataclass(frozen=True, slots=True)
+class StarburstPad(PadStack):
+    # Starburst pattern inspired by elecfreaks' "flower" protoboard
+    pitch_x: float = 2.54
+    pitch_y: float = 2.54
+    trace_width_x: float = 1.4
+    trace_width_y: float = 1.4
+    clearance: float = 0.5
+    drill: float = 0.9
+    annular_ring: float = 1.2
+
+    @property
+    def apertures(self):
+        var = ParameterExpression
+        # parameters:  [1: pitch_x,
+        #               2: trace_width_x,
+        #               3: pitch_y,
+        #               4: trace_width_y,
+        #               5: diagonal_clearance,
+        #               6: annular_ring_width]
+        starburst_macro = ApertureMacro('STARB', 6, primitives=(
+            amp.CenterLine(MM, 1, var(1), var(2)),
+            amp.CenterLine(MM, 1, var(4), var(3)),
+            amp.VectorLine(MM, 0, var(5), -var(1)/2, -var(3)/2, var(1)/2, var(3)/2),
+            amp.VectorLine(MM, 0, var(5), var(1)/2, -var(3)/2, -var(1)/2, var(3)/2),
+            amp.Circle(MM, 1, var(6)),
+            ))
+
+        main_ap = ApertureMacroInstance(starburst_macro, (self.pitch_x - self.clearance,# 1
+                                                          self.trace_width_x,           # 2
+                                                          self.pitch_y - self.clearance,# 3
+                                                          self.trace_width_y,           # 4
+                                                          self.clearance,               # 5
+                                                          self.annular_ring), unit=self.unit)  # 6
+
+        mask_ap = ApertureMacroInstance(starburst_macro, (self.pitch_x,                 # 1
+                                                          self.trace_width_x,           # 2
+                                                          self.pitch_y,                 # 3
+                                                          self.trace_width_y,           # 4
+                                                          self.clearance,               # 5
+                                                          self.annular_ring), unit=self.unit)  # 6
+
+        yield PadStackAperture(main_ap, 'top', 'copper')
+        yield PadStackAperture(mask_ap, 'top', 'mask')
+        yield PadStackAperture(main_ap, 'bottom', 'copper')
+        yield PadStackAperture(mask_ap, 'bottom', 'mask')
+
+        drill = ExcellonTool(self.drill, plated=True, unit=self.unit)
+        yield PadStackAperture(drill, 'drill', 'plated', 0, 0)
 
 class AlioCell(Positioned):
     """ Cell primitive for the ALio protoboard designed by arief ibrahim adha and published on hackaday.io at the URL
