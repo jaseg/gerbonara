@@ -23,13 +23,17 @@ from pathlib import Path
 import tempfile
 import textwrap
 import os
+import sys
 import stat
+import random
+import statistics
 from functools import total_ordering
 import shutil
 import bs4
 from contextlib import contextmanager
 import hashlib
 
+import tqdm
 import numpy as np
 from PIL import Image
 
@@ -173,6 +177,38 @@ def kicad_fp_export(mod_file, out_svg):
     else:
         print(f'Re-using cache for {mod_file.name}')
     shutil.copy(cachefile, out_svg)
+
+
+def bulk_populate_kicad_fp_export_cache(pretty_dir):
+    def cachefile(mod_file):
+        params = f'(noparams)'.encode()
+        digest = hashlib.blake2b(mod_file.read_bytes() + params).hexdigest()
+        return cachedir / f'{digest}.svg'
+
+    mod_files = list(pretty_dir.glob('*.kicad_mod'))
+    hit_rate = statistics.mean([int(cachefile(fn).is_file())
+                               for fn in random.sample(mod_files, min(len(mod_files), 50))])
+
+    if hit_rate < 0.9:
+        #tqdm.tqdm.write(f'Modfile cache is out of date (hit rate {hit_rate*100:.0f}%), re-building entire cache in bulk')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.chmod(tmpdir, 0o1777)
+            cmd = ['podman', 'run',
+                   '--rm', # Clean up volumes after exit
+                   '--userns=keep-id', # To allow container to read from bind mount
+                   '--mount', f'type=bind,src={pretty_dir},dst=/{pretty_dir.name}',
+                   '--mount', f'type=bind,src={tmpdir},dst=/out',
+                   'registry.hub.docker.com/kicad/kicad:nightly',
+                   'kicad-cli', 'fp', 'export', 'svg', '--output', '/out', f'/{pretty_dir.name}']
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+
+            for fn in mod_files:
+                out_file = Path(tmpdir) / fn.with_suffix('.svg').name
+                if not out_file.is_file():
+                    tqdm.tqdm.write(f'Output file {out_file} is missing while bulk re-building cache for {pretty_dir}.')
+                else:
+                    shutil.copy(out_file, cachefile(fn))
 
 @contextmanager
 def svg_soup(filename):
