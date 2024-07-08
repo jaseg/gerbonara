@@ -21,6 +21,7 @@ from . import graphical_primitives as gr
 
 from ..primitives import Positioned
 
+from ... import __version__
 from ... import graphic_primitives as gp
 from ... import graphic_objects as go
 from ... import apertures as ap
@@ -56,6 +57,7 @@ class Text:
     at: AtPos = field(default_factory=AtPos)
     unlocked: Flag() = False
     layer: Named(str) = None
+    uuid: UUID = field(default_factory=UUID)
     hide: Flag() = False
     effects: TextEffect = field(default_factory=TextEffect)
     tstamp: Timestamp = None
@@ -72,12 +74,14 @@ class TextBox:
     locked: Flag() = False
     text: str = None
     start: Rename(XYCoord) = None
-    end: Named(XYCoord) = None
+    end: Rename(XYCoord) = None
     pts: PointList = None
     angle: Named(float) = 0.0
     layer: Named(str) = None
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
     effects: TextEffect = field(default_factory=TextEffect)
+    border: Named(YesNoAtom()) = False
     stroke: Stroke = field(default_factory=Stroke)
     render_cache: RenderCache = None
 
@@ -90,6 +94,7 @@ class Line:
     start: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     layer: Named(str) = None
+    uuid: UUID = field(default_factory=UUID)
     width: Named(float) = None
     stroke: Stroke = None
     locked: Flag() = False
@@ -113,6 +118,7 @@ class Rectangle:
     start: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     layer: Named(str) = None
+    uuid: UUID = field(default_factory=UUID)
     width: Named(float) = None
     stroke: Stroke = None
     fill: Named(AtomChoice(Atom.solid, Atom.none)) = None
@@ -146,6 +152,7 @@ class Circle:
     center: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     layer: Named(str) = None
+    uuid: UUID = field(default_factory=UUID)
     width: Named(float) = None
     stroke: Stroke = None
     fill: Named(AtomChoice(Atom.solid, Atom.none)) = None
@@ -184,6 +191,7 @@ class Arc:
     width: Named(float) = None
     stroke: Stroke = None
     layer: Named(str) = None
+    uuid: UUID = field(default_factory=UUID)
     locked: Flag() = False
     tstamp: Timestamp = None
 
@@ -237,6 +245,7 @@ class Arc:
 class Polygon:
     pts: PointList = field(default_factory=PointList)
     layer: Named(str) = None
+    uuid: UUID = field(default_factory=UUID)
     width: Named(float) = None
     stroke: Stroke = None
     fill: Named(AtomChoice(Atom.solid, Atom.none)) = None
@@ -266,6 +275,7 @@ class Polygon:
 class Curve:
     pts: PointList = field(default_factory=PointList)
     layer: Named(str) = None
+    uuid: UUID = field(default_factory=UUID)
     width: Named(float) = None
     stroke: Stroke = None
     locked: Flag() = False
@@ -302,6 +312,7 @@ class Dimension:
     locked: Flag() = False
     type: AtomChoice(Atom.aligned, Atom.leader, Atom.center, Atom.orthogonal, Atom.radial) = None
     layer: Named(str) = None
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
     pts: PointList = field(default_factory=PointList)
     height: Named(float) = None
@@ -375,8 +386,9 @@ class Pad:
     drill: Drill = None
     layers: Named(Array(str)) = field(default_factory=list)
     properties: List(Property) = field(default_factory=list)
-    remove_unused_layers: Wrap(Flag()) = False
-    keep_end_layers: Wrap(Flag()) = False
+    remove_unused_layers: Named(YesNoAtom()) = False
+    keep_end_layers: Named(YesNoAtom()) = False
+    uuid: UUID = field(default_factory=UUID)
     rect_delta: Rename(XYCoord) = None
     roundrect_rratio: Named(float) = None
     thermal_bridge_angle: Named(int) = 45
@@ -595,6 +607,7 @@ class Pad:
 @sexp_type('model')
 class Model:
     name: str = ''
+    hide: Flag() = False
     at: Named(XYZCoord) = field(default_factory=XYZCoord)
     offset: Named(XYZCoord) = field(default_factory=XYZCoord)
     scale: Named(XYZCoord) = field(default_factory=XYZCoord)
@@ -606,7 +619,8 @@ SUPPORTED_FILE_FORMAT_VERSIONS = [20210108, 20211014, 20221018, 20230517]
 class Footprint:
     name: str = None
     _version: Named(int, name='version') = 20221018
-    generator: Named(Atom) = Atom.gerbonara
+    generator: Named(str) = Atom.gerbonara
+    generator_version: Named(str) = __version__
     locked: Flag() = False
     placed: Flag() = False
     layer: Named(str) = 'F.Cu'
@@ -902,7 +916,7 @@ class Footprint:
         y += self.at.y
         rotation += math.radians(self.at.rotation)
 
-        for obj in self.objects(pads=False, text=text, zones=False):
+        for obj in self.objects(pads=False, text=text, zones=False, groups=False):
             if not (layer := layer_map.get(obj.layer)):
                 continue
 

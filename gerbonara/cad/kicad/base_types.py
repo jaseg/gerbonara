@@ -37,11 +37,29 @@ LAYER_MAP_K2G = {
 LAYER_MAP_G2K = {v: k for k, v in LAYER_MAP_K2G.items()}
 
 
+@sexp_type('uuid')
+class UUID:
+    value: str = field(default_factory=uuid.uuid4)
+
+    def __deepcopy__(self, memo):
+        return UUID()
+
+    def __after_parse__(self, parent):
+        self.value = str(self.value)
+
+    def before_sexp(self):
+        self.value = str(self.value)
+
+    def bump(self):
+        self.value = uuid.uuid4()
+
+
 @sexp_type('group')
 class Group:
     name: str = ""
-    id: Named(str) = ""
-    members: Named(List(str)) = field(default_factory=list)
+    id: Named(str) = None
+    uuid: UUID = field(default_factory=UUID)
+    members: Named(Array(str)) = field(default_factory=list)
 
 
 @sexp_type('color')
@@ -298,8 +316,8 @@ class FontSpec:
     face: Named(str) = None
     size: Rename(XYCoord) = field(default_factory=lambda: XYCoord(1.27, 1.27))
     thickness: Named(float) = None
-    bold: Flag() = False
-    italic: Flag() = False
+    bold: OmitDefault(Named(YesNoAtom())) = False
+    italic: OmitDefault(Named(YesNoAtom())) = False
     line_spacing: Named(float) = None
 
 
@@ -327,7 +345,7 @@ class Justify:
 @sexp_type('effects')
 class TextEffect:
     font: FontSpec = field(default_factory=FontSpec)
-    hide: Flag() = False
+    hide: OmitDefault(Named(YesNoAtom())) = False
     justify: OmitDefault(Justify) = field(default_factory=Justify)
 
 
@@ -469,23 +487,6 @@ class Timestamp:
         self.value = uuid.uuid4()
 
 
-@sexp_type('uuid')
-class UUID:
-    value: str = field(default_factory=uuid.uuid4)
-
-    def __deepcopy__(self, memo):
-        return UUID()
-
-    def __after_parse__(self, parent):
-        self.value = str(self.value)
-
-    def before_sexp(self):
-        self.value = Atom(str(self.value))
-
-    def bump(self):
-        self.value = uuid.uuid4()
-
-
 @sexp_type('tedit')
 class EditTime:
     value: str = field(default_factory=time.time)
@@ -523,8 +524,10 @@ class DrawnProperty(TextMixin):
     value: str = None
     id: Named(int) = None
     at: AtPos = field(default_factory=AtPos)
+    unlocked: Named(YesNoAtom()) = True
     layer: Named(str) = None
-    hide: Flag() = False
+    hide: Named(YesNoAtom()) = False
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
     effects: TextEffect = field(default_factory=TextEffect)
     _ : SEXP_END = None

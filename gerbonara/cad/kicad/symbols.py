@@ -18,6 +18,7 @@ from .sexp import *
 from .sexp_mapper import *
 from .base_types import *
 from ...utils import rotate_point, Tag, arc_bounds
+from ... import __version__
 from ...newstroke import Newstroke
 from .schematic_colors import *
 from .primitives import kicad_mid_to_center_arc
@@ -481,6 +482,7 @@ class Symbol:
     pin_numbers: OmitDefault(PinNumberSpec) = field(default_factory=PinNumberSpec)
     pin_names: OmitDefault(PinNameSpec) = field(default_factory=PinNameSpec)
     exclude_from_sim: OmitDefault(Named(YesNoAtom())) = False
+    exclude_from_sim: Named(YesNoAtom()) = False
     in_bom: Named(YesNoAtom()) = True
     on_board: Named(YesNoAtom()) = True
     properties: List(Property) = field(default_factory=list)
@@ -573,7 +575,8 @@ SUPPORTED_FILE_FORMAT_VERSIONS = [20211014, 20220914]
 @sexp_type('kicad_symbol_lib')
 class Library:
     _version: Named(int, name='version') = 20211014
-    generator: Named(Atom) = Atom.gerbonara
+    generator: Named(str) = Atom.gerbonara
+    generator_version: Named(str) = __version__
     symbols: List(Symbol) = field(default_factory=list)
     _ : SEXP_END = None
     original_filename: str = None

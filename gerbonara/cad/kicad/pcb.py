@@ -248,7 +248,7 @@ class Via:
     layers: Named(Array(str)) = field(default_factory=lambda: ['F.Cu', 'B.Cu'])
     remove_unused_layers: Flag() = False
     keep_end_layers: Flag() = False
-    free: Wrap(Flag()) = False
+    free: Named(YesNoAtom()) = False
     net: Named(int) = 0
     tstamp: Timestamp = field(default_factory=Timestamp)
 

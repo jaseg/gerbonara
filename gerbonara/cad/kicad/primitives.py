@@ -153,6 +153,7 @@ class Zone:
     net_name: Named(str) = ""
     layer: Named(str) = None
     layers: Named(Array(str)) = None
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
     name: Named(str) = None
     hatch: Hatch = None
