@@ -160,7 +160,10 @@ def kicad_fp_export(mod_file, out_svg):
             os.chmod(tmpdir, 0o1777)
             pretty_dir = mod_file.parent
             fp_name = mod_file.name[:-len('.kicad_mod')]
-            cmd = ['podman', 'run', '--mount', f'type=bind,src={pretty_dir},dst=/{pretty_dir.name}',
+            cmd = ['podman', 'run',
+                   '--rm', # Clean up volumes after exit
+                   '--userns=keep-id', # To allow container to read from bind mount
+                   '--mount', f'type=bind,src={pretty_dir},dst=/{pretty_dir.name}',
                    '--mount', f'type=bind,src={tmpdir},dst=/out',
                    'registry.hub.docker.com/kicad/kicad:nightly',
                    'kicad-cli', 'fp', 'export', 'svg', '--output', '/out', '--footprint', fp_name, f'/{pretty_dir.name}']
