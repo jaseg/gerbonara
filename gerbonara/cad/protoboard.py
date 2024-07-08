@@ -425,28 +425,30 @@ class BreadboardArea:
                     label = f'{j+1}'
 
                     if last_e == 'R':
-                        tx, ty = points[0]
+                        if points:
+                            tx, ty = points[0]
 
-                        if self.horizontal:
-                            ty -= self.pitch_x/2
-                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit)
-                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit, flip=True)
-                        else:
-                            tx -= self.pitch_x/2
-                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit)
-                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit, flip=True)
+                            if self.horizontal:
+                                ty -= self.pitch_x/2
+                                yield Text(tx, ty, label, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit)
+                                yield Text(tx, ty, label, self.font_size, self.font_stroke, 'center', 'top', unit=self.unit, flip=True)
+                            else:
+                                tx -= self.pitch_x/2
+                                yield Text(tx, ty, label, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit)
+                                yield Text(tx, ty, label, self.font_size, self.font_stroke, 'right', 'middle', unit=self.unit, flip=True)
 
                     else:
-                        tx, ty = points[-1]
+                        if points:
+                            tx, ty = points[-1]
 
-                        if self.horizontal:
-                            ty += self.pitch_x/2
-                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
-                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit, flip=True)
-                        else:
-                            tx += self.pitch_x/2
-                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit)
-                            yield Text(tx, ty, label, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit, flip=True)
+                            if self.horizontal:
+                                ty += self.pitch_x/2
+                                yield Text(tx, ty, label, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit)
+                                yield Text(tx, ty, label, self.font_size, self.font_stroke, 'center', 'bottom', unit=self.unit, flip=True)
+                            else:
+                                tx += self.pitch_x/2
+                                yield Text(tx, ty, label, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit)
+                                yield Text(tx, ty, label, self.font_size, self.font_stroke, 'left', 'middle', unit=self.unit, flip=True)
                 last_e = e
 
         if self.num_power_rails == 2 and best_layout.count('P') >= 2:
