@@ -3,3 +3,5 @@ gerbonara_test_failures
 __pycache__
 .tox
 docs/_build/
+build
+dist

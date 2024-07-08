@@ -30,6 +30,7 @@ setup(
         'Tracker': 'https://gitlab.com/gerbolyze/gerbonara/issues',
     },
     packages=find_packages(exclude=['tests']),
+    include_package_data=True,
     install_requires=['click', 'rtree', 'quart'],
     entry_points={
         'console_scripts': [

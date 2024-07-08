@@ -26,7 +26,7 @@ def extract_importlib(package):
             else:
                 assert item.is_dir()
                 item_out.mkdir()
-                stack.push((item, item_out))
+                stack.append((item, item_out))
 
     return root
 
