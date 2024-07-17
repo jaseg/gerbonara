@@ -22,6 +22,7 @@ class Text(TextMixin):
     text: str = ''
     at: AtPos = field(default_factory=AtPos)
     layer: TextLayer = field(default_factory=TextLayer)
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
     effects: TextEffect = field(default_factory=TextEffect)
     render_cache: RenderCache = None
@@ -39,6 +40,7 @@ class TextBox:
     pts: PointList = field(default_factory=PointList)
     angle: OmitDefault(Named(float)) = 0.0
     layer: Named(str) = ""
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
     effects: TextEffect = field(default_factory=TextEffect)
     stroke: Stroke = field(default_factory=Stroke)
@@ -76,6 +78,7 @@ class Line:
     layer: Named(str) = None
     width: Named(float) = None
     stroke: Stroke = field(default_factory=Stroke)
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
 
     def rotate(self, angle, cx=None, cy=None):
@@ -120,6 +123,7 @@ class Rectangle:
     width: Named(float) = None
     stroke: Stroke = field(default_factory=Stroke)
     fill: FillMode = False
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
 
     def render(self, variables=None):
@@ -152,6 +156,7 @@ class Circle:
     width: Named(float) = None
     stroke: Stroke = field(default_factory=Stroke)
     fill: FillMode = False
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
 
     def render(self, variables=None):
@@ -179,6 +184,7 @@ class Arc:
     layer: Named(str) = None
     width: Named(float) = None
     stroke: Stroke = field(default_factory=Stroke)
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
     _: SEXP_END = None
     center: XYCoord = None
@@ -221,6 +227,7 @@ class Polygon:
     width: Named(float) = None
     stroke: Stroke = field(default_factory=Stroke)
     fill: FillMode = True
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
 
     def render(self, variables=None):
@@ -258,6 +265,7 @@ class Curve:
     pts: PointList = field(default_factory=PointList)
     layer: Named(str) = None
     width: Named(float) = None
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
 
     def render(self, variables=None):
@@ -319,6 +327,7 @@ class Dimension:
     locked: Flag() = False
     dimension_type: Named(AtomChoice(Atom.aligned, Atom.leader, Atom.center, Atom.orthogonal, Atom.radial), name='type') = Atom.aligned
     layer: Named(str) = 'Dwgs.User'
+    uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = field(default_factory=Timestamp)
     pts: PointList = field(default_factory=PointList)
     height: Named(float) = None

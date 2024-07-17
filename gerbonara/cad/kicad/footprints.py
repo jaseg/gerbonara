@@ -55,7 +55,7 @@ class Text:
     type: AtomChoice(Atom.reference, Atom.value, Atom.user) = Atom.user
     text: str = ""
     at: AtPos = field(default_factory=AtPos)
-    unlocked: Flag() = False
+    unlocked: OmitDefault(Named(YesNoAtom())) = False
     layer: Named(str) = None
     uuid: UUID = field(default_factory=UUID)
     hide: Flag() = False
@@ -619,6 +619,7 @@ SUPPORTED_FILE_FORMAT_VERSIONS = [20210108, 20211014, 20221018, 20230517]
 class Footprint:
     name: str = None
     _version: Named(int, name='version') = 20221018
+    uuid: UUID = field(default_factory=UUID)
     generator: Named(str) = Atom.gerbonara
     generator_version: Named(str) = __version__
     locked: Flag() = False

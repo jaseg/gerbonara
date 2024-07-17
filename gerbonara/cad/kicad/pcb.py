@@ -59,6 +59,7 @@ def gn_layer_to_kicad(layer, flip=False):
 @sexp_type('general')
 class GeneralSection:
     thickness: Named(float) = 1.60
+    legacy_teardrops: Named(YesNoAtom()) = False
 
 
 @sexp_type('layers')
@@ -92,43 +93,44 @@ class StackupSettings:
     edge_plating: Named(YesNoAtom()) = None
 
 
-TFBool = YesNoAtom(yes=Atom.true, no=Atom.false)
-
 @sexp_type('pcbplotparams')
 class ExportSettings:
     layerselection: Named(Atom) = None
     plot_on_all_layers_selection: Named(Atom) = None
-    disableapertmacros: Named(TFBool) = False
-    usegerberextensions: Named(TFBool) = True
-    usegerberattributes: Named(TFBool) = True
-    usegerberadvancedattributes: Named(TFBool) = True
-    creategerberjobfile: Named(TFBool) = True
+    disableapertmacros: Named(YesNoAtom()) = False
+    usegerberextensions: Named(YesNoAtom()) = True
+    usegerberattributes: Named(YesNoAtom()) = True
+    usegerberadvancedattributes: Named(YesNoAtom()) = True
+    creategerberjobfile: Named(YesNoAtom()) = True
     dashed_line_dash_ratio: Named(float) = 12.0
     dashed_line_gap_ratio: Named(float) = 3.0
-    svguseinch: Named(TFBool) = False
+    svguseinch: Named(YesNoAtom()) = False
     svgprecision: Named(float) = 4
-    excludeedgelayer: Named(TFBool) = False
-    plotframeref: Named(TFBool) = False
-    viasonmask: Named(TFBool) = False
+    excludeedgelayer: Named(YesNoAtom()) = False
+    plotframeref: Named(YesNoAtom()) = False
+    viasonmask: Named(YesNoAtom()) = False
     mode: Named(int) = 1
-    useauxorigin: Named(TFBool) = False
+    useauxorigin: Named(YesNoAtom()) = False
     hpglpennumber: Named(int) = 1
     hpglpenspeed: Named(int) = 20
     hpglpendiameter: Named(float) = 15.0
-    pdf_front_fp_property_popups: Named(TFBool) = True
-    pdf_back_fp_property_popups: Named(TFBool) = True
-    dxfpolygonmode: Named(TFBool) = True
-    dxfimperialunits: Named(TFBool) = False
-    dxfusepcbnewfont: Named(TFBool) = True
-    psnegative: Named(TFBool) = False
-    psa4output: Named(TFBool) = False
-    plotreference: Named(TFBool) = True
-    plotvalue: Named(TFBool) = True
-    plotinvisibletext: Named(TFBool) = False
-    sketchpadsonfab: Named(TFBool) = False
-    subtractmaskfromsilk: Named(TFBool) = False
+    pdf_front_fp_property_popups: Named(YesNoAtom()) = True
+    pdf_back_fp_property_popups: Named(YesNoAtom()) = True
+    pdf_metadata: Named(YesNoAtom()) = True
+    dxfpolygonmode: Named(YesNoAtom()) = True
+    dxfimperialunits: Named(YesNoAtom()) = False
+    dxfusepcbnewfont: Named(YesNoAtom()) = True
+    psnegative: Named(YesNoAtom()) = False
+    psa4output: Named(YesNoAtom()) = False
+    plotreference: Named(YesNoAtom()) = True
+    plotvalue: Named(YesNoAtom()) = True
+    plotfptext: Named(YesNoAtom()) = True
+    plotinvisibletext: Named(YesNoAtom()) = False
+    sketchpadsonfab: Named(YesNoAtom()) = False
+    plotpadnumbers: Named(YesNoAtom()) = False
+    subtractmaskfromsilk: Named(YesNoAtom()) = False
     outputformat: Named(int) = 1
-    mirror: Named(TFBool) = False
+    mirror: Named(YesNoAtom()) = False
     drillshape: Named(int) = 0
     scaleselection: Named(int) = 1
     outputdirectory: Named(str) = "gerber"
@@ -141,6 +143,8 @@ class BoardSetup:
     solder_mask_min_width: Named(float) = None
     pad_to_past_clearance: Named(float) = None
     pad_to_paste_clearance_ratio: Named(float) = None
+    allow_soldermask_bridges_in_footprints: Named(YesNoAtom()) = False
+    tenting: Named(Array(AtomChoice(Atom.front, Atom.back))) = field(default_factory=lambda: [Atom.front, Atom.back])
     aux_axis_origin: Rename(XYCoord) = None
     grid_origin: Rename(XYCoord) = None
     export_settings: ExportSettings = field(default_factory=ExportSettings)
@@ -160,7 +164,8 @@ class TrackSegment:
     layer: Named(str) = 'F.Cu'
     locked: Flag() = False
     net: Named(int) = 0
-    tstamp: Timestamp = field(default_factory=Timestamp)
+    uuid: UUID = field(default_factory=UUID)
+    tstamp: Timestamp = None
 
     @classmethod
     def from_footprint_line(kls, line, flip=False):
@@ -203,14 +208,15 @@ class TrackArc:
     layer: Named(str) = 'F.Cu'
     locked: Flag() = False
     net: Named(int) = 0
-    tstamp: Timestamp = field(default_factory=Timestamp)
+    uuid: UUID = field(default_factory=UUID)
+    tstamp: Timestamp = None
     _: SEXP_END = None
     center: XYCoord = None
 
     def __post_init__(self):
         self.start = XYCoord(self.start)
         self.end = XYCoord(self.end)
-        self.mid = XYCoord(self.mid) if self.mid else center_arc_to_kicad_mid(XYCoord(self.center), self.start, self.end)
+        self.mid = XYCoord(self.mid) if self.center is None else center_arc_to_kicad_mid(XYCoord(self.center), self.start, self.end)
         self.center = None
 
     @property
@@ -250,7 +256,8 @@ class Via:
     keep_end_layers: Flag() = False
     free: Named(YesNoAtom()) = False
     net: Named(int) = 0
-    tstamp: Timestamp = field(default_factory=Timestamp)
+    uuid: UUID = field(default_factory=UUID)
+    tstamp: Timestamp = None
 
     @classmethod
     def from_pad(kls, pad):
@@ -307,7 +314,8 @@ SUPPORTED_FILE_FORMAT_VERSIONS = [20210108, 20211014, 20221018, 20230517]
 @sexp_type('kicad_pcb')
 class Board:
     _version: Named(int, name='version') = 20230517
-    generator: Named(Atom) = Atom.gerbonara
+    generator: Named(str) = Atom.gerbonara
+    generator_version: Named(str) = Atom.gerbonara
     general: GeneralSection = None
     page: PageSettings = None
     layers: Named(Array(Untagged(LayerSettings))) = field(default_factory=list)
