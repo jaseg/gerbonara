@@ -542,7 +542,7 @@ def svg_rotation(angle_rad, cx=0, cy=0):
         return {'transform': f'rotate({float(math.degrees(angle_rad)):.4} {float(cx):.6} {float(cy):.6})'}
 
 def setup_svg(tags, bounds, margin=0, arg_unit=MM, svg_unit=MM, pagecolor='white', tag=Tag, inkscape=False):
-    (min_x, min_y), (max_x, max_y) = svg_unit.convert_bounds_from(arg_unit, bounds)
+    (min_x, min_y), (max_x, max_y) = bounds
 
     if margin:
         margin = svg_unit(margin, arg_unit)
