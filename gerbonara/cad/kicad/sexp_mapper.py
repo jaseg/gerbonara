@@ -202,6 +202,24 @@ class YesNoAtom:
         yield self.yes if value else self.no
 
 
+class LegacyCompatibleFlag:
+    '''Variant of YesNoAtom that accepts both the `(flag <yes/no>)` variant and the bare `flag` variant for compatibility.'''
+
+    def __init__(self, yes=Atom.yes, no=Atom.no, value_when_empty=True):
+        self.yes, self.no = yes, no
+        self.value_when_empty = value_when_empty
+
+    def __map__(self, value, parent=None):
+        if value == []:
+            return self.value_when_empty
+
+        value, = value
+        return value == self.yes
+
+    def __sexp__(self, value):
+        yield self.yes if value else self.no
+
+
 class Wrap(WrapperType):
     def __map__(self, value, parent=None):
         value, = value

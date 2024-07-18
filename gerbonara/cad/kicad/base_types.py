@@ -345,7 +345,7 @@ class Justify:
 @sexp_type('effects')
 class TextEffect:
     font: FontSpec = field(default_factory=FontSpec)
-    hide: OmitDefault(Named(YesNoAtom())) = False
+    hide: OmitDefault(Named(LegacyCompatibleFlag())) = False
     justify: OmitDefault(Justify) = field(default_factory=Justify)
 
 
