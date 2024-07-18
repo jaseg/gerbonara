@@ -54,6 +54,7 @@ def pytest_configure(config):
             raise ValueError(f'Path "{lib_dir}" given by KICAD_FOOTPRINTS environment variable does not exist or is not a directory.')
 
         print('Checking and bulk re-building KiCad footprint library cache')
+        subprocess.run(['podman', 'pull', 'registry.hub.docker.com/kicad/kicad:nightly'], check=True)
         with multiprocessing.pool.ThreadPool() as pool: # use thread pool here since we're only monitoring podman processes 
             lib_dirs = list(lib_dir.glob('*.pretty'))
             res = list(tqdm.tqdm(pool.imap(lambda path: bulk_populate_kicad_fp_export_cache(path), lib_dirs), total=len(lib_dirs)))
