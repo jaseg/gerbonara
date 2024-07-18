@@ -456,7 +456,7 @@ class ApertureMacroInstance(Aperture):
         # We do this because here we do not have information about which parameter has which physical units.
         parameters = self.parameters
         if len(parameters) > self.macro.num_parameters:
-            warnings.warn('Aperture definition using macro {self.macro.name} has more parameters than the macro uses.')
+            warnings.warn(f'Aperture definition using macro {self.macro.name} has more parameters than the macro uses.')
             parameters = parameters[:self.macro.num_parameters]
         return tuple(parameters)
 
