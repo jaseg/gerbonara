@@ -21,6 +21,7 @@
 
 import re
 import math
+import copy
 import warnings
 from pathlib import Path
 import dataclasses
@@ -623,6 +624,7 @@ class GerberParser:
         'aperture_definition': fr"ADD(?P<number>\d+)(?P<shape>C|R|O|P|{NAME})(,(?P<modifiers>[^,%]*))?$",
         'aperture_macro': fr"AM(?P<name>{NAME})\*(?P<macro>[^%]*)",
         'siemens_garbage': r'^ICAS$',
+        'step_repeat': fr'^SR(?P<coords>X(?P<X>[0-9]+)Y(?P<Y>[0-9]+)I(?P<I>{DECIMAL})J(?P<J>{DECIMAL}))?$',
         'old_unit':r'(?P<mode>G7[01])',
         'old_notation': r'(?P<mode>G9[01])',
         'ignored': r"(?P<stmt>M01)",
@@ -642,6 +644,8 @@ class GerberParser:
         self.aperture_map = {}
         self.aperture_macros = {}
         self.current_region = None
+        self.step_repeat_coords = None
+        self.step_repeat_objects = None
         self.eof_found = False
         self.multi_quadrant_mode = None # used only for syntax checking
         self.macros = {}
@@ -784,7 +788,10 @@ class GerberParser:
                 # in multi-quadrant mode this may return None if start and end point of the arc are the same.
                 obj = self.graphics_state.interpolate(x, y, i, j, multi_quadrant=self.multi_quadrant_mode)
                 if obj is not None:
-                    self.target.objects.append(obj)
+                    if self.step_repeat_objects:
+                        self.step_repeat_objects.append(obj)
+                    else:
+                        self.target.objects.append(obj)
             else:
                 obj = self.graphics_state.interpolate(x, y, i, j, aperture=False, multi_quadrant=self.multi_quadrant_mode)
                 if obj is not None:
@@ -795,14 +802,21 @@ class GerberParser:
             if self.current_region:
                 # Start a new region for every outline. As gerber has no concept of fill rules or winding numbers,
                 # it does not make a graphical difference, and it makes the implementation slightly easier.
-                self.target.objects.append(self.current_region)
+                if self.step_repeat_objects:
+                    self.step_repeat_objects.append(self.current_region)
+                else:
+                    self.target.objects.append(self.current_region)
                 self.current_region = go.Region(
                         polarity_dark=self.graphics_state.polarity_dark,
                         unit=self.file_settings.unit)
 
         elif op == '3':
             if self.current_region is None:
-                self.target.objects.append(self.graphics_state.flash(x, y))
+                obj = self.graphics_state.flash(x, y) 
+                if self.step_repeat_objects:
+                    self.step_repeat_objects.append(obj)
+                else:
+                    self.target.objects.append(obj)
             else:
                 raise SyntaxError('DO3 flash statement inside region')
 
@@ -1064,6 +1078,30 @@ class GerberParser:
             if 'EAGLE' in self.file_attrs.get('.GenerationSoftware', []) or match['eagle_garbage']:
                 self.generator_hints.append('eagle')
     
+    def _parse_step_repeat(self, match):
+        if match['coords']:
+            if self.step_repeat_coords:
+                raise SyntaxError('SR step-repeat called inside ongoing SR step-repeat')
+
+            x, y = int(match['X']), int(match['Y'])
+            i, j = float(match['I']), float(match['J'])
+            if x < 1 or y < 1:
+                raise SyntaxError('SR step-repeat X and Y values must be at least 1')
+
+            self.step_repeat_coords = [
+                    (i*nx, j*ny)
+                    for nx in range(x) for ny in range(y)] # the order matters here, cf. the spec
+            self.step_repeat_objects = []
+
+        else:
+            for obj in self.step_repeat_objects:
+                for dx, dy in self.step_repeat_coords: 
+                    new_obj = copy.copy(obj)
+                    new_obj.offset(dx, dy)
+                    self.target.objects.append(new_obj)
+            self.step_repeat_coords = None
+            self.step_repeat_objects = None
+
     def _parse_eof(self, match):
         self.eof_found = True
 

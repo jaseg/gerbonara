@@ -306,9 +306,8 @@ REFERENCE_DIRS = {
     }
 
 @filter_syntax_warnings
-@pytest.mark.parametrize('ref_dir', list(REFERENCE_DIRS.items()))
-def test_layer_classifier(ref_dir):
-    ref_dir, file_map = ref_dir
+@pytest.mark.parametrize('ref_dir,file_map', list(REFERENCE_DIRS.items()))
+def test_layer_classifier(ref_dir, file_map):
     path = reference_path(ref_dir)
     print('Reference path is', path)
     file_map = { filename: role for filename, role in file_map.items() if role is not None } 

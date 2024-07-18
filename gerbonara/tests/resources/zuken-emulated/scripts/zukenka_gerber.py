@@ -32,7 +32,7 @@ def map_line(line):
         return 'X0Y0D02*M00*'
 
     # Merge G01/02/03 with following coordinate
-    if line in ('G01*', 'G02*', 'G03*'):
+    if line in ('G01*', 'G02*', 'G03*') and ('X' in line or 'Y' in line):
         return line[:-1]
 
     # Preserve line endings for header lines
