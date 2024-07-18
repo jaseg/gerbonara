@@ -672,7 +672,7 @@ class Board:
                 continue
             if reference and not match_filter(reference, fp.properties.get('reference', '')):
                 continue
-            if net and not any(match_filter(net, pad.net.name) for pad in fp.pads):
+            if net and not any(pad.net and match_filter(net, pad.net.name) for pad in fp.pads):
                 continue
             if sheetname and not match_filter(sheetname, fp.sheetname):
                 continue
