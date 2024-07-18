@@ -20,8 +20,8 @@ def rad_to_deg(x):
     return (x / math.pi) * 180
 
 def _map_expression(node, variables={}, parameters=set()):
-    if isinstance(node, ast.Num):
-        return ConstantExpression(node.n)
+    if isinstance(node, ast.Constant):
+        return ConstantExpression(node.value)
 
     elif isinstance(node, ast.BinOp):
         op_map = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv}
