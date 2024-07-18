@@ -38,32 +38,61 @@ def test_round_trip(kicad_library_file, tmpfile):
     stage1 = re.sub(r'\(', '\n(', re.sub(r'\s+', ' ', stage1_sexp))
     tmpfile('Processed stage 1 output', '.kicad_sym').write_text(stage1)
 
-    for original, stage1 in zip_longest(original.splitlines(), stage1.splitlines()):
+    original_lines, stage1_lines = original.splitlines(), stage1.splitlines()
+
+    i, j = 0, 0
+    while i < len(original_lines) and j < len(stage1_lines):
+        original, stage1 = original_lines[i], stage1_lines[j]
+
         if original.startswith('(version'):
+            i, j = i+1, j+1
             continue
 
         original, stage1 = original.strip(), stage1.strip()
         if original != stage1:
             if any(original.startswith(f'({foo}') for foo in ['arc', 'circle', 'rectangle', 'polyline', 'text']):
                 # These files have symbols with graphic primitives in non-standard order
+                i, j = i+1, j+1
                 return
 
-            if original.startswith('(offset') and stage1.startswith('(offset'):
-                # Some symbol files contain ints where floats should be.
-                return
+            # Some symbol files contain ints where floats should be.
+            # For instance, there is some disagreement as to whether rotation angles are ints or floats, and the spec doesn't say.
+            FLOAT_INT_ISSUES = ['offset', 'at', 'width', 'xy', 'start', 'mid', 'end', 'center']
+            if any(original.startswith(f'({name}') and stage1.startswith(f'({name}') for name in FLOAT_INT_ISSUES):
+                fix_floats = lambda s: re.sub(r'\.0+(\W)', r'\1', s)
+                original, stage1 = fix_floats(original), fix_floats(stage1)
 
             if original.startswith('(symbol') and stage1.startswith('(symbol'):
                 # Re-export can change symbol order. This is ok.
-                return
+                i, j = i+1, j+1
+                continue
 
-            if original.startswith('(at') and stage1.startswith('(at'):
-                # There is some disagreement as to whether rotation angles are ints or floats, and the spec doesn't say.
-                return
+            # KiCad changed some flags from a bare flag to a named yes/no flag, which emits one more line here.
+            NOW_NAMED = ['hide', 'bold', 'italic']
+            if any(f'{name} yes' in stage1 for name in NOW_NAMED):
+                j += 1
+                continue
 
-            if 'hide' in original or 'hide' in stage1:
-                # KiCad changed the position of the hide token inside text effects between versions.
-                return
+            if any(name in original or name in stage1 for name in NOW_NAMED):
+                # KiCad changed the position of some flags inside text effects between versions.
+                i, j = i+1, j+1
+                continue
 
-            assert original == stage1
+            if 'generator' in original:
+                # KiCad changed the generator field from an atom to a str
+                i, j = i+1, j+1
+                continue
+
+            NEW_FIELDS = [
+                    'generator_version',
+                    'exclude_from_sim',
+                    ]
+            if any(field in stage1 for field in NEW_FIELDS):
+                # New field, skip only on right (new) side
+                j += 1
+                continue
+
+        assert original == stage1
+        i, j = i+1, j+1
     
 

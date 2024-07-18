@@ -316,8 +316,8 @@ class FontSpec:
     face: Named(str) = None
     size: Rename(XYCoord) = field(default_factory=lambda: XYCoord(1.27, 1.27))
     thickness: Named(float) = None
-    bold: OmitDefault(Named(YesNoAtom())) = False
-    italic: OmitDefault(Named(YesNoAtom())) = False
+    bold: OmitDefault(Named(LegacyCompatibleFlag())) = False
+    italic: OmitDefault(Named(LegacyCompatibleFlag())) = False
     line_spacing: Named(float) = None
 
 
