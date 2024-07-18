@@ -93,7 +93,7 @@ class ApertureMacro:
                     name, _, expr = block.partition('=')
                     number = int(name[1:])
                     if number in variables:
-                        warnings.warn(f'Re-definition of aperture macro variable ${number} inside macro. Previous definition of ${number} was ${variables[number]}.')
+                        warnings.warn(f'Re-definition of aperture macro variable ${number} inside aperture macro "{macro_name}". Previous definition of ${number} was ${variables[number]}.')
                     variables[number] = _parse_expression(expr, variables, parameters)
                 except Exception as e:
                     raise SyntaxError(f'Error parsing variable definition {block!r}') from e

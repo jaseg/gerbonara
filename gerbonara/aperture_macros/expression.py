@@ -180,6 +180,9 @@ class ConstantExpression(Expression):
     
 @dataclass(frozen=True, slots=True)
 class VariableExpression(Expression):
+    ''' An expression that encapsulates some other complex expression and will replace all occurences of it with a newly
+    allocated variable at export time.
+    '''
     expr: Expression
 
     def optimized(self, variable_binding={}):
@@ -201,6 +204,7 @@ class VariableExpression(Expression):
 
 @dataclass(frozen=True, slots=True)
 class ParameterExpression(Expression):
+    ''' An expression that refers to a macro variable or parameter '''
     number: int
 
     def optimized(self, variable_binding={}):
