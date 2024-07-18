@@ -40,6 +40,11 @@ def pytest_sessionstart(session):
 
 
 def pytest_configure(config):
+    os.nice(20)
+    # Resvg can sometimes consume a lot of memory. Make sure we don't kill the user's session.
+    if (oom_adj := Path('/proc/self/oom_adj')).is_file():
+        oom_adj.write_text('15\n')
+
     if 'PYTEST_XDIST_WORKER' in os.environ: # only run this on the controller
         return
 
