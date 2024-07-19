@@ -182,6 +182,10 @@ class Circle(BBoxMixin, WidthMixin):
         self.center = self.center.with_offset(x, y)
         self.end = self.end.with_offset(x, y)
 
+    def rotate(self, angle, cx=0, cy=0):
+        self.center = self.center.with_rotation(angle, cx, cy)
+        self.end = self.end.with_rotation(angle, cx, cy)
+
 
 @sexp_type('gr_arc')
 class Arc(WidthMixin, BBoxMixin):
@@ -205,11 +209,6 @@ class Arc(WidthMixin, BBoxMixin):
             self.mid = center_arc_to_kicad_mid(XYCoord(self.center), self.start, self.end)
             self.center = None
 
-    def rotate(self, angle, cx=None, cy=None):
-        self.start.x, self.start.y = rotate_point(self.start.x, self.start.y, angle, cx, cy)
-        self.mid.x, self.mid.y = rotate_point(self.mid.x, self.mid.y, angle, cx, cy)
-        self.end.x, self.end.y = rotate_point(self.end.x, self.end.y, angle, cx, cy)
-
     def render(self, variables=None):
         if not (w := self.stroke.width if self.stroke else self.width):
             return
@@ -224,6 +223,11 @@ class Arc(WidthMixin, BBoxMixin):
         self.start = self.start.with_offset(x, y)
         self.mid = self.mid.with_offset(x, y)
         self.end = self.end.with_offset(x, y)
+
+    def rotate(self, angle, cx=None, cy=None):
+        self.start.x, self.start.y = rotate_point(self.start.x, self.start.y, angle, cx, cy)
+        self.mid.x, self.mid.y = rotate_point(self.mid.x, self.mid.y, angle, cx, cy)
+        self.end.x, self.end.y = rotate_point(self.end.x, self.end.y, angle, cx, cy)
 
 
 @sexp_type('gr_poly')
@@ -265,6 +269,9 @@ class Polygon(BBoxMixin, WidthMixin):
 
     def offset(self, x=0, y=0):
         self.pts = [pt.with_offset(x, y) for pt in self.pts]
+
+    def rotate(self, angle, cx=0, cy=0):
+        self.pts = [pt.with_rotation(angle, cx, cy) for pt in self.pts]
 
 
 @sexp_type('gr_curve')
