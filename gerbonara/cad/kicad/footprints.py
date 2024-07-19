@@ -733,6 +733,14 @@ class Footprint:
     def offset(self, x=0, y=0):
         self.at = self.at.with_offset(x, y)
 
+    def copy_placement(self, template):
+        # Fix up rotation of pads - KiCad saves each pad's rotation in *absolute* coordinates, not relative to the
+        # footprint. Because we overwrite the footprint's rotation below, we have to first fix all pads to match the
+        # new rotation.
+        self.rotate(math.radians(template.at.rotation - self.at.rotation))
+        self.at = copy.copy(template.at)
+        self.side = template.side
+
     @property
     def version(self):
         return self._version
