@@ -123,6 +123,14 @@ class Stroke:
         return attrs
 
 
+class WidthMixin:
+    def __post_init__(self):
+        if self.width is None:
+            self.width = self.stroke.width
+        else:
+            self.stroke = Stroke(self.width)
+
+
 class Dasher:
     def __init__(self, obj):
         if obj.stroke:

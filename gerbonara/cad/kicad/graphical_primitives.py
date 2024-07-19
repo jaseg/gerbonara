@@ -71,7 +71,7 @@ class TextBox(BBoxMixin):
 
 
 @sexp_type('gr_line')
-class Line:
+class Line(WidthMixin):
     start: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     angle: Named(float) = None # wat
@@ -122,7 +122,7 @@ class FillMode:
         yield [Atom.fill, Atom.solid if value else Atom.none]
 
 @sexp_type('gr_rect')
-class Rectangle(BBoxMixin):
+class Rectangle(BBoxMixin, WidthMixin):
     start: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     layer: Named(str) = None
@@ -140,9 +140,9 @@ class Rectangle(BBoxMixin):
         if self.fill:
             yield rect
 
-        if self.width:
+        if (w := self.stroke.width if self.stroke else self.width):
             # FIXME stroke support
-            yield from rect.outline_objects(aperture=ap.CircleAperture(self.width, unit=MM))
+            yield from rect.outline_objects(aperture=ap.CircleAperture(w, unit=MM))
 
     @property
     def top_left(self):
@@ -155,7 +155,7 @@ class Rectangle(BBoxMixin):
 
 
 @sexp_type('gr_circle')
-class Circle(BBoxMixin):
+class Circle(BBoxMixin, WidthMixin):
     center: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     layer: Named(str) = None
@@ -167,10 +167,11 @@ class Circle(BBoxMixin):
 
     def render(self, variables=None):
         r = math.dist((self.center.x, -self.center.y), (self.end.x, -self.end.y))
-        aperture = ap.CircleAperture(self.width or 0, unit=MM)
+        w = self.stroke.width if self.stroke else self.width
+        aperture = ap.CircleAperture(w or 0, unit=MM)
         arc = go.Arc.from_circle(self.center.x, -self.center.y, r, aperture=aperture, unit=MM)
 
-        if self.width:
+        if w:
             # FIXME stroke support
             yield arc
 
@@ -183,7 +184,7 @@ class Circle(BBoxMixin):
 
 
 @sexp_type('gr_arc')
-class Arc(BBoxMixin):
+class Arc(WidthMixin, BBoxMixin):
     start: Rename(XYCoord) = None
     mid: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
@@ -210,11 +211,10 @@ class Arc(BBoxMixin):
         self.end.x, self.end.y = rotate_point(self.end.x, self.end.y, angle, cx, cy)
 
     def render(self, variables=None):
-        # FIXME stroke support
-        if not self.width:
+        if not (w := self.stroke.width if self.stroke else self.width):
             return
 
-        aperture = ap.CircleAperture(self.width, unit=MM)
+        aperture = ap.CircleAperture(w, unit=MM)
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
         (cx, cy), _r, clockwise = kicad_mid_to_center_arc(self.mid, self.start, self.end)
@@ -227,7 +227,7 @@ class Arc(BBoxMixin):
 
 
 @sexp_type('gr_poly')
-class Polygon(BBoxMixin):
+class Polygon(BBoxMixin, WidthMixin):
     pts: ArcPointList = field(default_factory=list)
     layer: Named(str) = None
     width: Named(float) = None
@@ -255,9 +255,10 @@ class Polygon(BBoxMixin):
         reg = go.Region(points, centers, unit=MM)
         reg.close()
         
+        w = self.stroke.width if self.stroke else self.width
         # FIXME stroke support
-        if self.width and self.width >= 0.005 or self.stroke.width and self.stroke.width > 0.005:
-            yield from reg.outline_objects(aperture=ap.CircleAperture(self.width, unit=MM))
+        if w and w >= 0.005:
+            yield from reg.outline_objects(aperture=ap.CircleAperture(w, unit=MM))
 
         if self.fill:
             yield reg
@@ -267,7 +268,7 @@ class Polygon(BBoxMixin):
 
 
 @sexp_type('gr_curve')
-class Curve(BBoxMixin):
+class Curve(BBoxMixin, WidthMixin):
     pts: PointList = field(default_factory=list)
     layer: Named(str) = None
     width: Named(float) = None
