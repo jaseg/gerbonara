@@ -405,7 +405,7 @@ class Pad(NetMixin):
     options: OmitDefault(CustomPadOptions) = None
     primitives: OmitDefault(CustomPadPrimitives) = None
     _: SEXP_END = None
-    footprint: object = None
+    footprint: object = field(repr=False, default=None)
 
     def __after_parse__(self, parent=None):
         self.layers = unfuck_layers(self.layers)
@@ -656,7 +656,7 @@ class Footprint:
     models: List(Model) = field(default_factory=list)
     _ : SEXP_END = None
     original_filename: str = None
-    board: object = None
+    board: object = field(repr=False, default=None)
 
     def __after_parse__(self, parent):
         for pad in self.pads:

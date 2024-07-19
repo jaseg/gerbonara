@@ -357,7 +357,7 @@ class SymbolInstance:
     # three other uses of the same symbol in this schematic.
     instances: Named(Array(SymbolCrosslinkProject)) = field(default_factory=list)
     _ : SEXP_END = None
-    schematic: object = None
+    schematic: object = field(repr=False, default=None)
 
     def __after_parse__(self, parent):
         self.schematic = parent
@@ -496,7 +496,7 @@ class Subsheet:
     _ : SEXP_END = None
     sheet_name: object = field(default_factory=lambda: DrawnProperty('Sheetname', ''))
     file_name: object = field(default_factory=lambda: DrawnProperty('Sheetfile', ''))
-    schematic: object = None
+    schematic: object = field(repr=False, default=None)
 
     def __after_parse__(self, parent):
         self.sheet_name, self.file_name = self._properties
