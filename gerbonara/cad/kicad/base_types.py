@@ -270,7 +270,14 @@ class XYCoord:
 
 @sexp_type('pts')
 class PointList:
-    xy : List(XYCoord) = field(default_factory=list)
+    @classmethod
+    def __map__(kls, obj, parent=None):
+        _tag, *values = obj
+        return [map_sexp(XYCoord, elem, parent=parent) for elem in values]
+
+    @classmethod
+    def __sexp__(kls, value):
+        yield [kls.name_atom, *(e for elem in value for e in elem.__sexp__(elem))]
 
 
 @sexp_type('arc')

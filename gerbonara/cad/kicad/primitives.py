@@ -135,18 +135,18 @@ class ZoneFill:
 class FillPolygon:
     layer: Named(str) = ""
     island: Wrap(Flag()) = False
-    pts: PointList = field(default_factory=PointList)
+    pts: PointList = field(default_factory=list)
 
 
 @sexp_type('fill_segments')
 class FillSegment:
     layer: Named(str) = ""
-    pts: PointList = field(default_factory=PointList)
+    pts: PointList = field(default_factory=list)
 
 
 @sexp_type('polygon')
 class ZonePolygon:
-    pts: PointList = field(default_factory=PointList)
+    pts: PointList = field(default_factory=list)
 
 
 @sexp_type('zone')
@@ -199,7 +199,7 @@ class Zone:
 
 @sexp_type('polygon')
 class RenderCachePolygon:
-    pts: PointList = field(default_factory=PointList)
+    pts: PointList = field(default_factory=list)
 
 
 @sexp_type('render_cache')

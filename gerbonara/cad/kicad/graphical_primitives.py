@@ -37,7 +37,7 @@ class TextBox(BBoxMixin):
     text: str = ''
     start: Named(XYCoord) = None
     end: Named(XYCoord) = None
-    pts: PointList = field(default_factory=PointList)
+    pts: PointList = field(default_factory=list)
     angle: OmitDefault(Named(float)) = 0.0
     layer: Named(str) = ""
     uuid: UUID = field(default_factory=UUID)
@@ -55,7 +55,7 @@ class TextBox(BBoxMixin):
             raise ValueError('Vector font text with empty render cache')
 
         for poly in render_cache.polygons:
-            reg = go.Region([(p.x, -p.y) for p in poly.pts.xy], unit=MM)
+            reg = go.Region([(p.x, -p.y) for p in poly.pts], unit=MM)
 
             if self.stroke:
                 if self.stroke.type not in (None, Atom.default, Atom.solid):
@@ -263,12 +263,12 @@ class Polygon(BBoxMixin):
             yield reg
 
     def offset(self, x=0, y=0):
-        self.pts = PointList([pt.with_offset(x, y) for pt in self.pts])
+        self.pts = [pt.with_offset(x, y) for pt in self.pts]
 
 
 @sexp_type('gr_curve')
 class Curve(BBoxMixin):
-    pts: PointList = field(default_factory=PointList)
+    pts: PointList = field(default_factory=list)
     layer: Named(str) = None
     width: Named(float) = None
     uuid: UUID = field(default_factory=UUID)
@@ -278,7 +278,7 @@ class Curve(BBoxMixin):
         raise NotImplementedError('Bezier rendering is not yet supported. Please raise an issue and provide an example file.')
 
     def offset(self, x=0, y=0):
-        self.pts = PointList([pt.with_offset(x, y) for pt in self.pts])
+        self.pts =[pt.with_offset(x, y) for pt in self.pts]
 
 
 @sexp_type('gr_bbox')
@@ -335,7 +335,7 @@ class Dimension:
     layer: Named(str) = 'Dwgs.User'
     uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = field(default_factory=Timestamp)
-    pts: PointList = field(default_factory=PointList)
+    pts: PointList = field(default_factory=list)
     height: Named(float) = None
     orientation: Named(int) = None
     leader_length: Named(float) = None
@@ -347,5 +347,5 @@ class Dimension:
         raise NotImplementedError('Dimension rendering is not yet supported. Please raise an issue.')
 
     def offset(self, x=0, y=0):
-        self.pts = PointList([pt.with_offset(x, y) for pt in self.pts])
+        self.pts = [pt.with_offset(x, y) for pt in self.pts]
 

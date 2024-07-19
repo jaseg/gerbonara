@@ -243,7 +243,7 @@ class Arc:
 
 @sexp_type('fp_poly')
 class Polygon:
-    pts: PointList = field(default_factory=PointList)
+    pts: PointList = field(default_factory=list)
     layer: Named(str) = None
     uuid: UUID = field(default_factory=UUID)
     width: Named(float) = None
@@ -253,13 +253,13 @@ class Polygon:
     tstamp: Timestamp = None
 
     def render(self, variables=None, cache=None):
-        if len(self.pts.xy) < 2:
+        if len(self.pts) < 2:
             return
 
         dasher = Dasher(self)
-        start = self.pts.xy[0]
+        start = self.pts[0]
         dasher.move(start.x, start.y)
-        for point in self.pts.xy[1:]:
+        for point in self.pts[1:]:
             dasher.line(point.x, point.y)
 
         if dasher.width > 0:
@@ -268,12 +268,12 @@ class Polygon:
                 yield go.Line(x1, -y1, x2, -y2, aperture=aperture, unit=MM)
 
         if self.fill == Atom.solid:
-            yield go.Region([(pt.x, -pt.y) for pt in self.pts.xy], unit=MM)
+            yield go.Region([(pt.x, -pt.y) for pt in self.pts], unit=MM)
 
 
 @sexp_type('fp_curve')
 class Curve:
-    pts: PointList = field(default_factory=PointList)
+    pts: PointList = field(default_factory=list)
     layer: Named(str) = None
     uuid: UUID = field(default_factory=UUID)
     width: Named(float) = None
@@ -314,7 +314,7 @@ class Dimension:
     layer: Named(str) = None
     uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
-    pts: PointList = field(default_factory=PointList)
+    pts: PointList = field(default_factory=list)
     height: Named(float) = None
     orientation: Named(int) = 0
     leader_length: Named(float) = None

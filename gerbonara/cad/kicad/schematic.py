@@ -132,7 +132,7 @@ def _polyline_bounds(self):
 
 @sexp_type('wire')
 class Wire:
-    points: PointList = field(default_factory=PointList)
+    points: PointList = field(default_factory=list)
     stroke: Stroke = field(default_factory=Stroke)
     uuid: UUID = field(default_factory=UUID)
 
@@ -145,7 +145,7 @@ class Wire:
 
 @sexp_type('bus')
 class Bus:
-    points: PointList = field(default_factory=PointList)
+    points: PointList = field(default_factory=list)
     stroke: Stroke = field(default_factory=Stroke)
     uuid: UUID = field(default_factory=UUID)
 
@@ -158,7 +158,7 @@ class Bus:
 
 @sexp_type('polyline')
 class Polyline:
-    points: PointList = field(default_factory=PointList)
+    points: PointList = field(default_factory=list)
     stroke: Stroke = field(default_factory=Stroke)
     uuid: UUID = field(default_factory=UUID)
 
