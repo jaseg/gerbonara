@@ -57,7 +57,7 @@ def test_round_trip(kicad_library_file, tmpfile):
 
             # Some symbol files contain ints where floats should be.
             # For instance, there is some disagreement as to whether rotation angles are ints or floats, and the spec doesn't say.
-            FLOAT_INT_ISSUES = ['offset', 'at', 'width', 'xy', 'start', 'mid', 'end', 'center']
+            FLOAT_INT_ISSUES = ['offset', 'at', 'width', 'xy', 'start', 'mid', 'end', 'center', 'length']
             if any(original.startswith(f'({name}') and stage1.startswith(f'({name}') for name in FLOAT_INT_ISSUES):
                 fix_floats = lambda s: re.sub(r'\.0+(\W)', r'\1', s)
                 original, stage1 = fix_floats(original), fix_floats(stage1)
