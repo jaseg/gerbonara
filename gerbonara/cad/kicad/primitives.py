@@ -38,7 +38,7 @@ def layer_mask(layers):
             case 'B.Cu':
                 mask |= 1<<31
             case _:
-                if (m := re.match(f'In([0-9]+)\.Cu', layer)):
+                if (m := re.match(fr'In([0-9]+)\.Cu', layer)):
                     mask |= 1<<int(m.group(1))
     return mask
 
