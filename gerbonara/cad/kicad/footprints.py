@@ -876,20 +876,20 @@ class Footprint:
         around the given coordinates in the global coordinate space. Otherwise rotate around the footprint's origin. """
         if (cx, cy) != (None, None):
             x, y = self.at.x-cx, self.at.y-cy
-            self.at.x = math.cos(angle)*x - math.sin(angle)*y + cx
-            self.at.y = math.sin(angle)*x + math.cos(angle)*y + cy
+            self.at.x = math.cos(-angle)*x - math.sin(-angle)*y + cx
+            self.at.y = math.sin(-angle)*x + math.cos(-angle)*y + cy
 
-        self.at.rotation = (self.at.rotation - math.degrees(angle)) % 360
+        self.at.rotation = (self.at.rotation + math.degrees(angle)) % 360
 
         for pad in self.pads:
-            pad.at.rotation = (pad.at.rotation - math.degrees(angle)) % 360
+            pad.at.rotation = (pad.at.rotation + math.degrees(angle)) % 360
 
         for prop in self.properties:
             if prop.at is not None:
-                prop.at.rotation = (prop.at.rotation - math.degrees(angle)) % 360
+                prop.at.rotation = (prop.at.rotation + math.degrees(angle)) % 360
 
         for text in self.texts:
-            text.at.rotation = (text.at.rotation - math.degrees(angle)) % 360
+            text.at.rotation = (text.at.rotation + math.degrees(angle)) % 360
 
     def set_rotation(self, angle):
         old_deg = self.at.rotation
