@@ -94,7 +94,7 @@ class Hatch:
 
 @sexp_type('connect_pads')
 class PadConnection:
-    type: AtomChoice(Atom.thru_hole_only, Atom.full, Atom.no) = None
+    type: AtomChoice(Atom.yes, Atom.thru_hole_only, Atom.full, Atom.no) = None
     clearance: Named(float) = 0
 
 
