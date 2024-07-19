@@ -334,12 +334,6 @@ class Drill:
     offset: Rename(XYCoord) = None
 
 
-@sexp_type('net')
-class NetDef:
-    number: int = None
-    name: str = None
-
-
 @sexp_type('options')
 class CustomPadOptions:
     clearance: Named(AtomChoice(Atom.outline, Atom.convexhull)) = Atom.outline
@@ -376,7 +370,7 @@ class Chamfer:
 
 
 @sexp_type('pad')
-class Pad:
+class Pad(NetMixin):
     number: str = None
     type: AtomChoice(Atom.thru_hole, Atom.smd, Atom.connect, Atom.np_thru_hole) = None
     shape: AtomChoice(Atom.circle, Atom.rect, Atom.oval, Atom.trapezoid, Atom.roundrect, Atom.custom) = None
@@ -395,7 +389,7 @@ class Pad:
     thermal_bridge_width: Named(float) = 0.5
     chamfer_ratio: Named(float) = None
     chamfer: Chamfer = None
-    net: NetDef = None
+    net: Net = None
     tstamp: Timestamp = None
     pin_function: Named(str) = None
     pintype: Named(str) = None
@@ -708,6 +702,10 @@ class Footprint:
 
         if not self.property_value('Description', None):
             self.set_property('Description', self.descr or '', 0, 0, 0)
+
+    def reset_nets(self):
+        for pad in self.pads:
+            pad.reset_net()
 
     @property
     def pads_by_number(self):

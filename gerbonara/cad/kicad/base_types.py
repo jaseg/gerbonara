@@ -307,6 +307,29 @@ class ArcPointList:
         yield [kls.name_atom, *(e for elem in value for e in elem.__sexp__(elem))]
 
 
+@sexp_type('net')
+class Net:
+    index: int = 0
+    name: str = ''
+
+
+class NetMixin:
+    def reset_net(self):
+        self.net = Net()
+
+    @property
+    def net_index(self):
+        if self.net is None:
+            return 0
+        return self.net.index
+
+    @property
+    def net_name(self):
+        if self.net is None:
+            return ''
+        return self.net.name
+
+
 @sexp_type('xyz')
 class XYZCoord:
     x: float = 0

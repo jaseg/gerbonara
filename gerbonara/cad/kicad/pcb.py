@@ -150,12 +150,6 @@ class BoardSetup:
     export_settings: ExportSettings = field(default_factory=ExportSettings)
 
 
-@sexp_type('net')
-class Net:
-    index: int = 0
-    name: str = ''
-
-
 @sexp_type('segment')
 class TrackSegment(BBoxMixin):
     start: Rename(XYCoord) = field(default_factory=XYCoord)
