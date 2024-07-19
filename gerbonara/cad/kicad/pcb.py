@@ -384,15 +384,15 @@ class Board:
             (47, 'F.CrtYd', 'user', 'F.Courtyard'),
             (48, 'B.Fab', 'user', None),
             (49, 'F.Fab', 'user', None),
-            (50, 'User.1', 'user', None),
-            (51, 'User.2', 'user', None),
-            (52, 'User.3', 'user', None),
-            (53, 'User.4', 'user', None),
-            (54, 'User.5', 'user', None),
-            (55, 'User.6', 'user', None),
-            (56, 'User.7', 'user', None),
-            (57, 'User.8', 'user', None),
-            (58, 'User.9', 'user', None)]]
+            (50, 'User.1', 'auxiliary', None),
+            (51, 'User.2', 'auxiliary', None),
+            (52, 'User.3', 'auxiliary', None),
+            (53, 'User.4', 'auxiliary', None),
+            (54, 'User.5', 'auxiliary', None),
+            (55, 'User.6', 'auxiliary', None),
+            (56, 'User.7', 'auxiliary', None),
+            (57, 'User.8', 'auxiliary', None),
+            (58, 'User.9', 'auxiliary', None)]]
 
 
     def rebuild_trace_index(self):
