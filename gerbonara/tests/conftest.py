@@ -18,12 +18,14 @@ def pytest_assertrepr_compare(op, left, right):
             f'    Calculated difference: {diff}',
             f'    Histogram: {diff.histogram}', ]
 
+
 # store report in node object so tmp_gbr can determine if the test failed.
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
     rep = outcome.get_result()
     setattr(item, f'rep_{rep.when}', rep)
+
 
 fail_dir = Path('gerbonara_test_failures')
 def pytest_sessionstart(session):
@@ -53,8 +55,10 @@ def pytest_configure(config):
         if not lib_dir.is_dir():
             raise ValueError(f'Path "{lib_dir}" given by KICAD_FOOTPRINTS environment variable does not exist or is not a directory.')
 
-        print('Checking and bulk re-building KiCad footprint library cache')
+        print('Updating podman image')
         subprocess.run(['podman', 'pull', 'registry.hub.docker.com/kicad/kicad:nightly'], check=True)
+
+        print('Checking and bulk re-building KiCad footprint library cache')
         with multiprocessing.pool.ThreadPool() as pool: # use thread pool here since we're only monitoring podman processes 
             lib_dirs = list(lib_dir.glob('*.pretty'))
             res = list(tqdm.tqdm(pool.imap(lambda path: bulk_populate_kicad_fp_export_cache(path), lib_dirs), total=len(lib_dirs)))
