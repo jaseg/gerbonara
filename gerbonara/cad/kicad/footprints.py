@@ -658,6 +658,7 @@ class Footprint:
     pads: List(Pad) = field(default_factory=list)
     zones: List(Zone) = field(default_factory=list)
     groups: List(Group) = field(default_factory=list)
+    embedded_fonts: Named(YesNoAtom()) = False
     models: List(Model) = field(default_factory=list)
     _ : SEXP_END = None
     original_filename: str = None
@@ -819,7 +820,7 @@ class Footprint:
 
         self.layer = flip_layer(self.layer)
         for obj in self.objects():
-            if hasattr(obj, 'layer'):
+            if getattr(obj, 'layer', None) is not None:
                 obj.layer = flip_layer(obj.layer)
 
             if hasattr(obj, 'layers'):
@@ -829,8 +830,9 @@ class Footprint:
             obj.effects.justify.mirror = not obj.effects.justify.mirror
 
         for obj in self.properties:
-            obj.effects.justify.mirror = not obj.effects.justify.mirror
-            obj.layer = flip_layer(obj.layer)
+            if obj.layer is not None:
+                obj.effects.justify.mirror = not obj.effects.justify.mirror
+                obj.layer = flip_layer(obj.layer)
 
     @property
     def single_sided(self):
@@ -878,7 +880,8 @@ class Footprint:
             pad.at.rotation = (pad.at.rotation - math.degrees(angle)) % 360
 
         for prop in self.properties:
-            prop.at.rotation = (prop.at.rotation - math.degrees(angle)) % 360
+            if prop.at is not None:
+                prop.at.rotation = (prop.at.rotation - math.degrees(angle)) % 360
 
         for text in self.texts:
             text.at.rotation = (text.at.rotation - math.degrees(angle)) % 360
@@ -892,7 +895,8 @@ class Footprint:
             pad.at.rotation = (pad.at.rotation + delta) % 360
 
         for prop in self.properties:
-            prop.at.rotation = (prop.at.rotation + delta) % 360
+            if prop.at is not None:
+                prop.at.rotation = (prop.at.rotation + delta) % 360
 
         for text in self.texts:
             text.at.rotation = (text.at.rotation + delta) % 360

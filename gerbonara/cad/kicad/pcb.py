@@ -66,7 +66,7 @@ class GeneralSection:
 class LayerSettings:
     index: int = 0
     canonical_name: str = None
-    layer_type: AtomChoice(Atom.jumper, Atom.mixed, Atom.power, Atom.signal, Atom.user) = Atom.signal
+    layer_type: AtomChoice(Atom.jumper, Atom.mixed, Atom.power, Atom.signal, Atom.user, Atom.auxiliary) = Atom.signal
     custom_name: str = None
 
 
@@ -341,6 +341,7 @@ class Board:
     # Other stuff
     zones: List(Zone) = field(default_factory=list)
     groups: List(Group) = field(default_factory=list)
+    embedded_fonts: Named(YesNoAtom()) = False
 
     _ : SEXP_END = None
     original_filename: str = None

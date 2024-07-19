@@ -523,13 +523,13 @@ class DrawnProperty(TextMixin):
     key: str = None
     value: str = None
     id: Named(int) = None
-    at: AtPos = field(default_factory=AtPos)
-    unlocked: Named(YesNoAtom()) = True
+    at: AtPos = None
+    unlocked: OmitDefault(Named(YesNoAtom())) = True
     layer: Named(str) = None
-    hide: Named(YesNoAtom()) = False
-    uuid: UUID = field(default_factory=UUID)
+    hide: OmitDefault(Named(YesNoAtom())) = False
+    uuid: UUID = None
     tstamp: Timestamp = None
-    effects: TextEffect = field(default_factory=TextEffect)
+    effects: OmitDefault(TextEffect) = field(default_factory=TextEffect)
     _ : SEXP_END = None
     parent: object = None
 
