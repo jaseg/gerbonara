@@ -662,9 +662,9 @@ class Board:
         for fp in self.footprints:
             if name and not match_filter(name, fp.name):
                 continue
-            if value and not match_filter(value, fp.properties.get('value', '')):
+            if value and not match_filter(value, fp.value):
                 continue
-            if reference and not match_filter(reference, fp.properties.get('reference', '')):
+            if reference and not match_filter(reference, fp.reference):
                 continue
             if net and not any(pad.net and match_filter(net, pad.net.name) for pad in fp.pads):
                 continue
