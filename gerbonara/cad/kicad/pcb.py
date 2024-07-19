@@ -157,7 +157,7 @@ class Net:
 
 
 @sexp_type('segment')
-class TrackSegment:
+class TrackSegment(BBoxMixin):
     start: Rename(XYCoord) = field(default_factory=XYCoord)
     end: Rename(XYCoord) = field(default_factory=XYCoord)
     width: Named(float) = 0.5
@@ -200,7 +200,7 @@ class TrackSegment:
 
 
 @sexp_type('arc')
-class TrackArc:
+class TrackArc(BBoxMixin):
     start: Rename(XYCoord) = field(default_factory=XYCoord)
     mid: Rename(XYCoord) = field(default_factory=XYCoord)
     end: Rename(XYCoord) = field(default_factory=XYCoord)
@@ -245,7 +245,7 @@ class TrackArc:
 
 
 @sexp_type('via')
-class Via:
+class Via(BBoxMixin):
     via_type: AtomChoice(Atom.blind, Atom.micro) = None
     locked: Flag() = False
     at: Rename(XYCoord) = field(default_factory=XYCoord)
@@ -345,7 +345,6 @@ class Board:
 
     _ : SEXP_END = None
     original_filename: str = None
-    _bounding_box: tuple = None
     _trace_index: rtree.index.Index = None
     _trace_index_map: dict = None
 
@@ -789,15 +788,6 @@ class Board:
                 fe.offset(x, -y, MM)
                 layer_stack.drill_pth.append(fe)
 
-    def bounding_box(self, unit=MM):
-        if not self._bounding_box:
-            stack = LayerStack()
-            layer_map = {kc_id: gn_id for kc_id, gn_id in LAYER_MAP_K2G.items() if gn_id in stack}
-            self.render(stack, layer_map, x=0, y=0, rotation=0, flip=False, text=False, variables={})
-            self._bounding_box = stack.bounding_box(unit)
-        return self._bounding_box
-
- 
 @dataclass
 class BoardInstance(cad_pr.Positioned):
     sexp: Board = None

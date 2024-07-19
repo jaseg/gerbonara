@@ -617,3 +617,16 @@ def bbox_intersect(a, b):
 
     return x_overlap and y_overlap
 
+
+def bbox_contains(outer, inner):
+    if outer is None or inner is None:
+        return False
+
+    (xa_min, ya_min), (xa_max, ya_max) = outer
+    (xb_min, yb_min), (xb_max, yb_max) = inner
+
+    contained_x = xa_min < xb_min and xb_max < xa_max
+    contained_y = ya_min < yb_min and yb_max < ya_max
+
+    return contained_x and contained_y
+

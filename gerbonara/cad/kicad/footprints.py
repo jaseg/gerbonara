@@ -662,7 +662,6 @@ class Footprint:
     models: List(Model) = field(default_factory=list)
     _ : SEXP_END = None
     original_filename: str = None
-    _bounding_box: tuple = None
     board: object = None
 
     def __after_parse__(self, parent):
@@ -975,7 +974,7 @@ class Footprint:
                     layer_stack.drill_pth.append(fe)
     
     def bounding_box(self, unit=MM):
-        if not self._bounding_box:
+        if not hasattr(self, '_bounding_box'):
             stack = LayerStack()
             layer_map = {kc_id: gn_id for kc_id, gn_id in LAYER_MAP_K2G.items() if gn_id in stack}
             self.render(stack, layer_map, x=0, y=0, rotation=0, flip=False, text=False, variables={})

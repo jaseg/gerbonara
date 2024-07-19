@@ -62,6 +62,8 @@ def center_arc_to_kicad_mid(center, start, end):
 def kicad_mid_to_center_arc(mid, start, end):
     """ Convert kicad's slightly insane midpoint notation to standrad center/p1/p2 notation.
 
+    returns a ((center_x, center_y), radius, clockwise) tuple in KiCad coordinates.
+
     Returns the center and radius of the circle passing the given 3 points.
     In case the 3 points form a line, raises a ValueError.
     """
@@ -81,7 +83,7 @@ def kicad_mid_to_center_arc(mid, start, end):
     cy = ((p1[0] - p2[0]) * cd - (p2[0] - p3[0]) * bc) / det
 
     radius = math.sqrt((cx - p1[0])**2 + (cy - p1[1])**2)
-    return (cx, cy), radius
+    return (cx, cy), radius, det < 0
 
 
 @sexp_type('hatch')
@@ -177,6 +179,22 @@ class Zone:
         self.fill.yes = False
         self.fill_polygons = []
         self.fill_segments = []
+
+    def rotate(self, angle, cx=None, cy=None):
+        self.unfill()
+        self.polygon.pts = [pt.with_rotation(angle, cx, cy) for pt in self.polygon.pts]
+
+    def offset(self, x=0, y=0):
+        self.unfill()
+        self.polygon.pts = [pt.with_offset(x, y) for pt in self.polygon.pts]
+
+
+    def bounding_box(self):
+        min_x = min(pt.x for pt in self.polygon.pts)
+        min_y = min(pt.y for pt in self.polygon.pts)
+        max_x = max(pt.x for pt in self.polygon.pts)
+        max_y = max(pt.y for pt in self.polygon.pts)
+        return (min_x, min_y), (max_x, max_y)
 
 
 @sexp_type('polygon')

@@ -9,7 +9,7 @@ from .primitives import *
 from ... import graphic_objects as go
 from ... import apertures as ap
 from ...newstroke import Newstroke
-from ...utils import rotate_point, MM
+from ...utils import rotate_point, MM, arc_bounds
 
 @sexp_type('layer')
 class TextLayer:
@@ -18,7 +18,7 @@ class TextLayer:
 
 
 @sexp_type('gr_text')
-class Text(TextMixin):
+class Text(TextMixin, BBoxMixin):
     text: str = ''
     at: AtPos = field(default_factory=AtPos)
     layer: TextLayer = field(default_factory=TextLayer)
@@ -32,7 +32,7 @@ class Text(TextMixin):
 
 
 @sexp_type('gr_text_box')
-class TextBox:
+class TextBox(BBoxMixin):
     locked: Flag() = False
     text: str = ''
     start: Named(XYCoord) = None
@@ -101,6 +101,12 @@ class Line:
         self.start = self.start.with_offset(x, y)
         self.end = self.end.with_offset(x, y)
 
+    def bounding_box(self, unit=MM):
+        x_min, x_max = min(self.start.x, self.end.x), max(self.start.x, self.end.x)
+        y_min, y_max = min(self.start.y, self.end.y), max(self.start.y, self.end.y)
+        w = self.stroke.width if self.stroke else self.width
+        return (x_min-w, y_max-w), (x_max+w, y_max+w)
+
 
 @sexp_type('fill')
 class FillMode:
@@ -116,7 +122,7 @@ class FillMode:
         yield [Atom.fill, Atom.solid if value else Atom.none]
 
 @sexp_type('gr_rect')
-class Rectangle:
+class Rectangle(BBoxMixin):
     start: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     layer: Named(str) = None
@@ -149,7 +155,7 @@ class Rectangle:
 
 
 @sexp_type('gr_circle')
-class Circle:
+class Circle(BBoxMixin):
     center: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     layer: Named(str) = None
@@ -177,7 +183,7 @@ class Circle:
 
 
 @sexp_type('gr_arc')
-class Arc:
+class Arc(BBoxMixin):
     start: Rename(XYCoord) = None
     mid: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
@@ -211,8 +217,8 @@ class Arc:
         aperture = ap.CircleAperture(self.width, unit=MM)
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
-        (cx, cy), _r = kicad_mid_to_center_arc(self.mid, self.start, self.end)
-        yield go.Arc(x1, -y1, x2, -y2, cx-x1, -(cy-y1), aperture=aperture, clockwise=False, unit=MM)
+        (cx, cy), _r, clockwise = kicad_mid_to_center_arc(self.mid, self.start, self.end)
+        yield go.Arc(x1, -y1, x2, -y2, cx-x1, -(cy-y1), aperture=aperture, clockwise=not clockwise, unit=MM)
 
     def offset(self, x=0, y=0):
         self.start = self.start.with_offset(x, y)
@@ -221,7 +227,7 @@ class Arc:
 
 
 @sexp_type('gr_poly')
-class Polygon:
+class Polygon(BBoxMixin):
     pts: ArcPointList = field(default_factory=list)
     layer: Named(str) = None
     width: Named(float) = None
@@ -243,8 +249,8 @@ class Polygon:
             else: # base_types.Arc
                 points.append((point_or_arc.start.x, -point_or_arc.start.y))
                 points.append((point_or_arc.end.x, -point_or_arc.end.y))
-                (cx, cy), _r = kicad_mid_to_center_arc(point_or_arc.mid, point_or_arc.start, point_or_arc.end)
-                centers.append((False, (cx, -cy)))
+                (cx, cy), _r, clockwise = kicad_mid_to_center_arc(point_or_arc.mid, point_or_arc.start, point_or_arc.end)
+                centers.append((not clockwise, (cx, -cy)))
 
         reg = go.Region(points, centers, unit=MM)
         reg.close()
@@ -261,7 +267,7 @@ class Polygon:
 
 
 @sexp_type('gr_curve')
-class Curve:
+class Curve(BBoxMixin):
     pts: PointList = field(default_factory=PointList)
     layer: Named(str) = None
     width: Named(float) = None

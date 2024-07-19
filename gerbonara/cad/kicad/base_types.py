@@ -9,7 +9,8 @@ from itertools import cycle
 from .sexp import *
 from .sexp_mapper import *
 from ...newstroke import Newstroke
-from ...utils import rotate_point, Tag, MM
+from ...utils import rotate_point, sum_bounds, Tag, MM
+from ...layers import LayerStack
 from ... import apertures as ap
 from ... import graphic_objects as go
 
@@ -35,6 +36,16 @@ LAYER_MAP_K2G = {
         }
 
 LAYER_MAP_G2K = {v: k for k, v in LAYER_MAP_K2G.items()}
+
+
+class BBoxMixin:
+    def bounding_box(self, unit=MM):
+        if not hasattr(self, '_bounding_box'):
+            (min_x, min_y), (max_x, max_y) = sum_bounds(fe.bounding_box(unit) for fe in self.render())
+            # Convert back from gerbonara's coordinates to kicad coordinates.
+            self._bounding_box = (min_x, -max_y), (max_x, -min_y)
+
+        return self._bounding_box
 
 
 @sexp_type('uuid')
