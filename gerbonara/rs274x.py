@@ -152,7 +152,7 @@ class GerberFile(CamFile):
 
         self.map_apertures(lookup)
 
-    def to_excellon(self, plated=None, errors='raise'):
+    def to_excellon(self, plated=None, errors='raise', holes_only=False):
         """ Convert this excellon file into a :py:class:`~.excellon.ExcellonFile`. This will convert interpolated lines
         into slots, and circular aperture flashes into holes. Other features such as ``G36`` polygons or flashes with
         non-circular apertures will result in a :py:obj:`ValueError`. You can, of course, programmatically remove such
@@ -160,7 +160,10 @@ class GerberFile(CamFile):
         new_objs = []
         new_tools = {}
         for obj in self.objects:
-            if not (isinstance(obj, go.Line) or isinstance(obj, go.Arc) or isinstance(obj, go.Flash)) or \
+            if holes_only and not isinstance(obj, go.Flash):
+                continue
+
+            if not isinstance(obj, (go.Line, go.Arc, go.Flash)) or \
                 not isinstance(getattr(obj, 'aperture', None), apertures.CircleAperture):
                     if errors == 'raise':
                         raise ValueError(f'Cannot convert {obj} to excellon.')

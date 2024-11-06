@@ -566,6 +566,8 @@ class ExcellonParser(object):
         self.filename = None
         self.external_tools = external_tools or {}
         self.found_kicad_format_comment = False
+        self.allegro_eof_toolchange_hack = False
+        self.allegro_eof_toolchange_hack_index = 1
 
     def warn(self, msg):
         warnings.warn(f'{self.filename}:{self.lineno} "{self.line}": {msg}', SyntaxWarning)
@@ -606,17 +608,24 @@ class ExcellonParser(object):
     exprs = RegexMatcher()
 
     # NOTE: These must be kept before the generic comment handler at the end of this class so they match first.
-    @exprs.match(r';T(?P<index1>[0-9]+) Holesize (?P<index2>[0-9]+)\. = (?P<diameter>[0-9/.]+) Tolerance = \+[0-9/.]+/-[0-9/.]+ (?P<plated>PLATED|NON_PLATED|OPTIONAL) (?P<unit>MILS|MM) Quantity = [0-9]+')
+    @exprs.match(r';(?P<index1_prefix>T(?P<index1>[0-9]+))?\s+Holesize (?P<index2>[0-9]+)\. = (?P<diameter>[0-9/.]+) Tolerance = \+[0-9/.]+/-[0-9/.]+ (?P<plated>PLATED|NON_PLATED|OPTIONAL) (?P<unit>MILS|MM) Quantity = [0-9]+')
     def parse_allegro_tooldef(self, match):
         # NOTE: We ignore the given tolerances here since they are non-standard.
         self.program_state = ProgramState.HEADER # TODO is this needed? we need a test file.
         self.generator_hints.append('allegro')
 
-        if (index := int(match['index1'])) != int(match['index2']): # index1 has leading zeros, index2 not.
+        index = int(match['index2'])
+
+        if match['index1'] and index != int(match['index1']): # index1 has leading zeros, index2 not.
             raise SyntaxError('BUG: Allegro excellon tool def has mismatching tool indices. Please file a bug report on our issue tracker and provide this file!')
 
         if index in self.tools:
             self.warn('Re-definition of tool index {index}, overwriting old definition.') 
+
+        if not match['index1_prefix']:
+            # This is a really nasty orcad file without tool change commands, that instead just puts all holes in order
+            # of the hole size definitions with M00's in between.
+            self.allegro_eof_toolchange_hack = True
 
         # NOTE: We map "optionally" plated holes to plated holes for API simplicity. If you hit a case where that's a
         # problem, please raise an issue on our issue tracker, explain why you need this and provide an example file.
@@ -630,12 +639,18 @@ class ExcellonParser(object):
         else:
             unit = MM
 
-        if unit != self.settings.unit:
+        if self.settings.unit is None:
+            self.settings.unit = unit
+
+        elif unit != self.settings.unit:
             self.warn('Allegro Excellon drill file tool definitions in {unit.name}, but file parameters say the '
                     'file should be in {settings.unit.name}. Please double-check that this is correct, and if it is, '
                     'please raise an issue on our issue tracker.')
 
         self.tools[index] = ExcellonTool(diameter=diameter, plated=is_plated, unit=unit)
+
+        if self.allegro_eof_toolchange_hack and self.active_tool is None:
+            self.active_tool = self.tools[index]
 
     # Searching Github I found that EasyEDA has two different variants of the unit specification here.
     @exprs.match(';Holesize (?P<index>[0-9]+) = (?P<diameter>[.0-9]+) (?P<unit>INCH|inch|METRIC|mm)')
@@ -753,6 +768,12 @@ class ExcellonParser(object):
     def handle_end_of_program(self, match):
         if self.program_state in (None, ProgramState.HEADER):
             self.warn('M30 statement found before end of header.')
+
+        if self.allegro_eof_toolchange_hack:
+            self.allegro_eof_toolchange_hack_index = min(max(self.tools), self.allegro_eof_toolchange_hack_index + 1)
+            self.active_tool = self.tools[self.allegro_eof_toolchange_hack_index]
+            return
+
         self.program_state = ProgramState.FINISHED
         # TODO: maybe add warning if this is followed by other commands.
 
@@ -762,14 +783,17 @@ class ExcellonParser(object):
     def do_move(self, coord_groups):
         x_s, x, y_s, y = coord_groups
 
-        if self.settings.number_format == (None, None) and '.' not in x:
-            # TARGET3001! exports zeros as "00" even when it uses an explicit decimal point everywhere else.
-            if x != '00':
-                raise SyntaxError('No number format set and value does not contain a decimal point. If this is an Allegro '
-                    'Excellon drill file make sure either nc_param.txt or ncdrill.log ends up in the same folder as '
-                    'it, because Allegro does not include this critical information in their Excellon output. If you '
-                    'call this through ExcellonFile.from_string, you must manually supply from_string with a '
-                    'FileSettings object from excellon.parse_allegro_ncparam.')
+        if '.' not in x:
+            self.settings._file_has_fixed_width_coordinates = True
+
+            if self.settings.number_format == (None, None):
+                # TARGET3001! exports zeros as "00" even when it uses an explicit decimal point everywhere else.
+                if x != '00':
+                    raise SyntaxError('No number format set and value does not contain a decimal point. If this is an Allegro '
+                        'Excellon drill file make sure either nc_param.txt or ncdrill.log ends up in the same folder as '
+                        'it, because Allegro does not include this critical information in their Excellon output. If you '
+                        'call this through ExcellonFile.from_string, you must manually supply from_string with a '
+                        'FileSettings object from excellon.parse_allegro_ncparam.')
 
         x = self.settings.parse_gerber_value(x)
         if x_s:

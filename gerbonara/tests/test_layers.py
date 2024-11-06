@@ -302,7 +302,21 @@ REFERENCE_DIRS = {
         'Drill/8seg_Driver__routed_Drill_thru_plt.fdr/8seg_Driver__routed_Drill_thru_plt.fdl': None,
         'Drill/8seg_Driver__routed_Drill_thru_plt.fdr/8seg_Driver__routed_Drill_thru_plt.fdr': 'drill plated',
         'Drill/8seg_Driver__routed_Drill_thru_nplt.fdr': 'drill nonplated',
-        }
+        },
+    'orcad': {
+        'Assembly.art': None,
+        'BOTTOM.art': 'bottom copper',
+        'GND2.art': 'inner_3 copper',
+        'LAYER_1.art': 'inner_2 copper',
+        'LAYER_2.art': 'inner_4 copper',
+        'PWR.art': 'inner_2 copper',
+        'Solder_Mask_Bottom.art': 'bottom mask',
+        'Solder_Mask_Top.art': 'top mask',
+        'TOP.art': 'top copper',
+        'arena_12-12_v6_L1-L6.drl': 'drill plated',
+        'silk_screen_bottom.art': 'bottom silk',
+        'silk_screen_top.art': 'top silk',
+        },
     }
 
 @filter_syntax_warnings

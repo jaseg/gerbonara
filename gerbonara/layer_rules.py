@@ -82,6 +82,7 @@ MATCH_RULES = {
     'bottom paste':     r'.*_boardoutline\.\w+', # FIXME verify this
     'drill plated':     r'.*\.(drl)', # diptrace has unplated drills on the outline layer
     'other netlist':    r'.*\.ipc', # default rule due to lack of tool-specific examples
+    'header regex':     [['sufficient', r'top .*|bottom .*', r'G04 DipTrace [.-0-9a-z]*\*']],
     },
 
 'target': {
@@ -151,22 +152,25 @@ MATCH_RULES = {
 
 'allegro': {
     # Allegro doesn't have any widespread convention, so we rely heavily on the layer name auto-guesser here.
-    'drill mech': r'.*\.(drl|rou)',
-    'generic gerber': r'.*\.art',
+    'drill plated':     r'.*\.(drl)',
+    'drill nonplated':  r'.*\.(rou)',
+    'other unknown':    r'.*(place|assembly|keep.?in|keep.?out).*\.art',
+    'autoguess':        r'.*\.art',
     'excellon params':  r'nc_param\.txt|ncdrill\.log|ncroute\.log',
     'other netlist':    r'.*\.ipc', # default rule due to lack of tool-specific examples
+    'header regex':     [['required,sufficient', r'.*\.art', r'G04 File Origin:\s+Cadence Allegro [0-9]+\.[0-9]+[-a-zA-Z0-9]*']],
     },
 
 'pads': {
     # Pads also does not seem to have a factory-default naming schema. Or it has one but everyone ignores it.
-    'generic gerber':   r'.*\.pho',
-    'drill mech':       r'.*\.drl',
+    'autoguess':        r'.*\.pho',
+    'drill plated':     r'.*\.drl',
     },
 
 'zuken': {
-    'generic gerber': r'.*\.fph',
+    'autoguess': r'.*\.fph',
     'gerber params': r'.*\.fpl',
-    'drill mech': r'.*\.fdr',
+    'drill unknown': r'.*\.fdr',
     'excellon params': r'.*\.fdl',
     'other netlist': r'.*\.ipc',
     'ipc-2581': r'.*\.xml',

@@ -60,6 +60,9 @@ class FileSettings:
     #: If you want to export the macros with their original formulaic expressions (which is completely fine by the
     #: Gerber standard, btw), set this parameter to ``False`` before exporting.
     calculate_out_all_aperture_macros: bool = True
+    #: Internal field used to communicate if only decimal coordinates were found inside an Excellon file, or if it
+    #: contained at least some coordinates in fixed-width notation.
+    _file_has_fixed_width_coordinates: bool = False
 
     # input validation
     def __setattr__(self, name, value):

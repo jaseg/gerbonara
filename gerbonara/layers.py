@@ -112,31 +112,61 @@ class NamingScheme:
     }
 
 
+def apply_rules(filenames, rules):
+    certain = False
+    gen = {}
+    already_matched = set()
+    header_regex = rules.pop('header regex', [])
+    header_regex_matched = [False] * len(header_regex)
 
-def _match_files(filenames):
-    matches = {}
-    for generator, rules in MATCH_RULES.items():
-        already_matched = set()
-        gen = {}
-        matches[generator] = gen
-        for layer, regex in rules.items():
-            for fn in filenames:
-                if fn in already_matched:
-                    continue
+    file_headers = {}
+    def get_header(path):
+        if path not in file_headers:
+            with open(path) as f:
+                file_headers[path] = f.read(16384)
+        return file_headers[path]
 
-                if (m := re.fullmatch(regex, fn.name, re.IGNORECASE)):
-                    if layer == 'inner copper':
-                        target = 'inner_' + ''.join(e or '' for e in m.groups()) + ' copper'
-                    else:
-                        target = layer
+    for layer, regex in rules.items():
+        for fn in filenames:
+            if fn in already_matched:
+                continue
 
-                    gen[target] = gen.get(target, []) + [fn]
-                    already_matched.add(fn)
-    return matches
+            target = None
+            if (m := re.fullmatch(regex, fn.name, re.IGNORECASE)):
+                if layer == 'inner copper':
+                    target = 'inner_' + ''.join(e or '' for e in m.groups()) + ' copper'
+                else:
+                    target = layer
 
+                gen[target] = gen.get(target, []) + [fn]
+                already_matched.add(fn)
+
+            for i, (match_type, layer_match, header_match) in enumerate(header_regex):
+                if re.fullmatch(layer_match, fn.name, re.IGNORECASE) or (
+                        target is not None and re.fullmatch(layer_match, target, re.IGNORECASE)):
+                    if re.search(header_match, get_header(fn)):
+
+                        if 'sufficient' in match_type:
+                            certain = True
+
+                        header_regex_matched[i] = True
+
+    if any('required' in match_type and not match
+           for match, (match_type, *_) in zip(header_regex_matched, header_regex)):
+        return False, {}
+
+    return certain, gen
 
 def _best_match(filenames):
-    matches = _match_files(filenames)
+    matches = {}
+    for generator, rules in MATCH_RULES.items():
+        certain, candidate = apply_rules(filenames, rules)
+
+        if certain:
+            return generator, candidate
+
+        matches[generator] = candidate
+
     matches = sorted(matches.items(), key=lambda pair: len(pair[1]))
     generator, files = matches[-1]
     return generator, files
@@ -243,7 +273,7 @@ def _layername_autoguesser(fn):
     elif re.search('film', fn):
         use = 'copper'
 
-    elif re.search('out(line)?', fn):
+    elif re.search('out(line)?|board.?geometry', fn):
         use = 'outline'
         side = 'mechanical'
 
@@ -385,7 +415,7 @@ class LayerStack:
         with ZipFile(file) as f:
             f.extractall(path=tmp_indir)
 
-        inst = kls.open_dir(tmp_indir, board_name=board_name, lazy=lazy)
+        inst = kls.open_dir(tmp_indir, board_name=board_name, lazy=lazy, overrides=overrides, autoguess=autoguess)
         inst.tmpdir = tmpdir
         inst.original_path = Path(original_path or file)
         inst.was_zipped = True
@@ -445,6 +475,11 @@ class LayerStack:
                                 filemap[layer].remove(fn)
                             filemap[layer] = filemap.get(layer, []) + [fn]
 
+        if 'autoguess' in filemap:
+            warnings.warn(f'This generator ({generator}) often exports ambiguous filenames. Falling back to autoguesser for some files. Use at your own peril.')
+            for key, values in _do_autoguess(filemap.pop('autoguess')).items():
+                filemap[key] = filemap.get(key, []) + values
+
         if sum(len(files) for files in filemap.values()) < 6 and autoguess:
             warnings.warn('Ambiguous gerber filenames. Trying last-resort autoguesser.')
             generator = None
@@ -453,6 +488,8 @@ class LayerStack:
                 raise ValueError('Cannot figure out gerber file mapping. Partial map is: ', filemap)
 
         excellon_settings, external_tools = None, None
+        automatch_drill_scale = False
+
         if generator == 'geda':
             # geda is written by geniuses who waste no bytes of unnecessary output so it doesn't actually include the
             # number format in files that use imperial units. Unfortunately it also doesn't include any hints that the
@@ -470,16 +507,18 @@ class LayerStack:
                     if (external_tools := parse_allegro_logfile(file.read_text())):
                         break
                 del filemap['excellon params']
-            # Ignore if we can't find the param file -- maybe the user has convinced Allegro to actually put this
-            # information into a comment, or maybe they have made Allegro just use decimal points like XNC does.
+            else:
+                # Ignore if we can't find the param file -- maybe the user has convinced Allegro to actually put this
+                # information into a comment, or maybe they have made Allegro just use decimal points like XNC does.
+                # We'll run an automatic scale matching later.
+                excellon_settings = FileSettings(number_format=(2, 4))
+                automatch_drill_scale = True
 
-            filemap = _do_autoguess([ f for files in filemap.values() for f in files ])
             if len(filemap) < 6:
                 raise SystemError('Cannot figure out gerber file mapping')
             # FIXME use layer metadata from comments and ipc file if available
 
         elif generator == 'zuken':
-            filemap = _do_autoguess([ f for files in filemap.values() for f in files ])
             if len(filemap) < 6:
                 raise SystemError('Cannot figure out gerber file mapping')
             # FIXME use layer metadata from comments and ipc file if available
@@ -503,7 +542,9 @@ class LayerStack:
         else:
             excellon_settings = None
 
-        ambiguous = [ f'{key} ({", ".join(x.name for x in value)})' for key, value in filemap.items() if len(value) > 1 and not 'drill' in key ]
+        ambiguous = [ f'{key} ({", ".join(x.name for x in value)})'
+                     for key, value in filemap.items()
+                     if len(value) > 1 and not 'drill' in key and not key == 'other unknown']
         if ambiguous:
             raise SystemError(f'Ambiguous layer names: {", ".join(ambiguous)}')
 
@@ -512,8 +553,8 @@ class LayerStack:
         netlist = None
         layers = {} # { tuple(key.split()): None for key in STANDARD_LAYERS }
         for key, paths in filemap.items():
-            if len(paths) > 1 and not 'drill' in key:
-                raise ValueError(f'Multiple matching files found for {key} layer: {", ".join(value)}')
+            if len(paths) > 1 and not 'drill' in key and not key == 'other unknown':
+                raise ValueError(f'Multiple matching files found for {key} layer: {", ".join(map(str, value))}')
 
             for path in paths:
                 id_result = identify_file(path.read_text())
@@ -573,6 +614,35 @@ class LayerStack:
             board_name = _common_prefix([l.original_path.name for l in layers.values() if l is not None])
             board_name = re.sub(r'^\W+', '', board_name)
             board_name = re.sub(r'\W+$', '', board_name)
+
+        if automatch_drill_scale:
+            top_copper = layers[('top', 'copper')].to_excellon(errors='ignore', holes_only=True)
+
+            # precision is matching precision in mm
+            def map_coords(obj, precision=0.01, scale=1):
+                obj = obj.converted(MM)
+                return round(obj.x*scale/precision), round(obj.y*scale/precision)
+
+            aper_coords = {map_coords(obj) for obj in top_copper.drills()}
+
+            for drill_file in [drill_pth, drill_npth, *drill_layers]:
+                if not drill_file or not drill_pth.import_settings._file_has_fixed_width_coordinates:
+                    continue
+
+                scale_matches = {}
+                for exp in range(-6, 6):
+                    scale = 10**exp
+                    hole_coords = {map_coords(obj, scale=scale) for obj in drill_file.drills()}
+
+                    scale_matches[scale] = len(aper_coords - hole_coords), len(hole_coords - aper_coords)
+                scales_out = [(max(a, b), scale) for scale, (a, b) in scale_matches.items()]
+                _matches, scale = sorted(scales_out)[0]
+                warnings.warn(f'Performing automatic alignment of poorly exported drill layer. Scale matching results: {scale_matches}. Chosen scale: {scale}')
+
+                # Note: This is only used with allegro files, which use decimal points and explicit units in their tool
+                # definitions. Thus, we only scale object coordinates, and not apertures.
+                for obj in drill_file.objects:
+                    obj.scale(scale)
 
         return kls(layers, drill_pth, drill_npth, drill_layers, board_name=board_name,
                 original_path=original_path, was_zipped=was_zipped, generator=[*all_generator_hints, None][0])

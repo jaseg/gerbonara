@@ -431,7 +431,7 @@ def merge(inpath, outpath, offset, rotation, input_map, command_line_units, outp
 @click.option('--version', is_flag=True, callback=_print_version, expose_value=False, is_eager=True)
 @click.option('--warnings', 'format_warnings', type=click.Choice(['default', 'ignore', 'once']), default='default',
               help='''Enable or disable file format warnings during parsing (default: on)''')
-@click.option('--units', type=Unit(), help='Output bounding box in this unit (default: millimeter)')
+@click.option('--units', type=Unit(), default='metric', help='Output bounding box in this unit (default: millimeter)')
 @click.option('--input-number-format', help='Override number format of input file (mostly useful for Excellon files)')
 @click.option('--input-units', type=Unit(), help='Override units of input file')
 @click.option('--input-zero-suppression', type=click.Choice(['off', 'leading', 'trailing']), help='Override zero suppression setting of input file')
