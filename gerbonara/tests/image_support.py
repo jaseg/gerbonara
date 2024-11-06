@@ -40,6 +40,8 @@ from PIL import Image
 cachedir = Path(__file__).parent / 'image_cache'
 cachedir.mkdir(exist_ok=True)
 
+KICAD_CONTAINER = os.environ.get('KICAD_CONTAINER', 'registry.hub.docker.com/kicad/kicad:nightly')
+
 @total_ordering
 class ImageDifference:
     def __init__(self, value, histogram):
@@ -169,7 +171,7 @@ def kicad_fp_export(mod_file, out_svg):
                    '--userns=keep-id', # To allow container to read from bind mount
                    '--mount', f'type=bind,src={pretty_dir},dst=/{pretty_dir.name}',
                    '--mount', f'type=bind,src={tmpdir},dst=/out',
-                   'registry.hub.docker.com/kicad/kicad:nightly',
+                   KICAD_CONTAINER,
                    'kicad-cli', 'fp', 'export', 'svg', '--output', '/out', '--footprint', fp_name, f'/{pretty_dir.name}']
             subprocess.run(cmd, check=True) #, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             out_file = Path(tmpdir) / f'{fp_name}.svg'
@@ -199,9 +201,15 @@ def bulk_populate_kicad_fp_export_cache(pretty_dir):
                    '--userns=keep-id', # To allow container to read from bind mount
                    '--mount', f'type=bind,src={pretty_dir},dst=/{pretty_dir.name}',
                    '--mount', f'type=bind,src={tmpdir},dst=/out',
-                   'registry.hub.docker.com/kicad/kicad:nightly',
+                   KICAD_CONTAINER,
                    'kicad-cli', 'fp', 'export', 'svg', '--output', '/out', f'/{pretty_dir.name}']
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+
+            try:
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+
+            except subprocess.CalledProcessError as e:
+                print('Error running command with command line:', ' '.join(e.cmd), file=sys.stderr)
+                raise e
 
             for fn in mod_files:
                 out_file = Path(tmpdir) / fn.with_suffix('.svg').name

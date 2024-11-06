@@ -8,7 +8,7 @@ from itertools import chain
 
 import pytest
 
-from .image_support import ImageDifference, run_cargo_cmd, bulk_populate_kicad_fp_export_cache
+from .image_support import ImageDifference, run_cargo_cmd, bulk_populate_kicad_fp_export_cache, KICAD_CONTAINER
 
 def pytest_assertrepr_compare(op, left, right):
     if isinstance(left, ImageDifference) or isinstance(right, ImageDifference):
@@ -56,7 +56,7 @@ def pytest_configure(config):
             raise ValueError(f'Path "{lib_dir}" given by KICAD_FOOTPRINTS environment variable does not exist or is not a directory.')
 
         print('Updating podman image')
-        subprocess.run(['podman', 'pull', 'registry.hub.docker.com/kicad/kicad:nightly'], check=True)
+        subprocess.run(['podman', 'pull', KICAD_CONTAINER], check=True)
 
         print('Checking and bulk re-building KiCad footprint library cache')
         with multiprocessing.pool.ThreadPool() as pool: # use thread pool here since we're only monitoring podman processes 
