@@ -455,6 +455,7 @@ class LayerStack:
                            given value.
         :rtype: :py:class:`LayerStack`
         """
+        print_layermap = False
 
         if autoguess:
             generator, filemap = _best_match(files)
@@ -480,13 +481,43 @@ class LayerStack:
                             filemap[layer] = filemap.get(layer, []) + [fn]
 
         if 'autoguess' in filemap:
-            warnings.warn(f'This generator ({generator}) often exports ambiguous filenames. Falling back to autoguesser for some files. Use at your own peril.')
-            for key, values in _do_autoguess(filemap.pop('autoguess')).items():
+            warnings.warn(f'This generator ({generator}) often exports ambiguous filenames. Falling back to autoguesser for some files. Use at your own peril. Autoguessed files: {", ".join(f.name for f in filemap["autoguess"])}')
+            print_layermap = True
+            autoguess_filenames = filemap.pop('autoguess')
+
+            matched = set()
+            for key, values in _do_autoguess(autoguess_filenames).items():
                 filemap[key] = filemap.get(key, []) + values
+                matched |= set(values)
+
+            if generator == 'allegro':
+                # Allegro gerbers often contain the inner layers with completely random filenames and no indication of
+                # layer ordering except for drawings in the mechanical files. We fall back to alphabetic ordering.
+                for fn in autoguess_filenames:
+                    if fn not in matched:
+                        with open(fn) as f:
+                            header = f.read(16384)
+                            if re.search(r'G04 Layer:\s*ETCH/.*\*', header):
+                                filemap['unknown copper'] = filemap.get('unknown copper', []) + [fn]
+
+                if (unk := filemap.pop('unknown copper', None)):
+                    unk = sorted(unk, key=str)
+                    if 'top copper' not in filemap:
+                        filemap['top copper'], *unk = [unk]
+                    if 'bottom copper' not in filemap:
+                        *unk, filemap['bottom copper'] = [unk]
+
+                    i = 1
+                    while unk and i < 128:
+                        key = f'inner_{i:02d} copper'
+                        if key not in filemap:
+                            filemap[key] = [unk.pop(0)]
+                        i += 1
 
         if sum(len(files) for files in filemap.values()) < 6 and autoguess:
             warnings.warn('Ambiguous gerber filenames. Trying last-resort autoguesser.')
             generator = None
+            print_layermap = True
             filemap = _do_autoguess(files)
             if len(filemap) < 6:
                 raise ValueError('Cannot figure out gerber file mapping. Partial map is: ', filemap)
@@ -517,6 +548,10 @@ class LayerStack:
                 # We'll run an automatic scale matching later.
                 excellon_settings = FileSettings(number_format=(2, 4))
                 automatch_drill_scale = True
+
+            print('remaining filemap')
+            import pprint
+            pprint.pprint(filemap)
 
             if len(filemap) < 6:
                 raise SystemError('Cannot figure out gerber file mapping')
@@ -648,8 +683,41 @@ class LayerStack:
                 for obj in drill_file.objects:
                     obj.scale(scale)
 
-        return kls(layers, drill_pth, drill_npth, drill_layers, board_name=board_name,
+        stack = kls(layers, drill_pth, drill_npth, drill_layers, board_name=board_name,
                 original_path=original_path, was_zipped=was_zipped, generator=[*all_generator_hints, None][0])
+
+        if print_layermap:
+            warnings.warn('Auto-guessed layer map:\n' + stack.format_layer_map())
+        return stack
+
+    def format_layer_map(self):
+        lines = []
+        def print_layer(prefix, file):
+            nonlocal lines
+            if file is None:
+                lines.append(f'{prefix} <not found>')
+            else:
+                lines.append(f'{prefix} {file.original_path.name} {file}')
+
+        lines.append('  Drill files:')
+        print_layer('    Plated holes:', self.drill_pth)
+        print_layer('    Nonplated holes:', self.drill_npth)
+        for i, l in enumerate(self._drill_layers):
+            print_layer(f'    Additional drill layer {i}:', l)
+        print_layer('    Board outline:', self['mechanical outline'])
+
+        lines.append('  Soldermask:')
+        print_layer('    Top:', self['top mask'])
+        print_layer('    Bottom:', self['bottom mask'])
+
+        lines.append('  Silkscreen:')
+        print_layer('    Top:', self['top silk'])
+        print_layer('    Bottom:', self['bottom silk'])
+
+        lines.append('  Copper:')
+        for (side, _use), layer in self.copper_layers:
+            print_layer(f'    {side}:', layer)
+        return '\n'.join(lines)
 
     def save_to_zipfile(self, path, prefix='', overwrite_existing=True, board_name=None, naming_scheme={},
                           gerber_settings=None, excellon_settings=None):

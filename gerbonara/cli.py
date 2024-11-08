@@ -23,8 +23,10 @@ import dataclasses
 import re
 import warnings
 import json
+import sys
 import itertools
 import webbrowser
+import warnings
 from pathlib import Path
 
 from .utils import MM, Inch
@@ -36,6 +38,18 @@ from .cad.kicad import schematic as kc_schematic
 from .cad.kicad import tmtheme
 from .cad import protoserve
 
+
+def _showwarning(message, category, filename, lineno, file=None, line=None):
+    if file is None:
+        file = sys.stderr
+
+    filename = Path(filename)
+    gerbonara_module_install_location = Path(__file__).parent.parent
+    if filename.is_relative_to(gerbonara_module_install_location):
+        filename = filename.relative_to(gerbonara_module_install_location)
+
+    print(f'{filename}:{lineno}: {message}', file=file)
+warnings.showwarning = _showwarning
 
 def _print_version(ctx, param, value):
     if value and not ctx.resilient_parsing:
