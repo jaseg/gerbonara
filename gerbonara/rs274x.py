@@ -28,7 +28,7 @@ import dataclasses
 import functools
 
 from .cam import CamFile, FileSettings
-from .utils import MM, Inch, units, InterpMode, UnknownStatementWarning
+from .utils import MM, Inch, units, InterpMode, UnknownStatementWarning, convex_hull
 from .aperture_macros.parse import ApertureMacro, GenericMacros
 from . import graphic_primitives as gp
 from . import graphic_objects as go
@@ -376,7 +376,25 @@ class GerberFile(CamFile):
         """ Invert the polarity (color) of each object in this file. """
         for obj in self.objects:
             obj.polarity_dark = not p.polarity_dark
-    
+
+    def convex_hull(self, tol=0.01, unit=None):
+        unit = unit or self.unit
+        points = []
+
+        for obj in self.objects:
+            if isinstance(obj, go.Line):
+                line = obj.as_primitive(unit)
+                points.append((line.x1, line.y1))
+                points.append((line.x2, line.y2))
+
+            elif isinstance(obj, go.Arc):
+                for obj in obj.approximate(tol, unit):
+                    line = obj.as_primitive(unit)
+                    points.append((line.x1, line.y1))
+                    points.append((line.x2, line.y2))
+
+        return convex_hull(points)
+
 
 class GraphicsState:
     """ Internal class used to track Gerber processing state during import and export.
