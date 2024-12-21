@@ -1,0 +1,24 @@
+{
+    "Header": {
+        "Comment": "All values are metric (mm)",
+        "CreationDate": "2024-09-25T23:25:31Z",
+        "GenerationSoftware": {
+            "Application": "Fusion Electronics",
+            "Vendor": "Autodesk",
+            "Version": "9.7.0"
+        },
+        "Part": "Single"
+    },
+    "Overall": {
+        "BoardThickness": 1.57,
+        "LayerNumber": 2,
+        "Name": {
+            "ProjectId": "PMW3360-breakout_01 v10"
+        },
+        "Owner": "Cameron Chaney <camchaney@berkeley.edu>",
+        "Size": {
+            "X": 25,
+            "Y": 32
+        }
+    }
+}
