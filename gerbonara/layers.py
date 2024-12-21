@@ -583,7 +583,10 @@ class LayerStack:
 
         ambiguous = [ f'{key} ({", ".join(x.name for x in value)})'
                      for key, value in filemap.items()
-                     if len(value) > 1 and not 'drill' in key and not key == 'other unknown']
+                     if len(value) > 1 and\
+                             not 'drill' in key and\
+                             not 'excellon' in key and\
+                             not key == 'other unknown']
         if ambiguous:
             raise SystemError(f'Ambiguous layer names: {", ".join(ambiguous)}')
 
@@ -592,7 +595,10 @@ class LayerStack:
         netlist = None
         layers = {} # { tuple(key.split()): None for key in STANDARD_LAYERS }
         for key, paths in filemap.items():
-            if len(paths) > 1 and not 'drill' in key and not key == 'other unknown':
+            if len(paths) > 1 and\
+                    not 'drill' in key and\
+                    not 'excellon' in key and\
+                    not key == 'other unknown':
                 raise ValueError(f'Multiple matching files found for {key} layer: {", ".join(map(str, value))}')
 
             for path in paths:
@@ -704,15 +710,16 @@ class LayerStack:
         print_layer('    Nonplated holes:', self.drill_npth)
         for i, l in enumerate(self._drill_layers):
             print_layer(f'    Additional drill layer {i}:', l)
-        print_layer('    Board outline:', self['mechanical outline'])
+
+        print_layer('    Board outline:', self.get('mechanical outline'))
 
         lines.append('  Soldermask:')
-        print_layer('    Top:', self['top mask'])
-        print_layer('    Bottom:', self['bottom mask'])
+        print_layer('    Top:', self.get('top mask'))
+        print_layer('    Bottom:', self.get('bottom mask'))
 
         lines.append('  Silkscreen:')
-        print_layer('    Top:', self['top silk'])
-        print_layer('    Bottom:', self['bottom silk'])
+        print_layer('    Top:', self.get('top silk'))
+        print_layer('    Bottom:', self.get('bottom silk'))
 
         lines.append('  Copper:')
         for (side, _use), layer in self.copper_layers:

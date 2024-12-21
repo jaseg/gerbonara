@@ -783,7 +783,7 @@ class ExcellonParser(object):
     def do_move(self, coord_groups):
         x_s, x, y_s, y = coord_groups
 
-        if '.' not in x:
+        if (x is not None and '.' not in x) or (y is not None and '.' not in y):
             self.settings._file_has_fixed_width_coordinates = True
 
             if self.settings.number_format == (None, None):

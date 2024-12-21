@@ -46,7 +46,7 @@ REFERENCE_DIRS = {
 
     'allegro': {
         '08_057494d-ipc356.ipc': 'other netlist',
-        '08_057494d.rou': 'mechanical outline',
+        '08_057494d.rou': 'drill nonplated',
         'Read_Me.1': None,
         'art_param.txt': None,
         'assy1.art': None,
