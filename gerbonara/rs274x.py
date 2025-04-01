@@ -481,7 +481,7 @@ class GraphicsState:
         obj = go.Flash(*self.map_coord(*self.point), self.aperture,
                 polarity_dark=self._polarity_dark,
                 unit=self.unit,
-                attrs=self.object_attrs)
+                attrs=copy.copy(self.object_attrs))
         return obj
 
     def interpolate(self, x, y, i=None, j=None, aperture=True, multi_quadrant=False):
@@ -507,13 +507,13 @@ class GraphicsState:
                 raise SyntaxError("i/j coordinates given for linear D01 operation (which doesn't take i/j)")
 
             return go.Line(*old_point, *self.map_coord(*self.point), aperture,
-                    polarity_dark=self._polarity_dark, unit=unit, attrs=self.object_attrs)
+                    polarity_dark=self._polarity_dark, unit=unit, attrs=copy.copy(self.object_attrs))
 
         else:
             if i is None and j is None:
                 self.warn('Linear segment implied during arc interpolation mode through D01 w/o I, J values')
                 return go.Line(*old_point, *self.map_coord(*self.point), aperture,
-                        polarity_dark=self._polarity_dark, unit=unit, attrs=self.object_attrs)
+                        polarity_dark=self._polarity_dark, unit=unit, attrs=copy.copy(self.object_attrs))
 
             else:
                 if i is None:
@@ -530,7 +530,7 @@ class GraphicsState:
                 if not multi_quadrant:
                     return go.Arc(*old_point, *new_point, *self.map_coord(i, j, relative=True),
                             clockwise=clockwise, aperture=(self.aperture if aperture else None),
-                            polarity_dark=self._polarity_dark, unit=unit, attrs=self.object_attrs)
+                            polarity_dark=self._polarity_dark, unit=unit, attrs=copy.copy(self.object_attrs))
 
                 else:
                     if math.isclose(old_point[0], new_point[0]) and math.isclose(old_point[1], new_point[1]):
@@ -543,7 +543,7 @@ class GraphicsState:
 
                     arc = lambda cx, cy: go.Arc(*old_point, *new_point, cx, cy,
                             clockwise=clockwise, aperture=aperture,
-                            polarity_dark=self._polarity_dark, unit=unit, attrs=self.object_attrs)
+                            polarity_dark=self._polarity_dark, unit=unit, attrs=copy.copy(self.object_attrs))
                     arcs = [ arc(cx, cy), arc(-cx, cy), arc(cx, -cy), arc(-cx, -cy) ]
                     arcs = sorted(arcs, key=lambda a: a.numeric_error())
 
