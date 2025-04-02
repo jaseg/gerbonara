@@ -125,9 +125,7 @@ class Stroke:
 
 class WidthMixin:
     def __post_init__(self):
-        if self.width is None:
-            self.width = self.stroke.width
-        else:
+        if self.width is not None:
             self.stroke = Stroke(self.width)
 
 
