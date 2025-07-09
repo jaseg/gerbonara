@@ -338,9 +338,9 @@ def rewrite(transform, command_line_units, number_format, units, zero_suppressio
               scheme instead of keeping the old file names.''')
 @click.argument('transform')
 @click.argument('inpath')
-@click.argument('outpath')
-def transform(transform, units, output_format, inpath, outpath,
-            format_warnings, input_map, use_builtin_name_rules, output_naming_scheme):
+@click.argument('outpath', type=click.Path(path_type=Path))
+def transform(transform, units, output_format, inpath, outpath, format_warnings, input_map, use_builtin_name_rules,
+              output_naming_scheme, number_format, force_zip):
     """ Transform all gerber files in a given directory or zip file using the given python transformation script.
         
         In the python transformation script you have access to the functions translate(x, y), scale(factor) and
@@ -355,16 +355,26 @@ def transform(transform, units, output_format, inpath, outpath,
     with warnings.catch_warnings():
         warnings.simplefilter(format_warnings)
         if force_zip:
-            stack = lyr.LayerStack.open_zip(path, overrides=overrides, autoguess=use_builtin_name_rules)
+            stack = lyr.LayerStack.open_zip(inpath, overrides=overrides, autoguess=use_builtin_name_rules)
         else:
-            stack = lyr.LayerStack.open(path, overrides=overrides, autoguess=use_builtin_name_rules)
+            stack = lyr.LayerStack.open(inpath, overrides=overrides, autoguess=use_builtin_name_rules)
 
     _apply_transform(transform, units, stack)
 
     output_format = None if output_format == 'reuse' else FileSettings.defaults()
-    stack.save_to_directory(outpath, naming_scheme=output_naming_scheme or {},
-                            gerber_settings=output_format,
-                            excellon_settings=dataclasses.replace(output_format, zeros=None))
+    if number_format:
+        if output_format is None:
+            output_format = FileSettings.defaults()
+        a, _, b = number_format.partition('.')
+        output_format.number_format = (int(a), int(b))
+    if outpath.is_file() or outpath.suffix.lower() == '.zip':
+        stack.save_to_zipfile(outpath, naming_scheme=output_naming_scheme or {},
+                                gerber_settings=output_format,
+                                excellon_settings=dataclasses.replace(output_format, zeros=None))
+    else:
+        stack.save_to_directory(outpath, naming_scheme=output_naming_scheme or {},
+                                gerber_settings=output_format,
+                                excellon_settings=dataclasses.replace(output_format, zeros=None))
 
 
 @cli.command()
