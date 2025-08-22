@@ -71,7 +71,7 @@ Then, you are ready to read and write gerber files:
 
     from gerbonara import LayerStack
 
-    stack = LayerStack.from_directory('output/gerber')
+    stack = LayerStack.open('output/gerber')
     w, h = stack.outline.size('mm')
     print(f'Board size is {w:.1f} mm x {h:.1f} mm')
 

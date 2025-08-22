@@ -10,7 +10,7 @@ from gerbonara.utils import MM
 from gerbonara.utils import rotate_point
 
 def highlight_outline(input_dir, output_dir):
-    stack = LayerStack.from_directory(input_dir)
+    stack = LayerStack.open(input_dir)
 
     outline = []
     for obj in stack.outline.objects:
@@ -28,7 +28,6 @@ def highlight_outline(input_dir, output_dir):
     marker_nx, marker_ny = math.sin(marker_angle), math.cos(marker_angle)
 
     ap = CircleAperture(0.1, unit=MM)
-    stack['top silk'].apertures.append(ap)
 
     for line in outline:
         cx, cy = (line.x1 + line.x2)/2, (line.y1 + line.y2)/2

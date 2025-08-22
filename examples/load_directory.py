@@ -7,5 +7,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     import gerbonara
-    print(gerbonara.LayerStack.from_directory(args.input))
+    print(gerbonara.LayerStack.open(args.input))
 

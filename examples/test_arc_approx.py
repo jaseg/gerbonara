@@ -2,6 +2,7 @@
 
 import math
 
+from gerbonara.utils import MM
 from gerbonara.graphic_objects import Arc
 from gerbonara.graphic_objects import rotate_point
 
@@ -22,7 +23,8 @@ def approx_test():
                     x1, y1 = rotate_point(0, -1, start_angle*eps)
                     x2, y2 = rotate_point(x1, y1, sweep_angle*eps*(-1 if clockwise else 1))
                     
-                    arc = Arc(x1+cx, y1+cy, x2+cx, y2+cy, -x1, -y1, clockwise=clockwise, aperture=None, polarity_dark=True)
+                    arc = Arc(x1+cx, y1+cy, x2+cx, y2+cy, -x1, -y1, clockwise=clockwise, aperture=None,
+                              polarity_dark=True, unit=MM)
                     lines = arc.approximate(max_error=max_error)
 
                     print(f'<path style="fill: {color}; stroke: none;" d="M {cx} {cy} L {lines[0].x1} {lines[0].y1}', end=' ')
