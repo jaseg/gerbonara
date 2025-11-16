@@ -19,11 +19,11 @@
 
 import pytest
 
-from ..ipc356 import *
-from ..cam import FileSettings
+from gerbonara.ipc356 import *
+from gerbonara.cam import FileSettings
 
 from .utils import *
-from ..utils import Inch, MM
+from gerbonara.utils import Inch, MM
 
 
 REFERENCE_FILES = [

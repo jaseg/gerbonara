@@ -23,8 +23,8 @@ import math
 from PIL import Image
 import pytest
 
-from ..rs274x import GerberFile
-from ..cam import FileSettings
+from gerbonara.rs274x import GerberFile
+from gerbonara.cam import FileSettings
 
 from .image_support import *
 from .utils import *
@@ -332,12 +332,12 @@ HAS_ZERO_SIZE_APERTURES = [
 
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', REFERENCE_FILES, indirect=True)
-def test_round_trip(reference, tmpfile):
+def test_round_trip(reference, tmpfile, img_support):
     tmp_gbr = tmpfile('Output gerber', '.gbr')
 
     GerberFile.open(reference).save(tmp_gbr)
 
-    mean, _max, hist = gerber_difference(reference, tmp_gbr, diff_out=tmpfile('Difference', '.png'))
+    mean, _max, hist = img_support.gerber_difference(reference, tmp_gbr, diff_out=tmpfile('Difference', '.png'))
     assert mean < 5e-5
     assert hist[9] == 0
     assert hist[3:].sum() < 5e-5*hist.size
@@ -368,7 +368,7 @@ TEST_OFFSETS = [(0, 0), (100, 0), (0, 100), (2, 0), (10, 100)]
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', MIN_REFERENCE_FILES, indirect=True)
 @pytest.mark.parametrize('angle', TEST_ANGLES)
-def test_rotation(reference, angle, tmpfile):
+def test_rotation(reference, angle, tmpfile, img_support):
     if 'flash_rectangle' in str(reference) and angle == 1024:
         # gerbv's rendering of this is broken, the hole is missing.
         pytest.skip()
@@ -380,7 +380,7 @@ def test_rotation(reference, angle, tmpfile):
     f.save(tmp_gbr)
 
     cx, cy = 0, to_gerbv_svg_units(10, unit='inch')
-    mean, _max, hist = gerber_difference(reference, tmp_gbr, diff_out=tmpfile('Difference', '.png'),
+    mean, _max, hist = img_support.gerber_difference(reference, tmp_gbr, diff_out=tmpfile('Difference', '.png'),
             svg_transform=f'rotate({angle} {cx} {cy})')
     assert mean < 1e-3 # relax mean criterion compared to above.
     assert hist[9] == 0
@@ -389,7 +389,7 @@ def test_rotation(reference, angle, tmpfile):
 @pytest.mark.parametrize('reference', MIN_REFERENCE_FILES, indirect=True)
 @pytest.mark.parametrize('angle', TEST_ANGLES)
 @pytest.mark.parametrize('center', [(0, 0), (10, 0), (0, -10), (10, 20)])
-def test_rotation_center(reference, angle, center, tmpfile):
+def test_rotation_center(reference, angle, center, tmpfile, img_support):
     if 'flash_rectangle' in str(reference) and angle in (30, 1024):
         # gerbv's rendering of this is broken, the hole is missing.
         pytest.skip()
@@ -403,7 +403,7 @@ def test_rotation_center(reference, angle, center, tmpfile):
     # calculate circle center in SVG coordinates 
     size = (10, 10) # inches
     cx, cy = to_gerbv_svg_units(center[0]), to_gerbv_svg_units(size[1], 'inch')-to_gerbv_svg_units(center[1], 'mm')
-    mean, _max, hist = gerber_difference(reference, tmp_gbr, diff_out=tmpfile('Difference', '.png'),
+    mean, _max, hist = img_support.gerber_difference(reference, tmp_gbr, diff_out=tmpfile('Difference', '.png'),
             svg_transform=f'rotate({angle} {cx} {cy})',
             size=size)
     assert mean < 1e-3
@@ -413,7 +413,7 @@ def test_rotation_center(reference, angle, center, tmpfile):
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', MIN_REFERENCE_FILES, indirect=True)
 @pytest.mark.parametrize('offset', TEST_OFFSETS)
-def test_offset(reference, offset, tmpfile):
+def test_offset(reference, offset, tmpfile, img_support):
     tmp_gbr = tmpfile('Output gerber', '.gbr')
 
     f = GerberFile.open(reference)
@@ -422,7 +422,7 @@ def test_offset(reference, offset, tmpfile):
 
     # flip y offset since svg's y axis is flipped compared to that of gerber
     dx, dy = to_gerbv_svg_units(offset[0]), -to_gerbv_svg_units(offset[1])
-    mean, _max, hist = gerber_difference(reference, tmp_gbr, diff_out=tmpfile('Difference', '.png'),
+    mean, _max, hist = img_support.gerber_difference(reference, tmp_gbr, diff_out=tmpfile('Difference', '.png'),
             svg_transform=f'translate({dx} {dy})')
     assert mean < 1e-4
     assert hist[9] == 0
@@ -432,7 +432,7 @@ def test_offset(reference, offset, tmpfile):
 @pytest.mark.parametrize('angle', TEST_ANGLES)
 @pytest.mark.parametrize('center', [(0, 0), (10, 0), (0, -10), (10, 20)])
 @pytest.mark.parametrize('offset', [(0, 0), (100, 0), (0, 100), (100, 10)])
-def test_combined(reference, angle, center, offset, tmpfile):
+def test_combined(reference, angle, center, offset, tmpfile, img_support):
     if 'flash_rectangle' in str(reference) and angle in (30, 1024):
         # gerbv's rendering of this is broken, the hole is missing.
         pytest.skip()
@@ -447,7 +447,7 @@ def test_combined(reference, angle, center, offset, tmpfile):
     size = (10, 10) # inches
     cx, cy = to_gerbv_svg_units(center[0]), to_gerbv_svg_units(size[1], 'inch')-to_gerbv_svg_units(center[1], 'mm')
     dx, dy = to_gerbv_svg_units(offset[0]), -to_gerbv_svg_units(offset[1])
-    mean, _max, hist = gerber_difference(reference, tmp_gbr, diff_out=tmpfile('Difference', '.png'),
+    mean, _max, hist = img_support.gerber_difference(reference, tmp_gbr, diff_out=tmpfile('Difference', '.png'),
             svg_transform=f'translate({dx} {dy}) rotate({angle} {cx} {cy})',
             size=size)
     assert mean < 1e-3
@@ -464,7 +464,7 @@ def test_combined(reference, angle, center, offset, tmpfile):
     'eagle_files/copper_bottom_l4.gbr', ])
 @pytest.mark.parametrize('angle', [0, 10, 90])
 @pytest.mark.parametrize('offset', [(0, 0, 0, 0), (100, 0, 0, 0), (0, 0, 0, 100), (100, 0, 0, 100)])
-def test_compositing(file_a, file_b, angle, offset, tmpfile, print_on_error):
+def test_compositing(file_a, file_b, angle, offset, tmpfile, print_on_error, img_support):
 
     # TODO bottom_silk.GBO renders incorrectly with gerbv: the outline does not exist in svg. In GUI, the logo only
     # renders at very high magnification. Skip, and once we have our own SVG export maybe use that instead. Or just use
@@ -497,7 +497,7 @@ def test_compositing(file_a, file_b, angle, offset, tmpfile, print_on_error):
     # note that we have to specify cx, cy even if we rotate around the origin since gerber's origin lies at (x=0
     # y=+document size) in SVG's coordinate space because svg's y axis is flipped compared to gerber's.
     cx, cy = 0, to_gerbv_svg_units(size[1], 'inch')
-    mean, _max, hist = gerber_difference_merge(ref_a, ref_b, tmp_gbr,
+    mean, _max, hist = img_support.gerber_difference_merge(ref_a, ref_b, tmp_gbr,
             composite_out=tmpfile('Composite', '.svg'), diff_out=tmpfile('Difference', '.png'),
             svg_transform1=f'translate({ax} {ay}) rotate({angle} {cx} {cy})',
             svg_transform2=f'translate({bx} {by})',
@@ -508,7 +508,7 @@ def test_compositing(file_a, file_b, angle, offset, tmpfile, print_on_error):
 
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', REFERENCE_FILES, indirect=True)
-def test_svg_export_gerber(reference, tmpfile):
+def test_svg_export_gerber(reference, tmpfile, img_support):
     if reference.name in ('silkscreen_bottom.gbr', 'silkscreen_top.gbr', 'top_silk.GTO'):
         # Some weird svg rendering artifact. Might be caused by mismatching svg units between gerbv and us. Result looks
         # fine though.
@@ -531,19 +531,19 @@ def test_svg_export_gerber(reference, tmpfile):
     # using resvg for both allows an apples-to-apples comparison of both results.
     ref_svg = tmpfile('Reference export', '.svg')
     ref_png = tmpfile('Reference render', '.png')
-    gerbv_export(reference, ref_svg, origin=bounds[0], size=bounds[1], fg='#000000', bg='#ffffff')
+    img_support.gerbv_export(reference, ref_svg, origin=bounds[0], size=bounds[1], fg='#000000', bg='#ffffff')
     with svg_soup(ref_svg) as soup:
-        cleanup_gerbv_svg(soup)
-    svg_to_png(ref_svg, ref_png, dpi=300, bg='white')
+        img_support.cleanup_gerbv_svg(soup)
+    img_support.svg_to_png(ref_svg, ref_png, dpi=300, bg='white')
 
     out_png = tmpfile('Output render', '.png')
-    svg_to_png(out_svg, out_png, dpi=300, bg='white')
+    img_support.svg_to_png(out_svg, out_png, dpi=300, bg='white')
 
     if reference.name in HAS_ZERO_SIZE_APERTURES:
         # gerbv does not render these correctly.
         return
 
-    mean, _max, hist = image_difference(ref_png, out_png, diff_out=tmpfile('Difference', '.png'))
+    mean, _max, hist = img_support.image_difference(ref_png, out_png, diff_out=tmpfile('Difference', '.png'))
     assert hist[9] < 1
     if 'Minnow' in reference.name or 'LimeSDR' in reference.name or '80101_0125_F200' in reference.name:
         # This is a dense design with lots of traces, leading to lots of aliasing artifacts.
@@ -555,7 +555,7 @@ def test_svg_export_gerber(reference, tmpfile):
 
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', REFERENCE_FILES, indirect=True)
-def test_bounding_box(reference, tmpfile):
+def test_bounding_box(reference, tmpfile, img_support):
     if reference.name == 'MinnowMax_assy.art':
         # This leads to worst-case performance in resvg, this testcase takes over 1h to finish. So skip.
         pytest.skip()
@@ -583,7 +583,7 @@ def test_bounding_box(reference, tmpfile):
         f.write(str(grb.to_svg(margin=margin, arg_unit='inch', fg='white', bg='black')))
 
     out_png = tmpfile('Render', '.png')
-    svg_to_png(out_svg, out_png, dpi=dpi)
+    img_support.svg_to_png(out_svg, out_png, dpi=dpi)
 
     img = np.array(Image.open(out_png))
     img = img[:, :, :3].mean(axis=2) # drop alpha and convert to grayscale

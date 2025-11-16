@@ -7,15 +7,15 @@ import re
 import bs4
 
 from .utils import tmpfile, print_on_error
-from .image_support import kicad_fp_export, svg_difference, svg_soup, svg_to_png, run_cargo_cmd
+from .image_support import run_cargo_cmd
 
-from .. import graphic_objects as go
-from ..utils import MM, arc_bounds, sum_bounds
-from ..layers import LayerStack
-from ..cad.kicad.sexp import build_sexp, Atom
-from ..cad.kicad.sexp_mapper import sexp
-from ..cad.kicad.footprints import Footprint, FootprintInstance, LAYER_MAP_G2K
-from ..cad.kicad.layer_colors import KICAD_LAYER_COLORS, KICAD_DRILL_COLORS
+from gerbonara import graphic_objects as go
+from gerbonara.utils import MM, arc_bounds, sum_bounds
+from gerbonara.layers import LayerStack
+from gerbonara.cad.kicad.sexp import build_sexp, Atom
+from gerbonara.cad.kicad.sexp_mapper import sexp
+from gerbonara.cad.kicad.footprints import Footprint, FootprintInstance, LAYER_MAP_G2K
+from gerbonara.cad.kicad.layer_colors import KICAD_LAYER_COLORS, KICAD_DRILL_COLORS
 
 
 def test_parse(kicad_mod_file):
@@ -176,7 +176,7 @@ def _parse_path_d(path):
             yield max_x, max_y
             last_x, last_y = ax, ay
 
-def test_render(kicad_mod_file, tmpfile, print_on_error):
+def test_render(kicad_mod_file, tmpfile, print_on_error, img_support):
     # These files have a large, mask-only pad that has a large solder mask margin set. Kicad doesn't render the margin
     # at all, which I think it should. We render things exactly as I'd expect.
     if kicad_mod_file.name in ['Fiducial_classic_big_CopperBottom_Type2.kicad_mod',
@@ -227,7 +227,7 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
 
     print_on_error('Input footprint:', kicad_mod_file)
     ref_svg = tmpfile('Reference render', '.svg')
-    kicad_fp_export(kicad_mod_file, ref_svg)
+    img_support.kicad_fp_export(kicad_mod_file, ref_svg)
 
     # KiCad's bounding box calculation for SVG output looks broken, and the resulting files have viewports that are too
     # large. We align our output and KiCad's output using the footprint's courtyard layer.
@@ -311,9 +311,9 @@ def test_render(kicad_mod_file, tmpfile, print_on_error):
         root.append(soup.find('g', id='l-bottom-fabrication').extract())
         root.append(soup.find('g', id='l-top-fabrication').extract())
 
-    svg_to_png(ref_svg, tmpfile('Reference render', '.png'), bg=None, dpi=600)
-    svg_to_png(out_svg, tmpfile('Output render', '.png'), bg=None, dpi=600)
-    mean, _max, hist = svg_difference(ref_svg, out_svg, dpi=600, diff_out=tmpfile('Difference', '.png'))
+    img_support.svg_to_png(ref_svg, tmpfile('Reference render', '.png'), bg=None, dpi=600)
+    img_support.svg_to_png(out_svg, tmpfile('Output render', '.png'), bg=None, dpi=600)
+    mean, _max, hist = img_support.svg_difference(ref_svg, out_svg, dpi=600, diff_out=tmpfile('Difference', '.png'))
 
     # compensate for circular pads aliasing badly
     aliasing_artifacts =  1e-3 * len(fp.sexp.pads)/10

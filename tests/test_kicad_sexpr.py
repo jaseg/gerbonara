@@ -1,5 +1,5 @@
 
-from ..cad.kicad.sexp import parse_sexp, build_sexp
+from gerbonara.cad.kicad.sexp import parse_sexp, build_sexp
 
 def test_sexp_round_trip():
     test_sexp = '''(()() (foo) (23)\t(foo 23) (foo 23 bar baz) (foo bar baz) ("foo bar") (" foo " bar) (23 " baz ")

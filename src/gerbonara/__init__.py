@@ -30,5 +30,6 @@ from .excellon import ExcellonFile
 from .ipc356 import Netlist
 from .layers import LayerStack
 from .utils import MM, Inch
+from importlib.metadata import version
 
-__version__ = '1.5.0'
+__version__ = version('gerbonara')

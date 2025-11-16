@@ -21,9 +21,9 @@ from pathlib import Path
 import pytest
 
 from .utils import *
-from ..layers import LayerStack
-from ..rs274x import GerberFile
-from ..excellon import ExcellonFile
+from gerbonara.layers import LayerStack
+from gerbonara.rs274x import GerberFile
+from gerbonara.excellon import ExcellonFile
 
 # hand-classified
 REFERENCE_DIRS = {

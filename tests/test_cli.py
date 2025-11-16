@@ -28,8 +28,8 @@ from click.testing import CliRunner
 from bs4 import BeautifulSoup
 
 from .utils import *
-from .. import cli
-from ..utils import MM
+from gerbonara import cli
+from gerbonara.utils import MM
 
 
 @pytest.fixture()

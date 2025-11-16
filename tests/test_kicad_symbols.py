@@ -2,9 +2,9 @@
 from itertools import zip_longest
 import re
 
-from ..cad.kicad.sexp import build_sexp
-from ..cad.kicad.sexp_mapper import sexp
-from ..cad.kicad.symbols import Library
+from gerbonara.cad.kicad.sexp import build_sexp
+from gerbonara.cad.kicad.sexp_mapper import sexp
+from gerbonara.cad.kicad.symbols import Library
 
 from .utils import tmpfile
 

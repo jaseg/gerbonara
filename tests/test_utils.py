@@ -22,8 +22,8 @@ import random
 
 import pytest
 
-from ..cam import FileSettings
-from ..utils import convex_hull, point_in_polygon, setup_svg, Tag
+from gerbonara.cam import FileSettings
+from gerbonara.utils import convex_hull, point_in_polygon, setup_svg, Tag
 from .utils import *
 
 
