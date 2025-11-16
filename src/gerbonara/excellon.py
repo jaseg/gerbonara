@@ -325,7 +325,7 @@ class ExcellonFile(CamFile):
             for fn in 'nc_param.txt', 'ncdrill.log':
                 if (param_file := filename.parent / fn).is_file():
                     settings =  parse_allegro_ncparam(param_file.read_text())
-                    warnings.warn(f'Loaded allegro-style excellon settings file {param_file}')
+                    warnings.warn(f'Loaded allegro-style excellon settings file {param_file}', SyntaxWarning)
                     break
 
             # Parse Zuken log file for settings
@@ -333,7 +333,7 @@ class ExcellonFile(CamFile):
                 logfile = filename.with_suffix('.fdl')
                 if logfile.is_file():
                     settings = parse_zuken_logfile(logfile.read_text())
-                    warnings.warn(f'Loaded zuken-style excellon log file {logfile}: {settings}')
+                    warnings.warn(f'Loaded zuken-style excellon log file {logfile}: {settings}', SyntaxWarning)
 
         if external_tools is None:
             # Parse allegro log files for tools.
@@ -376,7 +376,7 @@ class ExcellonFile(CamFile):
 
         mixed_plating = (len({ tool.plated for tool in tool_map.values() }) > 1)
         if mixed_plating:
-            warnings.warn('Multiple plating values in same file. Will use non-standard Altium comment syntax to indicate hole plating.')
+            warnings.warn('Multiple plating values in same file. Will use non-standard Altium comment syntax to indicate hole plating.', SyntaxWarning)
 
         defined_tools = {}
         tool_indices = {}

@@ -109,7 +109,9 @@ class ImageSupport:
 
 
     def cachedir(self, scope, filename, suffix):
-        return self.cache_root / scope / f'{filename}.{suffix}'
+        scope = self.cache_root / scope
+        scope.mkdir(exist_ok=True)
+        return scope / f'{filename}.{suffix}'
 
 
     def svg_to_png(self, in_svg, out_png, dpi=100, bg=None):
@@ -223,10 +225,9 @@ class ImageSupport:
                        '--mount', f'type=bind,src={tmpdir},dst=/out',
                        self.kicad_container,
                        'kicad-cli', 'fp', 'export', 'svg', '--output', '/out', f'/{pretty_dir.name}']
-                print(f'Running "{" ".join(cmd)}"')
 
                 try:
-                    subprocess.run(cmd, check=True) #, stdout=subprocess.DEVNULL)
+                    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
                 except subprocess.CalledProcessError as e:
                     print('Error running command with command line:', ' '.join(e.cmd), file=sys.stderr)
@@ -349,8 +350,8 @@ class ImageSupport:
         with tempfile.NamedTemporaryFile(suffix='-ref.png') as ref_png,\
             tempfile.NamedTemporaryFile(suffix='-act.png') as act_png:
 
-            svg_to_png(reference, ref_png.name, bg=background, dpi=dpi)
-            svg_to_png(actual, act_png.name, bg=background, dpi=dpi)
+            self.svg_to_png(reference, ref_png.name, bg=background, dpi=dpi)
+            self.svg_to_png(actual, act_png.name, bg=background, dpi=dpi)
 
             return self.image_difference(ref_png.name, act_png.name, diff_out=diff_out)
 

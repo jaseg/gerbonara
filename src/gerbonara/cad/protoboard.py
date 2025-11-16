@@ -1172,7 +1172,7 @@ def convert_to_mm(value, unit):
         raise ValueError(f'Invalid unit {unit}, allowed units are mm, cm, in, and mil.')
 
 
-_VALUE_RE = re.compile('([0-9]*\.?[0-9]+)(cm|mm|in|mil|%)')
+_VALUE_RE = re.compile(r'([0-9]*\.?[0-9]+)(cm|mm|in|mil|%)')
 def eval_value(value, total_length=None):
     if not isinstance(value, str):
         return None

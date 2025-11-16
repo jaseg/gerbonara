@@ -85,9 +85,6 @@ def pytest_configure(config):
     if (oom_adj := Path('/proc/self/oom_adj')).is_file():
         oom_adj.write_text('15\n')
 
-    if 'PYTEST_XDIST_WORKER' in os.environ: # only run this on the controller
-        return
-
     if (lib_dir := os.environ.get('KICAD_FOOTPRINTS')):
         config.kicad_footprints_libdir = Path(lib_dir).expanduser()
     else:
@@ -98,32 +95,38 @@ def pytest_configure(config):
     else:
         config.kicad_symbols_libdir = config.cache.mkdir('kicad-symbols') / 'repo'
 
-    # Update cached library repos unless they are overridden from outside.
-    if not os.environ.get('KICAD_FOOTPRINTS'):
-        tag = config.getini('kicad_footprints_tag')
-        _update_repo_cache(config.kicad_footprints_libdir, 'https://gitlab.com/kicad/libraries/kicad-footprints', tag)
+    is_pytest_controller = 'PYTEST_XDIST_WORKER' not in os.environ
+    if is_pytest_controller:
+        # Update cached library repos unless they are overridden from outside.
+        if not os.environ.get('KICAD_FOOTPRINTS'):
+            tag = config.getini('kicad_footprints_tag')
+            _update_repo_cache(config.kicad_footprints_libdir, 'https://gitlab.com/kicad/libraries/kicad-footprints', tag)
 
-    if not os.environ.get('KICAD_SYMBOLS'):
-        tag = config.getini('kicad_symbols_tag')
-        _update_repo_cache(config.kicad_symbols_libdir, 'https://gitlab.com/kicad/libraries/kicad-symbols', tag)
+        if not os.environ.get('KICAD_SYMBOLS'):
+            tag = config.getini('kicad_symbols_tag')
+            _update_repo_cache(config.kicad_symbols_libdir, 'https://gitlab.com/kicad/libraries/kicad-symbols', tag)
 
-    print('Updating podman image')
     tag = config.getini("kicad_container_tag")
     config.kicad_container = os.environ.get('KICAD_CONTAINER', f'registry.hub.docker.com/kicad/kicad:{tag}')
-    subprocess.run(['podman', 'pull', config.kicad_container], check=True)
+
+    if is_pytest_controller:
+        print('Updating podman image')
+        subprocess.run(['podman', 'pull', config.kicad_container], check=True)
 
     config.image_support = ImageSupport(config.cache.mkdir('image_cache'), config.kicad_container)
-    print('Checking KiCad footprint library render cache')
-    with multiprocessing.pool.ThreadPool() as pool: # use thread pool here since we're only monitoring podman processes 
-        lib_dirs = list(config.kicad_footprints_libdir.glob('*.pretty'))
-        res = list(tqdm.tqdm(pool.imap(lambda path: config.image_support.bulk_populate_kicad_fp_export_cache(path), lib_dirs), total=len(lib_dirs)))
+
+    if is_pytest_controller:
+        print('Checking KiCad footprint library render cache')
+        with multiprocessing.pool.ThreadPool() as pool: # use thread pool here since we're only monitoring podman processes 
+            lib_dirs = list(config.kicad_footprints_libdir.glob('*.pretty'))
+            res = list(tqdm.tqdm(pool.imap(lambda path: config.image_support.bulk_populate_kicad_fp_export_cache(path), lib_dirs), total=len(lib_dirs)))
 
 
 def pytest_generate_tests(metafunc):
     if 'kicad_library_file' in metafunc.fixturenames:
-        library_files = list(kicad_symbols_libdir(metafunc.config).glob('*.kicad_sym'))
+        library_files = list(metafunc.config.kicad_symbols_libdir.glob('*.kicad_sym'))
         metafunc.parametrize('kicad_library_file', library_files, ids=list(map(str, library_files)))
 
     if 'kicad_mod_file' in metafunc.fixturenames:
-        mod_files = list(kicad_footprints_libdir(metafunc.config).glob('*.pretty/*.kicad_mod'))
+        mod_files = list(metafunc.config.kicad_footprints_libdir.glob('*.pretty/*.kicad_mod'))
         metafunc.parametrize('kicad_mod_file', mod_files, ids=list(map(str, mod_files)))

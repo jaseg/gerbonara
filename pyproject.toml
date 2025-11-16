@@ -52,6 +52,7 @@ dev = [
     "scipy",
     "tqdm",
     "beautifulsoup4",
+    "lxml",
     "pillow"
     ]
 
