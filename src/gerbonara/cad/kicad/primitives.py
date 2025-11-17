@@ -135,19 +135,23 @@ class ZoneFill:
 class FillPolygon:
     layer: Named(str) = ""
     island: Wrap(Flag()) = False
-    pts: PointList = field(default_factory=list)
+    pts: ArcPointList = field(default_factory=list)
 
 
 @sexp_type('fill_segments')
 class FillSegment:
     layer: Named(str) = ""
-    pts: PointList = field(default_factory=list)
+    pts: ArcPointList = field(default_factory=list)
 
 
 @sexp_type('polygon')
 class ZonePolygon:
-    pts: PointList = field(default_factory=list)
+    pts: ArcPointList = field(default_factory=list)
 
+@sexp_type('placement')
+class ZonePlacement:
+    enabled: Named(YesNoAtom()) = False
+    sheetname: Named(str) = ''
 
 @sexp_type('zone')
 class Zone:
@@ -164,6 +168,7 @@ class Zone:
     min_thickness: Named(float) = 0.254
     filled_areas_thickness: Named(YesNoAtom()) = True
     keepout: ZoneKeepout = None
+    placement: ZonePlacement = None
     fill: ZoneFill = field(default_factory=ZoneFill)
     polygon: ZonePolygon = field(default_factory=ZonePolygon)
     fill_polygons: List(FillPolygon) = field(default_factory=list)
@@ -208,5 +213,12 @@ class RenderCache:
     rotation: int = 0
     polygons: List(RenderCachePolygon) = field(default_factory=list)
 
+
+@sexp_type('margins')
+class Margins:
+    left: float = 0.0
+    top: float = 0.0
+    right: float = 0.0
+    bottom: float = 0.0
 
 

@@ -1,4 +1,5 @@
 
+import pytest
 from itertools import zip_longest
 import re
 
@@ -14,6 +15,11 @@ def test_parse(kicad_library_file):
 
 
 def test_round_trip(kicad_library_file, tmpfile):
+    if kicad_library_file.name in [
+            'Interface_Expansion.kicad_sym',
+            '74xx.kicad_sym']:
+        pytest.skip('File contains parentheses in strings that mess with our hacky test logic')
+
     print('========== Stage 1 load ==========')
     orig_lib = Library.open(kicad_library_file)
     print('========== Stage 1 save ==========')

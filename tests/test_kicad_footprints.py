@@ -7,7 +7,7 @@ import re
 import bs4
 
 from .utils import tmpfile, print_on_error
-from .image_support import run_cargo_cmd
+from .image_support import run_cargo_cmd, svg_soup
 
 from gerbonara import graphic_objects as go
 from gerbonara.utils import MM, arc_bounds, sum_bounds
@@ -22,18 +22,20 @@ def test_parse(kicad_mod_file):
     Footprint.open_mod(kicad_mod_file)
 
 
-def test_round_trip(kicad_mod_file):
+def test_round_trip(kicad_mod_file, tmpfile):
     print('========== Stage 1 load ==========')
     orig_fp = Footprint.open_mod(kicad_mod_file)
     print('========== Stage 1 save ==========')
     stage1_sexp = build_sexp(orig_fp.sexp())
-    with open('/tmp/foo.sexp', 'w') as f:
-        f.write(stage1_sexp)
+    tmp_fp_gen1 = tmpfile('First generation output', '.kicad_mod')
+    tmp_fp_gen1.write_text(stage1_sexp)
 
     print('========== Stage 2 load ==========')
     reparsed_fp = Footprint.parse(stage1_sexp)
     print('========== Stage 2 save ==========')
     stage2_sexp = build_sexp(reparsed_fp.sexp())
+    tmp_fp_gen2 = tmpfile('Second generation output', '.kicad_mod')
+    tmp_fp_gen2.write_text(stage2_sexp)
     print('========== Checks ==========')
 
     for stage1, stage2 in zip_longest(stage1_sexp.splitlines(), stage2_sexp.splitlines()):

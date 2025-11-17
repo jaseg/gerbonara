@@ -114,7 +114,7 @@ class FillMode:
     fill: AtomChoice(Atom.solid, Atom.yes, Atom.no, Atom.none) = False
 
     @classmethod
-    def __map__(kls, obj, parent=None):
+    def __map__(kls, obj, parent=None, path=''):
         return obj[1] in (Atom.solid, Atom.yes)
 
     @classmethod
@@ -318,6 +318,7 @@ class DimensionStyle:
     thickness: Named(float) = 0.1
     arrow_length: Named(float) = 1.27
     text_position_mode: Named(int) = 0
+    arrow_direction: Named(AtomChoice(Atom.inward, Atom.outward)) = None
     extension_height: Named(float) = None
     text_frame: Named(float) = None
     extension_offset: Named(float) = None

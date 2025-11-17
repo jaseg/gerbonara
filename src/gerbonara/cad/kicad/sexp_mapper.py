@@ -28,6 +28,10 @@ class AtomChoice:
     def __sexp__(self, value):
         yield value
 
+    def __str__(self):
+        choices = '|'.join(map(str, self.choices))
+        return f'AtomChoice({choices})'
+
 
 class Flag:
     def __init__(self, atom=None, invert=None):
@@ -48,6 +52,11 @@ class Flag:
     def __sexp__(self, value):
         if bool(value) == (not self.invert):
             yield self.atom
+    
+    def __str__(self):
+        if self.invert is not None:
+            return f'Flag({self.atom}/{self.invert})'
+        return f'Flag({self.atom})'
 
 
 def sexp(t, v):
@@ -76,7 +85,7 @@ class MappingError(TypeError):
         super().__init__(msg)
         self.t, self.sexp = t, sexp
 
-def map_sexp(t, v, parent=None):
+def map_sexp(t, v, parent=None, path=''):
     try:
         if t is not Atom and hasattr(t, '__map__'):
             return t.__map__(v, parent=parent)
@@ -93,7 +102,7 @@ def map_sexp(t, v, parent=None):
 
         elif isinstance(t, list):
             t, = t
-            return [map_sexp(t, elem, parent=parent) for elem in v]
+            return [map_sexp(t, elem, parent=parent, path=f'{path}/{t}') for elem in v]
 
         else:
             raise TypeError(f'Python type {t} has no defined s-expression deserialization')
@@ -102,7 +111,7 @@ def map_sexp(t, v, parent=None):
         raise e
 
     except Exception as e:
-        raise MappingError(f'Error trying to map {textwrap.shorten(str(v), width=120)} into type {t}', t, v) from e
+        raise MappingError(f'Error at {path} trying to map {textwrap.shorten(str(v), width=60)} into type {t}', t, v) from e
 
 
 class WrapperType:
@@ -133,12 +142,12 @@ class Named(WrapperType):
         if self.name_atom is None:
             self.name_atom = Atom(field.name)
 
-    def __map__(self, obj, parent=None):
+    def __map__(self, obj, parent=None, path=''):
         k, *obj = obj
         if self.next_type in (int, float, str, Atom) or isinstance(self.next_type, AtomChoice):
-            return map_sexp(self.next_type, [*obj], parent=parent)
+            return map_sexp(self.next_type, [*obj], parent=parent, path=f'{path}/{self.name_atom}')
         else:
-            return map_sexp(self.next_type, obj, parent=parent)
+            return map_sexp(self.next_type, obj, parent=parent, path=f'{path}/{self.name_atom}')
 
     def __sexp__(self, value):
         value = sexp(self.next_type, value)
@@ -149,6 +158,9 @@ class Named(WrapperType):
             return
 
         yield [self.name_atom, *value]
+
+    def __str__(self):
+        return f'Named={self.name_atom}({self.next_type})'
 
 
 class Rename(WrapperType):
@@ -162,8 +174,8 @@ class Rename(WrapperType):
         if hasattr(self.next_type, '__bind_field__'):
             self.next_type.__bind_field__(field)
 
-    def __map__(self, obj, parent=None):
-        return map_sexp(self.next_type, obj, parent=parent)
+    def __map__(self, obj, parent=None, path=''):
+        return map_sexp(self.next_type, obj, parent=parent, path=f'{path}/{self.name_atom}')
 
     def __sexp__(self, value):
         value, = sexp(self.next_type, value)
@@ -172,6 +184,9 @@ class Rename(WrapperType):
         else:
             key, *rest = value
             yield [self.name_atom, *rest]
+
+    def __str__(self):
+        return f'Rename={self.name_atom}({self.next_type})'
 
 
 class OmitDefault(WrapperType):
@@ -182,12 +197,15 @@ class OmitDefault(WrapperType):
         else:
             self.default = field.default
 
-    def __map__(self, obj, parent=None):
-        return map_sexp(self.next_type, obj, parent=parent)
+    def __map__(self, obj, parent=None, path=''):
+        return map_sexp(self.next_type, obj, parent=parent, path=path)
 
     def __sexp__(self, value):
         if value != self.default:
             yield from sexp(self.next_type, value)
+
+    def __str__(self):
+        return f'OmitDefault({self.field})'
 
 
 class YesNoAtom:
@@ -221,47 +239,59 @@ class LegacyCompatibleFlag:
 
 
 class Wrap(WrapperType):
-    def __map__(self, value, parent=None):
+    def __map__(self, value, parent=None, path=''):
         value, = value
-        return map_sexp(self.next_type, value, parent=parent)
+        return map_sexp(self.next_type, value, parent=parent, path=path)
 
     def __sexp__(self, value):
         for inner in sexp(self.next_type, value):
             yield [inner]
 
+    def __str__(self):
+        return f'Wrap({self.next_type})'
+
 
 class Array(WrapperType):
-    def __map__(self, value, parent=None):
-        return [map_sexp(self.next_type, [elem], parent=parent) for elem in value]
+    def __map__(self, value, parent=None, path=''):
+        return [map_sexp(self.next_type, [elem], parent=parent, path=path) for elem in value]
     
     def __sexp__(self, value):
         for e in value:
             yield from sexp(self.next_type, e)
 
+    def __str__(self):
+        return f'Array({self.next_type})'
+
 
 class Untagged(WrapperType):
-    def __map__(self, value, parent=None):
+    def __map__(self, value, parent=None, path=''):
         value, = value
-        return self.next_type.__map__([self.next_type.name_atom, *value], parent=parent)
+        return self.next_type.__map__([self.next_type.name_atom, *value], parent=parent, path=path)
     
     def __sexp__(self, value):
         for inner in sexp(self.next_type, value):
             _tag, *rest = inner
             yield rest
 
+    def __str__(self):
+        return f'Untagged({self.next_type})'
+
 class List(WrapperType):
     def __bind_field__(self, field):
         self.attr = field.name
 
-    def __map__(self, value, parent):
+    def __map__(self, value, parent, path=''):
         l = getattr(parent, self.attr, [])
-        mapped = map_sexp(self.next_type, value, parent=parent)
+        mapped = map_sexp(self.next_type, value, parent=parent, path=f'{path}/{self.attr}')
         l.append(mapped)
         setattr(parent, self.attr, l)
 
     def __sexp__(self, value):
         for elem in value:
             yield from sexp(self.next_type, elem)
+
+    def __str__(self):
+        return f'List@{self.attr}({self.next_type})'
 
 
 class _SexpTemplate:
@@ -270,20 +300,20 @@ class _SexpTemplate:
         return [kls.name_atom]
 
     @staticmethod
-    def __map__(kls, value, *args, parent=None, **kwargs):
+    def __map__(kls, value, *args, parent=None, path='', **kwargs):
         positional = iter(kls.positional)
         inst = kls(*args, **kwargs)
 
         for v in value[1:]: # skip key
             if isinstance(v, Atom) and v in kls.keys:
                 name, etype = kls.keys[v]
-                mapped = map_sexp(etype, [v], parent=inst)
+                mapped = map_sexp(etype, [v], parent=inst, path=f'{path}/{kls.name_atom}')
                 if mapped is not None:
                     setattr(inst, name, mapped)
 
             elif isinstance(v, list):
                 name, etype = kls.keys[v[0]]
-                mapped = map_sexp(etype, v, parent=inst)
+                mapped = map_sexp(etype, v, parent=inst, path=f'{path}/{kls.name_atom}')
                 if mapped is not None:
                     setattr(inst, name, mapped)
 

@@ -21,7 +21,7 @@ from ...utils import rotate_point, Tag, arc_bounds
 from ... import __version__
 from ...newstroke import Newstroke
 from .schematic_colors import *
-from .primitives import kicad_mid_to_center_arc
+from .primitives import kicad_mid_to_center_arc, Margins
 
 
 PIN_ETYPE = AtomChoice(Atom.input, Atom.output, Atom.bidirectional, Atom.tri_state, Atom.passive, Atom.free,
@@ -52,7 +52,7 @@ class Pin:
     style: PIN_STYLE = Atom.line
     at: AtPos = field(default_factory=AtPos)
     length: Named(float) = 2.54
-    hide: Flag() = False
+    hide: OmitDefault(Named(YesNoAtom())) = False
     name: Rename(StyledText) = field(default_factory=StyledText)
     number: Rename(StyledText) = field(default_factory=StyledText)
     alternates: List(AltFunction) = field(default_factory=list)
@@ -396,10 +396,12 @@ class Rectangle:
 
 @sexp_type('property')
 class Property(TextMixin):
+    private: Flag() = False
     name: str = None
     value: str = None
     id: Named(int) = None
     at: AtPos = field(default_factory=AtPos)
+    show_name: Flag() = False
     effects: TextEffect = field(default_factory=TextEffect)
 
     # Alias value for text mixin
@@ -417,13 +419,25 @@ class Property(TextMixin):
 
 @sexp_type('pin_numbers')
 class PinNumberSpec:
-    hide: Flag() = False
+    hide: OmitDefault(Named(YesNoAtom())) = False
 
 
 @sexp_type('pin_names')
 class PinNameSpec:
     offset: OmitDefault(Named(float)) = 0.508
-    hide: Flag() = False
+    hide: OmitDefault(Named(YesNoAtom())) = False
+
+
+@sexp_type('text_box')
+class TextBox:
+    text: str = ''
+    exclude_from_sim: OmitDefault(Named(YesNoAtom())) = False
+    at: AtPos = field(default_factory=AtPos)
+    size: Rename(XYCoord) = field(default_factory=XYCoord)
+    margins: Margins = None
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: Fill = field(default_factory=Fill)
+    effects: TextEffect = field(default_factory=TextEffect)
 
 
 @sexp_type('symbol')
@@ -434,6 +448,7 @@ class Unit:
     polylines: List(Polyline) = field(default_factory=list)
     rectangles: List(Rectangle) = field(default_factory=list)
     texts: List(Text) = field(default_factory=list)
+    text_boxes: List(TextBox) = field(default_factory=list)
     pins: List(Pin) = field(default_factory=list)
     unit_name: Named(str) = None
     _ : SEXP_END = None
@@ -487,6 +502,7 @@ class Symbol:
     on_board: Named(YesNoAtom()) = True
     properties: List(Property) = field(default_factory=list)
     units: List(Unit) = field(default_factory=list)
+    embedded_fonts: Named(YesNoAtom()) = False
     _ : SEXP_END = None
     library = None
     name: str = None

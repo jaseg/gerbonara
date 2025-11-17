@@ -277,9 +277,9 @@ class XYCoord:
 @sexp_type('pts')
 class PointList:
     @classmethod
-    def __map__(kls, obj, parent=None):
+    def __map__(kls, obj, parent=None, path=''):
         _tag, *values = obj
-        return [map_sexp(XYCoord, elem, parent=parent) for elem in values]
+        return [map_sexp(XYCoord, elem, parent=parent, path=path) for elem in values]
 
     @classmethod
     def __sexp__(kls, value):
@@ -296,9 +296,9 @@ class Arc:
 @sexp_type('pts')
 class ArcPointList:
     @classmethod
-    def __map__(kls, obj, parent=None):
+    def __map__(kls, obj, parent=None, path=''):
         _tag, *values = obj
-        return [map_sexp((XYCoord if elem[0] == 'xy' else Arc), elem, parent=parent) for elem in values]
+        return [map_sexp((XYCoord if elem[0] == 'xy' else Arc), elem, parent=parent, path=path) for elem in values]
 
     @classmethod
     def __sexp__(kls, value):

@@ -75,6 +75,7 @@ class TextBox:
     text: str = None
     start: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
+    margins: Rename(gr.Margins) = None
     pts: PointList = None
     angle: Named(float) = 0.0
     layer: Named(str) = None
@@ -121,7 +122,7 @@ class Rectangle:
     uuid: UUID = field(default_factory=UUID)
     width: Named(float) = None
     stroke: Stroke = None
-    fill: Named(AtomChoice(Atom.solid, Atom.none)) = None
+    fill: gr.FillMode = None
     locked: Flag() = False
     tstamp: Timestamp = None
 
@@ -155,7 +156,7 @@ class Circle:
     uuid: UUID = field(default_factory=UUID)
     width: Named(float) = None
     stroke: Stroke = None
-    fill: Named(AtomChoice(Atom.solid, Atom.none)) = None
+    fill: gr.FillMode = None
     locked: Flag() = False
     tstamp: Timestamp = None
 
@@ -248,7 +249,7 @@ class Polygon:
     uuid: UUID = field(default_factory=UUID)
     width: Named(float) = None
     stroke: Stroke = None
-    fill: Named(AtomChoice(Atom.solid, Atom.none)) = None
+    fill: gr.FillMode = None
     locked: Flag() = False
     tstamp: Timestamp = None
 
@@ -285,47 +286,6 @@ class Curve:
         raise NotImplementedError('Bezier rendering is not yet supported. Please raise an issue and provide an example file.')
 
 
-@sexp_type('format')
-class DimensionFormat:
-    prefix: Named(str) = None
-    suffix: Named(str) = None
-    units: Named(int) = 3
-    units_format: Named(int) = 0
-    precision: Named(int) = 3
-    override_value: Named(str) = None
-    suppress_zeros: Flag() = False
-
-
-@sexp_type('style')
-class DimensionStyle:
-    thickness: Named(float) = None
-    arrow_length: Named(float) = None
-    text_position_mode: Named(int) = 0
-    extension_height: Named(float) = None
-    text_frame: Named(int) = 0
-    extension_offset: Named(str) = None
-    keep_text_aligned: Flag() = False
-
-
-@sexp_type('dimension')
-class Dimension:
-    locked: Flag() = False
-    type: AtomChoice(Atom.aligned, Atom.leader, Atom.center, Atom.orthogonal, Atom.radial) = None
-    layer: Named(str) = None
-    uuid: UUID = field(default_factory=UUID)
-    tstamp: Timestamp = None
-    pts: PointList = field(default_factory=list)
-    height: Named(float) = None
-    orientation: Named(int) = 0
-    leader_length: Named(float) = None
-    gr_text: Named(Text) = None
-    format: DimensionFormat = field(default_factory=DimensionFormat)
-    style: DimensionStyle = field(default_factory=DimensionStyle)
-
-    def render(self, variables=None, cache=None):
-        raise NotImplementedError()
-
-
 @sexp_type('drill')
 class Drill:
     oval: Flag() = False
@@ -350,7 +310,7 @@ class CustomPadPrimitives:
     polygons: List(gr.Polygon) = field(default_factory=list)
     curves: List(gr.Curve) = field(default_factory=list)
     width: Named(float) = None
-    fill: Named(YesNoAtom()) = True
+    fill: gr.FillMode = True
 
     def all(self):
         yield from self.lines
@@ -631,6 +591,7 @@ class Footprint:
     autoplace_cost90: Named(float) = None
     autoplace_cost180: Named(float) = None
     solder_mask_margin: Named(float) = None
+    solder_paste_margin_ratio: Named(float) = None
     solder_paste_margin: Named(float) = None
     solder_paste_ratio: Named(float) = None
     clearance: Named(float) = None
@@ -648,7 +609,7 @@ class Footprint:
     arcs: List(Arc) = field(default_factory=list)
     polygons: List(Polygon) = field(default_factory=list)
     curves: List(Curve) = field(default_factory=list)
-    dimensions: List(Dimension) = field(default_factory=list)
+    dimensions: List(gr.Dimension) = field(default_factory=list)
     pads: List(Pad) = field(default_factory=list)
     zones: List(Zone) = field(default_factory=list)
     groups: List(Group) = field(default_factory=list)
