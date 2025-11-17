@@ -19,6 +19,7 @@ from .symbols import Symbol
 from . import graphical_primitives as gr
 
 from .. import primitives as cad_pr
+from ... import __version__
 
 from ... import graphic_primitives as gp
 from ... import graphic_objects as go
@@ -160,6 +161,7 @@ class Bus:
 class Polyline:
     points: PointList = field(default_factory=list)
     stroke: Stroke = field(default_factory=Stroke)
+    fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
 
     def bounding_box(self, default=None):
@@ -167,34 +169,6 @@ class Polyline:
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         yield _polyline_svg(self, colorscheme.lines)
-
-
-@sexp_type('text')
-class Text(TextMixin):
-    text: str = ''
-    exclude_from_sim: Named(YesNoAtom()) = True
-    at: AtPos = field(default_factory=AtPos)
-    effects: TextEffect = field(default_factory=TextEffect)
-    uuid: UUID = field(default_factory=UUID)
-
-    def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield from TextMixin.to_svg(self, colorscheme.text)
-
-
-@sexp_type('label')
-class LocalLabel(TextMixin):
-    text: str = ''
-    at: AtPos = field(default_factory=AtPos)
-    fields_autoplaced: Wrap(Flag()) = False
-    effects: TextEffect = field(default_factory=TextEffect)
-    uuid: UUID = field(default_factory=UUID)
-
-    @property
-    def _text_offset(self):
-        return (0, -2*self.line_width)
-
-    def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield from TextMixin.to_svg(self, colorscheme.labels)
 
 
 def label_shape_path_d(shape, w, h):
@@ -220,16 +194,36 @@ def label_shape_path_d(shape, w, h):
         return d + f'L {e+r:.3f} {0:.3f} L {e:.3f} {r:.3f} Z'
 
 
-@sexp_type('global_label')
-class GlobalLabel(TextMixin):
+@dataclass
+class TextLabel(TextMixin):
     text: str = ''
-    shape: Named(AtomChoice(Atom.input, Atom.output, Atom.bidirectional, Atom.tri_state, Atom.passive)) = Atom.input
+    shape: Named(AtomChoice(Atom.input, Atom.output, Atom.bidirectional, Atom.tri_state, Atom.passive, Atom.dot, Atom.round, Atom.diamond, Atom.rectangle)) = Atom.passive
+    exclude_from_sim: Named(YesNoAtom()) = False
     at: AtPos = field(default_factory=AtPos)
-    fields_autoplaced: Wrap(Flag()) = False
+    fields_autoplaced: Named(YesNoAtom()) = False
     effects: TextEffect = field(default_factory=TextEffect)
     uuid: UUID = field(default_factory=UUID)
-    properties: List(Property) = field(default_factory=list)
+    properties: List(DrawnProperty) = field(default_factory=list)
 
+
+@sexp_type('text')
+class Text(TextLabel):
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        yield from TextMixin.to_svg(self, colorscheme.text)
+
+
+@sexp_type('label')
+class LocalLabel(TextLabel):
+    @property
+    def _text_offset(self):
+        return (0, -2*self.line_width)
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        yield from TextMixin.to_svg(self, colorscheme.labels)
+
+
+@sexp_type('global_label')
+class GlobalLabel(TextLabel):
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         text = super(TextMixin, self).to_svg(colorscheme.labels),
         text.attrs['transform'] = f'translate({self.size*0.6:.3f} 0)'
@@ -240,20 +234,22 @@ class GlobalLabel(TextMixin):
 
 
 @sexp_type('hierarchical_label')
-class HierarchicalLabel(TextMixin):
-    text: str = ''
-    shape: Named(AtomChoice(Atom.input, Atom.output, Atom.bidirectional, Atom.tri_state, Atom.passive)) = Atom.input
-    at: AtPos = field(default_factory=AtPos)
-    fields_autoplaced: Wrap(Flag()) = False
-    effects: TextEffect = field(default_factory=TextEffect)
-    uuid: UUID = field(default_factory=UUID)
-
+class HierarchicalLabel(TextLabel):
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         text, = TextMixin.to_svg(self, colorscheme.labels),
         text.attrs['transform'] = f'translate({self.size*1.2:.3f} 0)'
         frame = Tag('path', fill='none', stroke_width=0.254, stroke=colorscheme.lines,
             d=label_shape_path_d(self.shape, self.size, self.size))
         yield Tag('g', children=[frame, text])
+
+
+@sexp_type('netclass_flag')
+class NetclassFlag(TextLabel):
+    length: Named(float) = 2.54
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        # FIXME
+        yield from TextMixin.to_svg(self, colorscheme.text)
 
 
 @sexp_type('pin')
@@ -269,6 +265,8 @@ class SymbolCrosslinkSheet:
     path: str = ''
     reference: Named(str) = ''
     unit: Named(int) = 1
+    value: OmitDefault(Named(str)) = None
+    footprint: OmitDefault(Named(str)) = None
 
 
 @sexp_type('project')
@@ -287,6 +285,7 @@ class MirrorFlags:
 class DrawnProperty(TextMixin):
     key: str = None
     value: str = None
+    id: Named(int) = None
     at: AtPos = field(default_factory=AtPos)
     hide: Flag() = False
     effects: TextEffect = field(default_factory=TextEffect)
@@ -336,6 +335,14 @@ class DrawnProperty(TextMixin):
             yield from TextMixin.to_svg(self, colorscheme.values)
 
 
+@sexp_type('default_instance')
+class DefaultSymbolInstance:
+    reference: Named(str) = ''
+    unit: Named(int) = 1
+    value: Named(str) = ''
+    footprint: Named(str) = ''
+
+
 @sexp_type('symbol')
 class SymbolInstance:
     name: str = None
@@ -348,8 +355,9 @@ class SymbolInstance:
     in_bom: Named(YesNoAtom()) = True
     on_board: Named(YesNoAtom()) = True
     dnp: Named(YesNoAtom()) = True
-    fields_autoplaced: Wrap(Flag()) = True
+    fields_autoplaced: Named(YesNoAtom()) = True
     uuid: UUID = field(default_factory=UUID)
+    default_instance: DefaultSymbolInstance = None
     properties: List(DrawnProperty) = field(default_factory=list)
     # AFAICT this property is completely redundant.
     pins: List(Pin) = field(default_factory=list)
@@ -485,7 +493,11 @@ class SubsheetFill:
 class Subsheet:
     at: Rename(XYCoord) = field(default_factory=XYCoord)
     size: Rename(XYCoord) = field(default_factory=lambda: XYCoord(2.54, 2.54))
-    fields_autoplaced: Wrap(Flag()) = True
+    exclude_from_sim: Named(YesNoAtom()) = False
+    in_bom: Named(YesNoAtom()) = False
+    on_board: Named(YesNoAtom()) = False
+    dnp: Named(YesNoAtom()) = False
+    fields_autoplaced: Named(YesNoAtom()) = True
     stroke: Stroke = field(default_factory=Stroke)
     fill: SubsheetFill = field(default_factory=SubsheetFill)
     uuid: UUID = field(default_factory=UUID)
@@ -499,7 +511,7 @@ class Subsheet:
     schematic: object = field(repr=False, default=None)
 
     def __after_parse__(self, parent):
-        self.sheet_name, self.file_name = self._properties
+        self.sheet_name, self.file_name, *_extra_params = self._properties
         self.schematic = parent
 
     def __before_sexp__(self):
@@ -544,6 +556,36 @@ class Subsheet:
                   **self.stroke.svg_attrs(colorscheme.lines))
 
 
+@sexp_type('rule_area')
+class RuleArea:
+    polyline: Polyline = None
+
+
+@sexp_type('text_box')
+class TextBox(TextMixin):
+    text: str = None
+    exclude_from_sim: Named(YesNoAtom()) = False
+    at: AtPos = field(default_factory=AtPos)
+    size: Rename(XYCoord) = None
+    margins: Rename(gr.Margins) = None
+    effects: TextEffect = field(default_factory=TextEffect)
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: OmitDefault(Fill) = None
+    effects: TextEffect = field(default_factory=TextEffect)
+    uuid: UUID = field(default_factory=UUID)
+
+    def render(self, variables={}, cache=None):
+        yield from gr.TextBox.render(self, variables=variables)
+
+
+@sexp_type('title_block')
+class TitleBlock:
+    title: Named(str) = ''
+    date: Named(str) = ''
+    rev: Named(str) = ''
+    company: Named(str) = ''
+
+
 @sexp_type('lib_symbols')
 class LocalLibrary:
     symbols: List(Symbol) = field(default_factory=list)
@@ -553,26 +595,34 @@ SUPPORTED_FILE_FORMAT_VERSIONS = [20230620]
 @sexp_type('kicad_sch')
 class Schematic:
     _version: Named(int, name='version') = 20230620
-    generator: Named(Atom) = Atom.gerbonara
+    generator: Named(str) = 'gerbonara'
+    generator_version: Named(str) = __version__
     uuid: UUID = field(default_factory=UUID)
     page_settings: PageSettings = field(default_factory=PageSettings)
+    title_block: TitleBlock = None
     # The doc says this is expected, but eeschema barfs when it's there.
     # path: SheetPath = field(default_factory=SheetPath)
     lib_symbols: LocalLibrary = field(default_factory=list)
     junctions: List(Junction) = field(default_factory=list)
     no_connects: List(NoConnect) = field(default_factory=list)
+    rule_areas: List(RuleArea) = field(default_factory=list)
+    netclass_flags: List(NetclassFlag) = field(default_factory=list)
     bus_entries: List(BusEntry) = field(default_factory=list)
     wires: List(Wire) = field(default_factory=list)
     buses: List(Bus) = field(default_factory=list)
     images: List(gr.Image) = field(default_factory=list)
     polylines: List(Polyline) = field(default_factory=list)
+    circles: List(gr.Circle) = field(default_factory=list)
     texts: List(Text) = field(default_factory=list)
+    text_boxes: List(TextBox) = field(default_factory=list)
     local_labels: List(LocalLabel) = field(default_factory=list)
     global_labels: List(GlobalLabel) = field(default_factory=list)
     hierarchical_labels: List(HierarchicalLabel) = field(default_factory=list)
     symbols: List(SymbolInstance) = field(default_factory=list)
     subsheets: List(Subsheet) = field(default_factory=list)
     sheet_instances: Named(List(SubsheetCrosslinkSheet)) = field(default_factory=list)
+    symbol_instances: Named(Array(SymbolCrosslinkProject)) = field(default_factory=list)
+    embedded_fonts: Named(YesNoAtom()) = False
     _ : SEXP_END = None
     original_filename: str = None
 

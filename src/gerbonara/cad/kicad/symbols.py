@@ -419,14 +419,13 @@ class Property(TextMixin):
 
 @sexp_type('pin_numbers')
 class PinNumberSpec:
-    hide: OmitDefault(Named(YesNoAtom())) = False
+    hide: Flag() = False
 
 
 @sexp_type('pin_names')
 class PinNameSpec:
     offset: OmitDefault(Named(float)) = 0.508
-    hide: OmitDefault(Named(YesNoAtom())) = False
-
+    hide: Flag() = False
 
 @sexp_type('text_box')
 class TextBox:

@@ -65,6 +65,7 @@ testpaths = ["tests"]
 norecursedirs = ["*"]
 kicad_symbols_tag = "9.0.6"
 kicad_footprints_tag = "9.0.6"
+kicad_source_tag = "9.0.6"
 # Tag to use for container for footprint svg export
 # For a list of available tags, see https://hub.docker.com/r/kicad/kicad/tags
 kicad_container_tag = "9.0.6-full"

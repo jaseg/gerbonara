@@ -123,6 +123,12 @@ class Stroke:
         return attrs
 
 
+@sexp_type('fill')
+class Fill:
+    type: Named(AtomChoice(Atom.none, Atom.outline, Atom.background, Atom.color)) = Atom.none
+    color: Color = None
+
+
 class WidthMixin:
     def __post_init__(self):
         if self.width is not None:

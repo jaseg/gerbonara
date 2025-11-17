@@ -213,6 +213,8 @@ class YesNoAtom:
         self.yes, self.no = yes, no
 
     def __map__(self, value, parent=None):
+        if not value: # compatibility with legacy flag style
+            return False
         value, = value
         return value == self.yes
 

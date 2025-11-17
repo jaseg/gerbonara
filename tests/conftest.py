@@ -77,6 +77,8 @@ def pytest_addoption(parser):
     parser.addini('kicad_footprints_tag', 'git tag or branch for KiCad footprint library repo used as testdata', default='main')
     parser.addini('kicad_symbols_tag', 'git tag or branch for KiCad symbol library repo used as testdata', default='main')
     parser.addini('kicad_container_tag', 'docker hub tag for the KiCad container to use for exporting footprint images', default='main')
+    parser.addini('kicad_source_tag', 'git tag for the KiCad source repo whose demos directory is used as testdata', default='main')
+    parser.addoption("--use-cached-data", action="store_true", help="Do not re-check git repo caches and podman image")
 
 
 def pytest_configure(config):
@@ -95,8 +97,13 @@ def pytest_configure(config):
     else:
         config.kicad_symbols_libdir = config.cache.mkdir('kicad-symbols') / 'repo'
 
+    if (lib_dir := os.environ.get('KICAD_SOURCE')):
+        config.kicad_source_dir = Path(lib_dir).expanduser()
+    else:
+        config.kicad_source_dir = config.cache.mkdir('kicad-source') / 'repo'
+
     is_pytest_controller = 'PYTEST_XDIST_WORKER' not in os.environ
-    if is_pytest_controller:
+    if is_pytest_controller and not config.getoption("--use-cached-data"):
         # Update cached library repos unless they are overridden from outside.
         if not os.environ.get('KICAD_FOOTPRINTS'):
             tag = config.getini('kicad_footprints_tag')
@@ -106,16 +113,20 @@ def pytest_configure(config):
             tag = config.getini('kicad_symbols_tag')
             _update_repo_cache(config.kicad_symbols_libdir, 'https://gitlab.com/kicad/libraries/kicad-symbols', tag)
 
+        if not os.environ.get('KICAD_SOURCE'):
+            tag = config.getini('kicad_source_tag')
+            _update_repo_cache(config.kicad_source_dir, 'https://gitlab.com/kicad/code/kicad', tag)
+
     tag = config.getini("kicad_container_tag")
     config.kicad_container = os.environ.get('KICAD_CONTAINER', f'registry.hub.docker.com/kicad/kicad:{tag}')
 
-    if is_pytest_controller:
+    if is_pytest_controller and not config.getoption("--use-cached-data"):
         print('Updating podman image')
         subprocess.run(['podman', 'pull', config.kicad_container], check=True)
 
     config.image_support = ImageSupport(config.cache.mkdir('image_cache'), config.kicad_container)
 
-    if is_pytest_controller:
+    if is_pytest_controller and not config.getoption("--use-cached-data"):
         print('Checking KiCad footprint library render cache')
         with multiprocessing.pool.ThreadPool() as pool: # use thread pool here since we're only monitoring podman processes 
             lib_dirs = list(config.kicad_footprints_libdir.glob('*.pretty'))
@@ -130,3 +141,14 @@ def pytest_generate_tests(metafunc):
     if 'kicad_mod_file' in metafunc.fixturenames:
         mod_files = list(metafunc.config.kicad_footprints_libdir.glob('*.pretty/*.kicad_mod'))
         metafunc.parametrize('kicad_mod_file', mod_files, ids=list(map(str, mod_files)))
+
+    if 'kicad_sch_file' in metafunc.fixturenames:
+        files = list(metafunc.config.kicad_source_dir.glob('demos/*.kicad_sch'))
+        files += list(metafunc.config.kicad_source_dir.glob('qa/data/**/*.kicad_sch'))
+        metafunc.parametrize('kicad_sch_file', files, ids=list(map(str, files)))
+
+    if 'kicad_pcb_file' in metafunc.fixturenames:
+        files = list(metafunc.config.kicad_source_dir.glob('demos/*.kicad_pcb'))
+        files += list(metafunc.config.kicad_source_dir.glob('qa/data/**/*.kicad_pcb'))
+        metafunc.parametrize('kicad_pcb_file', files, ids=list(map(str, files)))
+
