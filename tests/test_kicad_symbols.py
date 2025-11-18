@@ -98,6 +98,14 @@ def test_round_trip(kicad_library_file, tmpfile):
                 j += 1
                 continue
 
+        if original != stage1:
+            # Make pytest output more useful error messages
+            context_original = original_lines[max(0, i-10):min(i+10, len(original_lines)-1)]
+            context_original = '\n'.join(context_original)
+            context_stage1 = stage1_lines[max(0, i-10):min(i+10, len(stage1_lines)-1)]
+            context_stage1 = '\n'.join(context_stage1)
+            assert context_original == context_stage1
+
         assert original == stage1
         i, j = i+1, j+1
     

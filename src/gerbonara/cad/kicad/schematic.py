@@ -85,6 +85,12 @@ class NoConnect:
                    fill='none', stroke_width='0.254', stroke=colorscheme.no_connect)
 
 
+@sexp_type('bus_alias')
+class BusAlias:
+    name: str = ''
+    members: Named(Array(str)) = field(default_factory=list)
+
+
 @sexp_type('bus_entry')
 class BusEntry:
     at: AtPos = field(default_factory=AtPos)
@@ -169,6 +175,24 @@ class Polyline:
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         yield _polyline_svg(self, colorscheme.lines)
+
+
+@sexp_type('circle')
+class Circle:
+    center: Rename(XYCoord) = field(default_factory=XYCoord)
+    radius: Named(float) = 0.0
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: OmitDefault(Fill) = None
+    uuid: UUID = field(default_factory=UUID)
+
+
+@sexp_type('rectangle')
+class Rectangle:
+    start: Rename(XYCoord) = field(default_factory=XYCoord)
+    end: Rename(XYCoord) = field(default_factory=XYCoord)
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: OmitDefault(Fill) = None
+    uuid: UUID = field(default_factory=UUID)
 
 
 def label_shape_path_d(shape, w, h):
@@ -578,12 +602,28 @@ class TextBox(TextMixin):
         yield from gr.TextBox.render(self, variables=variables)
 
 
+@sexp_type('comment')
+class TitleComment:
+    @classmethod
+    def __map__(kls, obj, parent=None, path=''):
+        return '\n'.join(obj[2::2])
+
+    @classmethod
+    def __sexp__(kls, value):
+        l = [Atom.comment]
+        for i, line in enumerate(value.splitlines(), start=1):
+            l.append(i)
+            l.append(line.rstrip('\n'))
+        return l
+
+
 @sexp_type('title_block')
 class TitleBlock:
     title: Named(str) = ''
     date: Named(str) = ''
     rev: Named(str) = ''
     company: Named(str) = ''
+    comment: TitleComment = None
 
 
 @sexp_type('lib_symbols')
@@ -597,8 +637,11 @@ class Schematic:
     _version: Named(int, name='version') = 20230620
     generator: Named(str) = 'gerbonara'
     generator_version: Named(str) = __version__
+    legacy_generator: Named(Array(str), name='host') = None
     uuid: UUID = field(default_factory=UUID)
     page_settings: PageSettings = field(default_factory=PageSettings)
+    legacy_page: Named(Array(int), name='page') = None
+    legacy_paper: Named(str, name='paper') = None
     title_block: TitleBlock = None
     # The doc says this is expected, but eeschema barfs when it's there.
     # path: SheetPath = field(default_factory=SheetPath)
@@ -607,12 +650,14 @@ class Schematic:
     no_connects: List(NoConnect) = field(default_factory=list)
     rule_areas: List(RuleArea) = field(default_factory=list)
     netclass_flags: List(NetclassFlag) = field(default_factory=list)
+    bus_aliases: List(BusAlias) = field(default_factory=list)
     bus_entries: List(BusEntry) = field(default_factory=list)
     wires: List(Wire) = field(default_factory=list)
     buses: List(Bus) = field(default_factory=list)
     images: List(gr.Image) = field(default_factory=list)
     polylines: List(Polyline) = field(default_factory=list)
-    circles: List(gr.Circle) = field(default_factory=list)
+    circles: List(Circle) = field(default_factory=list)
+    rectangles: List(Rectangle) = field(default_factory=list)
     texts: List(Text) = field(default_factory=list)
     text_boxes: List(TextBox) = field(default_factory=list)
     local_labels: List(LocalLabel) = field(default_factory=list)
@@ -620,7 +665,7 @@ class Schematic:
     hierarchical_labels: List(HierarchicalLabel) = field(default_factory=list)
     symbols: List(SymbolInstance) = field(default_factory=list)
     subsheets: List(Subsheet) = field(default_factory=list)
-    sheet_instances: Named(List(SubsheetCrosslinkSheet)) = field(default_factory=list)
+    sheet_instances: Named(Array(SubsheetCrosslinkSheet)) = field(default_factory=list)
     symbol_instances: Named(Array(SymbolCrosslinkProject)) = field(default_factory=list)
     embedded_fonts: Named(YesNoAtom()) = False
     _ : SEXP_END = None

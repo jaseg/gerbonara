@@ -1,6 +1,8 @@
 
 import string
 import math
+import base64
+import textwrap
 
 from .sexp import *
 from .base_types import *
@@ -325,13 +327,28 @@ class DimensionStyle:
     keep_text_aligned: Flag() = False
 
 
+@sexp_type('data')
+class Base64Blob:
+    @classmethod
+    def __map__(kls, obj, parent=None, path=''):
+        _data, *content = obj
+        for x in content[:10]:
+            print(str(x))
+        return base64.b64decode(''.join(map(str, content)))
+
+    @classmethod
+    def __sexp__(kls, value):
+        encoded = base64.b64encode(value).decode()
+        yield [Atom.data, *textwrap.wrap(encoded, 76)]
+
+
 @sexp_type('image')
 class Image:
     at: AtPos = field(default_factory=AtPos)
     scale: Named(float) = None
     layer: Named(str) = None
     uuid: UUID = field(default_factory=UUID)
-    data: str = ''
+    data: Base64Blob = ''
 
     def offset(self, x=0, y=0):
         self.at = self.at.with_offset(x, y)

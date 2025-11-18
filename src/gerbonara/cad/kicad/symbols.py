@@ -26,7 +26,7 @@ from .primitives import kicad_mid_to_center_arc, Margins
 
 PIN_ETYPE = AtomChoice(Atom.input, Atom.output, Atom.bidirectional, Atom.tri_state, Atom.passive, Atom.free,
                        Atom.unspecified, Atom.power_in, Atom.power_out, Atom.open_collector, Atom.open_emitter,
-                       Atom.no_connect)
+                       Atom.no_connect, Atom.unconnected)
 
 
 PIN_STYLE = AtomChoice(Atom.line, Atom.inverted, Atom.clock, Atom.inverted_clock, Atom.input_low, Atom.clock_low,
@@ -251,11 +251,19 @@ class Circle:
                   **self.stroke.svg_attrs(colorscheme.lines))
 
 
+@sexp_type('radius')
+class ArcRadius:
+    at: AtPos = field(default_factory=AtPos)
+    length: Named(float) = 0.0
+    angles: Rename(XYCoord) = field(default_factory=XYCoord)
+
+
 @sexp_type('arc')
 class Arc:
     start: Rename(XYCoord) = field(default_factory=XYCoord)
     mid: Rename(XYCoord) = field(default_factory=XYCoord)
     end: Rename(XYCoord) = field(default_factory=XYCoord)
+    radius: ArcRadius = None
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
 
@@ -419,13 +427,13 @@ class Property(TextMixin):
 
 @sexp_type('pin_numbers')
 class PinNumberSpec:
-    hide: Flag() = False
+    hide: Named(YesNoAtom()) = False
 
 
 @sexp_type('pin_names')
 class PinNameSpec:
     offset: OmitDefault(Named(float)) = 0.508
-    hide: Flag() = False
+    hide: OmitDefault(Named(YesNoAtom())) = False
 
 @sexp_type('text_box')
 class TextBox:
