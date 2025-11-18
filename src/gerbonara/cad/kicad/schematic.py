@@ -602,30 +602,6 @@ class TextBox(TextMixin):
         yield from gr.TextBox.render(self, variables=variables)
 
 
-@sexp_type('comment')
-class TitleComment:
-    @classmethod
-    def __map__(kls, obj, parent=None, path=''):
-        return '\n'.join(obj[2::2])
-
-    @classmethod
-    def __sexp__(kls, value):
-        l = [Atom.comment]
-        for i, line in enumerate(value.splitlines(), start=1):
-            l.append(i)
-            l.append(line.rstrip('\n'))
-        return l
-
-
-@sexp_type('title_block')
-class TitleBlock:
-    title: Named(str) = ''
-    date: Named(str) = ''
-    rev: Named(str) = ''
-    company: Named(str) = ''
-    comment: TitleComment = None
-
-
 @sexp_type('lib_symbols')
 class LocalLibrary:
     symbols: List(Symbol) = field(default_factory=list)

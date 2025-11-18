@@ -21,6 +21,7 @@ class TextLayer:
 
 @sexp_type('gr_text')
 class Text(TextMixin, BBoxMixin):
+    locked: Flag() = False
     text: str = ''
     at: AtPos = field(default_factory=AtPos)
     layer: TextLayer = field(default_factory=TextLayer)
@@ -74,6 +75,7 @@ class TextBox(BBoxMixin):
 
 @sexp_type('gr_line')
 class Line(WidthMixin):
+    locked: Flag() = False
     start: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     angle: Named(float) = None # wat
@@ -125,6 +127,7 @@ class FillMode:
 
 @sexp_type('gr_rect')
 class Rectangle(BBoxMixin, WidthMixin):
+    locked: Flag() = False
     start: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     layer: Named(str) = None
@@ -158,6 +161,7 @@ class Rectangle(BBoxMixin, WidthMixin):
 
 @sexp_type('gr_circle')
 class Circle(BBoxMixin, WidthMixin):
+    locked: Flag() = False
     center: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     layer: Named(str) = None
@@ -191,6 +195,7 @@ class Circle(BBoxMixin, WidthMixin):
 
 @sexp_type('gr_arc')
 class Arc(WidthMixin, BBoxMixin):
+    locked: Flag() = False
     start: Rename(XYCoord) = None
     mid: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
@@ -278,9 +283,11 @@ class Polygon(BBoxMixin, WidthMixin):
 
 @sexp_type('gr_curve')
 class Curve(BBoxMixin, WidthMixin):
+    locked: Flag() = False
     pts: PointList = field(default_factory=list)
     layer: Named(str) = None
     width: Named(float) = None
+    stroke: Stroke = field(default_factory=Stroke)
     uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
 
@@ -295,6 +302,8 @@ class Curve(BBoxMixin, WidthMixin):
 class AnnotationBBox:
     start: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
+    width: Named(float) = None
+    fill: FillMode = False
  
     def render(self, variables=None):
         return []

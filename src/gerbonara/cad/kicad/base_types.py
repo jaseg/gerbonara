@@ -67,6 +67,7 @@ class UUID:
 
 @sexp_type('group')
 class Group:
+    locked: Flag() = False
     name: str = ""
     id: Named(str) = None
     uuid: UUID = field(default_factory=UUID)

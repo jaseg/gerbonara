@@ -120,6 +120,7 @@ class ZoneFill:
     thermal_gap: Named(float) = 0.508
     thermal_bridge_width: Named(float) = 0.508
     smoothing: ZoneSmoothing = None
+    radius: Named(float) = 0.125
     island_removal_mode: Named(int) = None
     island_area_min: Named(float) = None
     hatch_thickness: Named(float) = None
@@ -148,10 +149,22 @@ class FillSegment:
 class ZonePolygon:
     pts: ArcPointList = field(default_factory=list)
 
+
 @sexp_type('placement')
 class ZonePlacement:
     enabled: Named(YesNoAtom()) = False
     sheetname: Named(str) = ''
+
+
+@sexp_type('teardrop')
+class TeardropSpec:
+    type: Named(AtomChoice(Atom.padvia, Atom.pad_end)) = Atom.padvia
+
+
+@sexp_type('attr')
+class ZoneAttr:
+    teardrop: TeardropSpec = None
+
 
 @sexp_type('zone')
 class Zone:
@@ -164,6 +177,7 @@ class Zone:
     name: Named(str) = None
     hatch: Hatch = None
     priority: OmitDefault(Named(int)) = 0
+    attr: ZoneAttr = None
     connect_pads: PadConnection = field(default_factory=PadConnection)
     min_thickness: Named(float) = 0.254
     filled_areas_thickness: Named(YesNoAtom()) = True
@@ -220,5 +234,33 @@ class Margins:
     top: float = 0.0
     right: float = 0.0
     bottom: float = 0.0
+
+
+@sexp_type('comment')
+class TitleComment:
+    @classmethod
+    def __map__(kls, obj, parent=None, path=''):
+        lines = []
+        for lineno, content in zip(obj[1::2], obj[2::2]):
+            while lineno > len(lines):
+                lines.append('')
+            lines[lineno-1] = content
+
+    @classmethod
+    def __sexp__(kls, value):
+        l = [Atom.comment]
+        for i, line in enumerate(value.splitlines(), start=1):
+            l.append(i)
+            l.append(line.rstrip('\n'))
+        return l
+
+
+@sexp_type('title_block')
+class TitleBlock:
+    title: Named(str) = ''
+    date: Named(str) = ''
+    rev: Named(str) = ''
+    company: Named(str) = ''
+    comment: TitleComment = None
 
 

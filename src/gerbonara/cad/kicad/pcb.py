@@ -60,6 +60,10 @@ def gn_layer_to_kicad(layer, flip=False):
 class GeneralSection:
     thickness: Named(float) = 1.60
     legacy_teardrops: Named(YesNoAtom()) = False
+    drawings: Named(int) = 4
+    tracks: Named(int) = 14
+    modules: Named(int) = 2
+    nets: Named(int) = 4
 
 
 @sexp_type('layers')
@@ -92,62 +96,15 @@ class StackupSettings:
     castellated_pads: Named(YesNoAtom()) = None
     edge_plating: Named(YesNoAtom()) = None
 
-
-@sexp_type('pcbplotparams')
-class ExportSettings:
-    layerselection: Named(Atom) = None
-    plot_on_all_layers_selection: Named(Atom) = None
-    disableapertmacros: Named(YesNoAtom()) = False
-    usegerberextensions: Named(YesNoAtom()) = True
-    usegerberattributes: Named(YesNoAtom()) = True
-    usegerberadvancedattributes: Named(YesNoAtom()) = True
-    creategerberjobfile: Named(YesNoAtom()) = True
-    dashed_line_dash_ratio: Named(float) = 12.0
-    dashed_line_gap_ratio: Named(float) = 3.0
-    svguseinch: Named(YesNoAtom()) = False
-    svgprecision: Named(float) = 4
-    excludeedgelayer: Named(YesNoAtom()) = False
-    plotframeref: Named(YesNoAtom()) = False
-    viasonmask: Named(YesNoAtom()) = False
-    mode: Named(int) = 1
-    useauxorigin: Named(YesNoAtom()) = False
-    hpglpennumber: Named(int) = 1
-    hpglpenspeed: Named(int) = 20
-    hpglpendiameter: Named(float) = 15.0
-    pdf_front_fp_property_popups: Named(YesNoAtom()) = True
-    pdf_back_fp_property_popups: Named(YesNoAtom()) = True
-    pdf_metadata: Named(YesNoAtom()) = True
-    dxfpolygonmode: Named(YesNoAtom()) = True
-    dxfimperialunits: Named(YesNoAtom()) = False
-    dxfusepcbnewfont: Named(YesNoAtom()) = True
-    psnegative: Named(YesNoAtom()) = False
-    psa4output: Named(YesNoAtom()) = False
-    plotreference: Named(YesNoAtom()) = True
-    plotvalue: Named(YesNoAtom()) = True
-    plotfptext: Named(YesNoAtom()) = True
-    plotinvisibletext: Named(YesNoAtom()) = False
-    sketchpadsonfab: Named(YesNoAtom()) = False
-    plotpadnumbers: Named(YesNoAtom()) = False
-    subtractmaskfromsilk: Named(YesNoAtom()) = False
-    outputformat: Named(int) = 1
-    mirror: Named(YesNoAtom()) = False
-    drillshape: Named(int) = 0
-    scaleselection: Named(int) = 1
-    outputdirectory: Named(str) = "gerber"
-
-
 @sexp_type('setup')
 class BoardSetup:
-    stackup: OmitDefault(StackupSettings) = field(default_factory=StackupSettings)
-    pad_to_mask_clearance: Named(float) = None
-    solder_mask_min_width: Named(float) = None
-    pad_to_past_clearance: Named(float) = None
-    pad_to_paste_clearance_ratio: Named(float) = None
-    allow_soldermask_bridges_in_footprints: Named(YesNoAtom()) = False
-    tenting: Named(Array(AtomChoice(Atom.front, Atom.back))) = field(default_factory=lambda: [Atom.front, Atom.back])
-    aux_axis_origin: Rename(XYCoord) = None
-    grid_origin: Rename(XYCoord) = None
-    export_settings: ExportSettings = field(default_factory=ExportSettings)
+    @classmethod
+    def __map__(kls, obj, parent=None, path=''):
+        return obj
+
+    @classmethod
+    def __sexp__(kls, value):
+        yield value
 
 
 @sexp_type('segment')
@@ -249,6 +206,7 @@ class Via(BBoxMixin):
     remove_unused_layers: Flag() = False
     keep_end_layers: Flag() = False
     free: Named(YesNoAtom()) = False
+    zone_layer_connections: Named(Array(str)) = field(default_factory=list)
     net: Named(int) = 0
     uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
@@ -310,8 +268,11 @@ class Board:
     _version: Named(int, name='version') = 20230517
     generator: Named(str) = Atom.gerbonara
     generator_version: Named(str) = Atom.gerbonara
+    legacy_generator: Named(Array(str), name='host') = None
     general: GeneralSection = None
     page: PageSettings = None
+    legacy_paper: Named(str, name='paper') = None
+    title_block: TitleBlock = None
     layers: Named(Array(Untagged(LayerSettings))) = field(default_factory=list)
     setup: BoardSetup = field(default_factory=BoardSetup)
     properties: List(Property) = field(default_factory=list)

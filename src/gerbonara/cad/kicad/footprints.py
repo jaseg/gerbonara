@@ -329,6 +329,19 @@ class Chamfer:
     bottom_right: Flag() = False
 
 
+@sexp_type('teardrops')
+class TeardropSpec:
+    best_length_ratio: Named(float) = 1.0
+    max_length: Named(float) = 2.0
+    best_width_ratio: Named(float) = 1.0
+    max_width: Named(float) = 2.0
+    curve_points: Named(int) = 0
+    filter_ratio: Named(float) = 0.9
+    enabled: Named(YesNoAtom()) = True
+    allow_two_segments: Named(YesNoAtom()) = True
+    prefer_zone_connections: Named(YesNoAtom()) = True
+
+
 @sexp_type('pad')
 class Pad(NetMixin):
     number: str = None
@@ -342,6 +355,7 @@ class Pad(NetMixin):
     properties: List(Property) = field(default_factory=list)
     remove_unused_layers: Named(YesNoAtom()) = False
     keep_end_layers: Named(YesNoAtom()) = False
+    zone_layer_connections: Named(Array(str)) = field(default_factory=list)
     uuid: UUID = field(default_factory=UUID)
     rect_delta: Rename(XYCoord) = None
     roundrect_rratio: Named(float) = None
@@ -354,6 +368,7 @@ class Pad(NetMixin):
     pin_function: Named(str) = None
     pintype: Named(str) = None
     pinfunction: Named(str) = None
+    teardrops: TeardropSpec = None
     die_length: Named(float) = None
     solder_mask_margin: Named(float) = None
     solder_paste_margin: Named(float) = None
