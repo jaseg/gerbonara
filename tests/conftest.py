@@ -66,11 +66,22 @@ def _update_repo_cache(lib_dir, repo_url, tag):
     if not lib_dir.is_dir():
         print(f'Checking out KiCad footprint repo tag {tag}')
         subprocess.run(['git', '-c', 'advice.detachedHead=false', 'clone', '--branch', tag, '--depth', '1', repo_url, str(lib_dir)], check=True)
+        return True
+
     else:
         print(f'Found cached KiCad footprint checkout, updating to {tag}')
-        subprocess.run(['git', '-C', str(lib_dir), 'fetch', '--depth', '1', 'origin', tag], check=True)
-        subprocess.run(['git', '-c', 'advice.detachedHead=false', '-C', str(lib_dir), 'reset', '--hard', tag], check=True)
-        subprocess.run(['git', '-C', str(lib_dir), 'clean', '--force', '-d', '-x'], check=True)
+        res = subprocess.run(['git', '-C', str(lib_dir), 'rev-parse', 'HEAD', f'{tag}^{{commit}}'], check=True, capture_output=True, text=True)
+        head_commit, tag_commit = res.stdout.strip().splitlines()
+        print('got commits', head_commit, tag_commit)
+        if head_commit != tag_commit:
+            subprocess.run(['git', '-C', str(lib_dir), 'fetch', '--depth', '1', 'origin', tag], check=True)
+            subprocess.run(['git', '-c', 'advice.detachedHead=false', '-C', str(lib_dir), 'reset', '--hard', tag], check=True)
+            subprocess.run(['git', '-C', str(lib_dir), 'clean', '--force', '-d', '-x'], check=True)
+            return True
+        else:
+            print('Up to date, only cleaning.')
+            subprocess.run(['git', '-C', str(lib_dir), 'clean', '--force', '-d', '-x'], check=True)
+            return False
 
 
 def pytest_addoption(parser):
@@ -102,31 +113,38 @@ def pytest_configure(config):
     else:
         config.kicad_source_dir = config.cache.mkdir('kicad-source') / 'repo'
 
+    did_updates = False
     is_pytest_controller = 'PYTEST_XDIST_WORKER' not in os.environ
     if is_pytest_controller and not config.getoption("--use-cached-data"):
         # Update cached library repos unless they are overridden from outside.
         if not os.environ.get('KICAD_FOOTPRINTS'):
             tag = config.getini('kicad_footprints_tag')
-            _update_repo_cache(config.kicad_footprints_libdir, 'https://gitlab.com/kicad/libraries/kicad-footprints', tag)
+            did_updates |= _update_repo_cache(config.kicad_footprints_libdir, 'https://gitlab.com/kicad/libraries/kicad-footprints', tag)
 
         if not os.environ.get('KICAD_SYMBOLS'):
             tag = config.getini('kicad_symbols_tag')
-            _update_repo_cache(config.kicad_symbols_libdir, 'https://gitlab.com/kicad/libraries/kicad-symbols', tag)
+            did_updates |= _update_repo_cache(config.kicad_symbols_libdir, 'https://gitlab.com/kicad/libraries/kicad-symbols', tag)
 
         if not os.environ.get('KICAD_SOURCE'):
             tag = config.getini('kicad_source_tag')
-            _update_repo_cache(config.kicad_source_dir, 'https://gitlab.com/kicad/code/kicad', tag)
+            did_updates |= _update_repo_cache(config.kicad_source_dir, 'https://gitlab.com/kicad/code/kicad', tag)
 
     tag = config.getini("kicad_container_tag")
     config.kicad_container = os.environ.get('KICAD_CONTAINER', f'registry.hub.docker.com/kicad/kicad:{tag}')
 
     if is_pytest_controller and not config.getoption("--use-cached-data"):
-        print('Updating podman image')
-        subprocess.run(['podman', 'pull', config.kicad_container], check=True)
+        print('Checking podman image')
+        res = subprocess.run(['podman', 'image', 'exists', config.kicad_container])
+        if res.returncode:
+            print('Updating podman image')
+            subprocess.run(['podman', 'pull', config.kicad_container], check=True)
+            did_updates = True
+        else:
+            print('Up to date.')
 
     config.image_support = ImageSupport(config.cache.mkdir('image_cache'), config.kicad_container)
 
-    if is_pytest_controller and not config.getoption("--use-cached-data"):
+    if is_pytest_controller and did_updates and not config.getoption("--use-cached-data"):
         print('Checking KiCad footprint library render cache')
         with multiprocessing.pool.ThreadPool() as pool: # use thread pool here since we're only monitoring podman processes 
             lib_dirs = list(config.kicad_footprints_libdir.glob('*.pretty'))
