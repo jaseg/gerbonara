@@ -60,10 +60,14 @@ def gn_layer_to_kicad(layer, flip=False):
 class GeneralSection:
     thickness: Named(float) = 1.60
     legacy_teardrops: Named(YesNoAtom()) = False
-    drawings: Named(int) = 4
-    tracks: Named(int) = 14
-    modules: Named(int) = 2
-    nets: Named(int) = 4
+    drawings: Named(int) = None
+    tracks: Named(int) = None
+    zones: Named(int) = None
+    modules: Named(int) = None
+    nets: Named(int) = None
+    links: Named(int) = None
+    no_connects: Named(int) = None
+    area: Named(Array(float)) = None
 
 
 @sexp_type('layers')
@@ -112,8 +116,10 @@ class TrackSegment(BBoxMixin):
     start: Rename(XYCoord) = field(default_factory=XYCoord)
     end: Rename(XYCoord) = field(default_factory=XYCoord)
     width: Named(float) = 0.5
-    layer: Named(str) = 'F.Cu'
     locked: Flag() = False
+    layer: Named(str) = 'F.Cu'
+    extra_layers: Named(Array(str), name='layers') = field(default_factory=list)
+    solder_mask_margin: Named(float) = None
     net: Named(int) = 0
     uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
@@ -126,6 +132,15 @@ class TrackSegment(BBoxMixin):
     def __post_init__(self):
         self.start = XYCoord(self.start)
         self.end = XYCoord(self.end)
+
+    def __after_parse__(self, parent):
+        if self.extra_layers:
+            self.layer, *self.extra_layers = self.extra_layers
+
+    def __before_sexp__(self):
+        if self.extra_layers:
+            self.extra_layers.insert(0, self.layer)
+            self.layer = None
 
     @property
     def layer_mask(self):
@@ -195,6 +210,13 @@ class TrackArc(BBoxMixin):
         self.end = self.end.with_offset(x, y)
 
 
+@sexp_type('tenting')
+class Tenting:
+    front: Flag() = False
+    back: Flag() = False
+    none: Flag() = False
+
+
 @sexp_type('via')
 class Via(BBoxMixin):
     via_type: AtomChoice(Atom.blind, Atom.micro) = None
@@ -203,6 +225,9 @@ class Via(BBoxMixin):
     size: Named(float) = 0.8
     drill: Named(float) = 0.4
     layers: Named(Array(str)) = field(default_factory=lambda: ['F.Cu', 'B.Cu'])
+    teardrops: gr.TeardropSpec = None
+    tenting: Tenting = None
+    padstack: gr.PadStack = None
     remove_unused_layers: Flag() = False
     keep_end_layers: Flag() = False
     free: Named(YesNoAtom()) = False
@@ -262,7 +287,48 @@ class Via(BBoxMixin):
         self.at = self.at.with_offset(x, y)
 
 
-SUPPORTED_FILE_FORMAT_VERSIONS = [20210108, 20211014, 20221018, 20230517]
+@sexp_type('net_class')
+class LegacyNetclass:
+    name: str = ''
+    description: str = ''
+    clearance: Named(float) = None
+    trace_width: Named(float) = None
+    via_dia: Named(float) = None
+    via_drill: Named(float) = None
+    uvia_dia: Named(float) = None
+    uvia_drill: Named(float) = None
+    diff_pair_width: Named(float) = None
+    diff_pair_gap: Named(float) = None
+    nets: Rename(List(Named(str)), name='add_net') = field(default_factory=list)
+
+
+@sexp_type('generated')
+class GeneratedPatterns:
+    type: Named(Atom) = ''
+    name: Named(str) = ''
+    layer: Named(str) = ''
+    locked: Flag() = False
+    members: Named(Array(Atom), name='members') = field(default_factory=list)
+    _ : SEXP_END = None
+    params: dict = field(default_factory=dict)
+
+    def __catchall__(self, sexp_value, path=''):
+        key, value = sexp_value
+        self.params[key] = value
+
+    @classmethod
+    def __sexp__(kls, value):
+        return [kls.name_atom,
+             ['type', value.type],
+             ['name', value.name],
+             ['layer', value.layer],
+             ['locked', ('true' if value.locked else 'false')],
+             *[[k, v] for k, v in value.params.items()],
+             ['members', *value.members]]
+
+
+
+SUPPORTED_FILE_FORMAT_VERSIONS = [20200119, 20200512, 20210108, 20211014, 20220621, 20221018, 20230517, 20240706, 20240922, 20241229]
 @sexp_type('kicad_pcb')
 class Board:
     _version: Named(int, name='version') = 20230517
@@ -270,18 +336,21 @@ class Board:
     generator_version: Named(str) = Atom.gerbonara
     legacy_generator: Named(Array(str), name='host') = None
     general: GeneralSection = None
-    page: PageSettings = None
-    legacy_paper: Named(str, name='paper') = None
+    paper: PageSettings = None
+    legacy_page: Rename(PageSettings, 'page') = None
     title_block: TitleBlock = None
     layers: Named(Array(Untagged(LayerSettings))) = field(default_factory=list)
     setup: BoardSetup = field(default_factory=BoardSetup)
     properties: List(Property) = field(default_factory=list)
     nets: List(Net) = field(default_factory=list)
+    legacy_netclasses: List(LegacyNetclass) = field(default_factory=list)
     footprints: List(Footprint) = field(default_factory=list)
+    legacy_footprints: Rename(List(Footprint), 'module') = field(default_factory=list)
     # Graphical elements
     texts: List(gr.Text) = field(default_factory=list)
     text_boxes: List(gr.TextBox) = field(default_factory=list)
     lines: List(gr.Line) = field(default_factory=list)
+    targets: List(gr.Target) = field(default_factory=list)
     rectangles: List(gr.Rectangle) = field(default_factory=list)
     circles: List(gr.Circle) = field(default_factory=list)
     arcs: List(gr.Arc) = field(default_factory=list)
@@ -296,6 +365,7 @@ class Board:
     # Other stuff
     zones: List(Zone) = field(default_factory=list)
     groups: List(Group) = field(default_factory=list)
+    generated_patterns: List(GeneratedPatterns) = field(default_factory=list)
     embedded_fonts: Named(YesNoAtom()) = False
 
     _ : SEXP_END = None
@@ -462,6 +532,8 @@ class Board:
             fp.board = self
 
         self.nets = {net.index: net.name for net in self.nets}
+        if self.legacy_page:
+            self.paper, self.legacy_page = self.legacy_page, None
 
 
     def __before_sexp__(self):

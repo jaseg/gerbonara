@@ -120,7 +120,8 @@ class WrapperType:
 
     def __bind_field__(self, field):
         self.field = field
-        getattr(self.next_type, '__bind_field__', lambda x: None)(field)
+        if self.next_type is not Atom:
+            getattr(self.next_type, '__bind_field__', lambda x: None)(field)
 
     def __atoms__(self):
         if hasattr(self, 'name_atom'):
@@ -314,10 +315,20 @@ class _SexpTemplate:
                     setattr(inst, name, mapped)
 
             elif isinstance(v, list):
-                name, etype = kls.keys[v[0]]
-                mapped = map_sexp(etype, v, parent=inst, path=f'{path}/{kls.name_atom}')
-                if mapped is not None:
-                    setattr(inst, name, mapped)
+                key = v[0]
+                if key in kls.keys:
+                    name, etype = kls.keys[key]
+                    mapped = map_sexp(etype, v, parent=inst, path=f'{path}/{kls.name_atom}')
+                    if mapped is not None:
+                        setattr(inst, name, mapped)
+
+                elif hasattr(inst, '__catchall__'):
+                    inst.__catchall__(v, path=f'{path}/{kls.name_atom}')
+
+                else:
+                    #print('class has keys:')
+                    #print('\n'.join(map(str, kls.keys)))
+                    raise TypeError(f'Unhandled keyed argument {v!r} while parsing {kls}')
 
             else:
                 try:

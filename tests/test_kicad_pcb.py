@@ -20,7 +20,8 @@ from gerbonara.cad.kicad.pcb import Board
 
 def test_load_kicad_pcb(kicad_pcb_file):
     if kicad_pcb_file.name in [
-            # contains legacy syntax
+            'fakeboard.kicad_pcb', # malformed test file
+            'ZoneFill-4.0.7.kicad_pcb', # Super old version
             ]:
         pytest.skip()
     pcb = Board.open(kicad_pcb_file)

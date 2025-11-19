@@ -600,6 +600,14 @@ class DrawnProperty(TextMixin):
         self.value = value
 
 
+@sexp_type('chamfer')
+class Chamfer:
+    top_left: Flag() = False
+    top_right: Flag() = False
+    bottom_left: Flag() = False
+    bottom_right: Flag() = False
+
+
 if __name__ == '__main__':
     class Foo:
         pass

@@ -40,12 +40,14 @@ class TextBox(BBoxMixin):
     text: str = ''
     start: Named(XYCoord) = None
     end: Named(XYCoord) = None
+    margins: Margins = None
     pts: PointList = field(default_factory=list)
     angle: OmitDefault(Named(float)) = 0.0
     layer: Named(str) = ""
     uuid: UUID = field(default_factory=UUID)
     tstamp: Timestamp = None
     effects: TextEffect = field(default_factory=TextEffect)
+    border: Named(YesNoAtom()) = False
     stroke: Stroke = field(default_factory=Stroke)
     render_cache: RenderCache = None
 
@@ -110,6 +112,20 @@ class Line(WidthMixin):
         y_min, y_max = min(self.start.y, self.end.y), max(self.start.y, self.end.y)
         w = self.stroke.width if self.stroke else self.width
         return (x_min-w, y_max-w), (x_max+w, y_max+w)
+
+
+@sexp_type('target')
+class Target(WidthMixin):
+    shape: AtomChoice(Atom.x, Atom.plus) = 'plus'
+    at: AtPos = field(default_factory=AtPos)
+    size: Rename(XYCoord) = field(default_factory=XYCoord)
+    width: Named(float) = None
+    layer: Named(str) = None
+    uuid: UUID = field(default_factory=UUID)
+    tstamp: Timestamp = None
+
+    def render(self, variables=None):
+        raise NotImplementedError('Target objects are not implemented yet')
 
 
 @sexp_type('fill')
@@ -199,6 +215,7 @@ class Arc(WidthMixin, BBoxMixin):
     start: Rename(XYCoord) = None
     mid: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
+    angle: Named(float) = None
     layer: Named(str) = None
     width: Named(float) = None
     stroke: Stroke = field(default_factory=Stroke)
@@ -322,6 +339,7 @@ class DimensionFormat:
     precision: Named(int) = 7
     override_value: Named(str) = None
     suppress_zeros: Flag() = False
+    suppress_zeroes: Flag() = False
     
 
 @sexp_type('style')
@@ -356,6 +374,7 @@ class Image:
     at: AtPos = field(default_factory=AtPos)
     scale: Named(float) = None
     layer: Named(str) = None
+    locked: Flag() = False
     uuid: UUID = field(default_factory=UUID)
     data: Base64Blob = ''
 
@@ -365,6 +384,7 @@ class Image:
 
 @sexp_type('dimension')
 class Dimension:
+    value: float = None
     locked: Flag() = False
     dimension_type: Named(AtomChoice(Atom.aligned, Atom.leader, Atom.center, Atom.orthogonal, Atom.radial), name='type') = Atom.aligned
     layer: Named(str) = 'Dwgs.User'
@@ -372,6 +392,7 @@ class Dimension:
     tstamp: Timestamp = field(default_factory=Timestamp)
     pts: PointList = field(default_factory=list)
     height: Named(float) = None
+    width: Named(float) = None
     orientation: Named(int) = None
     leader_length: Named(float) = None
     gr_text: Text = None
@@ -383,4 +404,59 @@ class Dimension:
 
     def offset(self, x=0, y=0):
         self.pts = [pt.with_offset(x, y) for pt in self.pts]
+
+
+@sexp_type('options')
+class PadStackLayerOptions:
+    anchor: AtomChoice(Atom.rect, Atom.circle) = Atom.circle
+
+
+@sexp_type('primitives')
+class PadStackPrimitives:
+    vectors: Rename(Line, name='gr_vector') = field(default_factory=list)
+    lines: List(Line) = field(default_factory=list)
+    bboxes: List(AnnotationBBox) = field(default_factory=list)
+    arcs: List(Arc) = field(default_factory=list)
+    circles: List(Circle) = field(default_factory=list)
+    curves: List(Curve) = field(default_factory=list)
+    polygons:List(Polygon) = field(default_factory=list)
+
+
+@sexp_type('layer')
+class PadStackLayer:
+    layer: str = ''
+    shape: Named(AtomChoice(Atom.circle, Atom.rect, Atom.oval, Atom.trapezoid, Atom.roundrect, Atom.custom)) = Atom.circle
+    size: Rename(XYCoord) = field(default_factory=XYCoord)
+    rect_delta: Rename(XYCoord) = None
+    offset: Rename(XYCoord) = None
+    roundrect_rratio: Named(float) = None
+    chamfer_ratio: Named(float) = None
+    chamfer: Chamfer = None
+    primitives: PadStackPrimitives = None
+    options: PadStackLayerOptions = None
+    thermal_bridge_angle: Named(float) = None
+    thermal_gap: Named(float) = None
+    thermal_bridge_width: Named(float) = None
+    clearance: Named(float) = None
+    zone_connect: Named(int) = None
+
+
+@sexp_type('padstack')
+class PadStack:
+    mode: Named(AtomChoice('front_inner_back', 'custom')) = Atom.front_inner_back
+    layers: List(PadStackLayer) = field(default_factory=list)
+
+
+@sexp_type('teardrops')
+class TeardropSpec:
+    best_length_ratio: Named(float) = 1.0
+    max_length: Named(float) = 2.0
+    best_width_ratio: Named(float) = 1.0
+    max_width: Named(float) = 2.0
+    curve_points: Named(int) = 0
+    filter_ratio: Named(float) = 0.9
+    enabled: Named(YesNoAtom()) = True
+    allow_two_segments: Named(YesNoAtom()) = True
+    prefer_zone_connections: Named(YesNoAtom()) = True
+
 

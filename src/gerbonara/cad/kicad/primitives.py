@@ -157,17 +157,18 @@ class ZonePlacement:
 
 
 @sexp_type('teardrop')
-class TeardropSpec:
-    type: Named(AtomChoice(Atom.padvia, Atom.pad_end)) = Atom.padvia
+class ZoneTeardropSpec:
+    type: Named(AtomChoice(Atom.padvia, Atom.track_end)) = Atom.padvia
 
 
 @sexp_type('attr')
 class ZoneAttr:
-    teardrop: TeardropSpec = None
+    teardrop: ZoneTeardropSpec = None
 
 
 @sexp_type('zone')
 class Zone:
+    locked: Flag() = False
     net: Named(int) = 0
     net_name: Named(str) = ""
     layer: Named(str) = None

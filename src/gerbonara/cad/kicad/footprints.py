@@ -190,6 +190,7 @@ class Arc:
     mid: Rename(XYCoord) = None
     end: Rename(XYCoord) = None
     width: Named(float) = None
+    angle: Named(float) = None
     stroke: Stroke = None
     layer: Named(str) = None
     uuid: UUID = field(default_factory=UUID)
@@ -321,27 +322,6 @@ class CustomPadPrimitives:
         yield from self.curves
 
 
-@sexp_type('chamfer')
-class Chamfer:
-    top_left: Flag() = False
-    top_right: Flag() = False
-    bottom_left: Flag() = False
-    bottom_right: Flag() = False
-
-
-@sexp_type('teardrops')
-class TeardropSpec:
-    best_length_ratio: Named(float) = 1.0
-    max_length: Named(float) = 2.0
-    best_width_ratio: Named(float) = 1.0
-    max_width: Named(float) = 2.0
-    curve_points: Named(int) = 0
-    filter_ratio: Named(float) = 0.9
-    enabled: Named(YesNoAtom()) = True
-    allow_two_segments: Named(YesNoAtom()) = True
-    prefer_zone_connections: Named(YesNoAtom()) = True
-
-
 @sexp_type('pad')
 class Pad(NetMixin):
     number: str = None
@@ -368,7 +348,7 @@ class Pad(NetMixin):
     pin_function: Named(str) = None
     pintype: Named(str) = None
     pinfunction: Named(str) = None
-    teardrops: TeardropSpec = None
+    teardrops: gr.TeardropSpec = None
     die_length: Named(float) = None
     solder_mask_margin: Named(float) = None
     solder_paste_margin: Named(float) = None
@@ -378,6 +358,7 @@ class Pad(NetMixin):
     thermal_width: Named(float) = None
     thermal_gap: Named(float) = None
     options: OmitDefault(CustomPadOptions) = None
+    padstack: gr.PadStack = None
     primitives: OmitDefault(CustomPadPrimitives) = None
     _: SEXP_END = None
     footprint: object = field(repr=False, default=None)
@@ -579,8 +560,14 @@ class Model:
     hide: Flag() = False
     at: Named(XYZCoord) = field(default_factory=XYZCoord)
     offset: Named(XYZCoord) = field(default_factory=XYZCoord)
+    opacity: Named(float) = None
     scale: Named(XYZCoord) = field(default_factory=XYZCoord)
     rotate: Named(XYZCoord) = field(default_factory=XYZCoord)
+
+
+@sexp_type('component_classes')
+class FootprintComponentClasses:
+    classes: List(Named(str, name='class')) = field(default_factory=list)
 
 
 SUPPORTED_FILE_FORMAT_VERSIONS = [20210108, 20211014, 20221018, 20230517]
@@ -600,6 +587,7 @@ class Footprint:
     descr: Named(str) = None
     tags: Named(str) = None
     properties: List(DrawnProperty) = field(default_factory=list)
+    component_classes: FootprintComponentClasses = None
     path: Named(str) = None
     sheetname: Named(str) = None
     sheetfile: Named(str) = None
