@@ -14,8 +14,8 @@ build:archlinux:
     GIT_SUBMODULE_STRATEGY: none
   script:
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
-    - pip3 install --user --break-system-packages wheel setuptools
-    - python3 setup.py sdist bdist_wheel
+    - pip3 install --user --break-system-packages uv
+    - ~/.local/bin/uv build
   artifacts:
     name: "gerbolyze-$CI_COMMIT_REF_NAME-gerbonara"
     paths:
