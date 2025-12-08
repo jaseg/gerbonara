@@ -885,10 +885,13 @@ class Footprint:
                 (self.zones if zones else []),
                 self.groups if groups else [])
 
-    def render(self, layer_stack, layer_map, x=0, y=0, rotation=0, text=False, flip=False, variables={}, cache=None):
+    def render(self, layer_stack, layer_map=None, x=0, y=0, rotation=0, text=False, flip=False, variables={}, cache=None):
         x += self.at.x
         y += self.at.y
         rotation += math.radians(self.at.rotation)
+
+        if layer_map is None:
+            layer_map = {kc_id: gn_id for kc_id, gn_id in LAYER_MAP_K2G.items() if gn_id in layer_stack}
 
         for obj in self.objects(pads=False, text=text, zones=False, groups=False):
             if not (layer := layer_map.get(obj.layer)):
@@ -946,8 +949,7 @@ class Footprint:
     def bounding_box(self, unit=MM):
         if not hasattr(self, '_bounding_box'):
             stack = LayerStack()
-            layer_map = {kc_id: gn_id for kc_id, gn_id in LAYER_MAP_K2G.items() if gn_id in stack}
-            self.render(stack, layer_map, x=0, y=0, rotation=0, flip=False, text=False, variables={})
+            self.render(stack, layer_map=None, x=0, y=0, rotation=0, flip=False, text=False, variables={})
             self._bounding_box = stack.bounding_box(unit)
         return self._bounding_box
 
@@ -972,9 +974,7 @@ class FootprintInstance(Positioned):
         if self.value is not None:
             variables['VALUE'] = str(self.value)
 
-        layer_map = {kc_id: gn_id for kc_id, gn_id in LAYER_MAP_K2G.items() if gn_id in layer_stack}
-
-        self.sexp.render(layer_stack, layer_map,
+        self.sexp.render(layer_stack, layer_map=None,
                          x=x, y=y, rotation=rotation,
                          flip=flip,
                          text=(not self.hide_text),

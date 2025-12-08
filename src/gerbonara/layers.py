@@ -738,10 +738,7 @@ class LayerStack:
 
         :param prefix: Store output files under the given prefix inside the zip file
         """
-        if path.is_file():
-            if overwrite_existing:
-                path.unlink()
-            else:
+        if path.is_file() and not overwrite_existing:
                 raise ValueError('output zip file already exists and overwrite_existing is False')
 
         if gerber_settings and not excellon_settings:
