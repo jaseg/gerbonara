@@ -43,6 +43,7 @@ Tracker = "https://gitlab.com/gerbolyze/gerbonara/issues"
 
 [project.scripts]
 gerbonara = "gerbonara.cli:cli"
+protoserve = "gerbonara.cad.protoserve:main"
 
 [dependency-groups]
 dev = [

@@ -190,7 +190,10 @@ async def gerbers():
         board.layer_stack().save_to_zipfile(f)
         return Response(f.read_bytes(), mimetype='image/svg+xml')
 
+def main():
+    app.run()
+
 
 if __name__ == '__main__':
-    app.run()
+    main()
 
