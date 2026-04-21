@@ -29,6 +29,20 @@ from gerbonara.cam import FileSettings
 from .image_support import *
 from .utils import *
 
+def test_attribute_without_value_is_stored_as_empty_tuple():
+    data = '\n'.join([
+        '%FSLAX24Y24*%',
+        '%MOIN*%',
+        '%TF.FlagLike*%',
+        '%ADD10C,0.0100*%',
+        'D10*',
+        'X0Y0D03*',
+        'M02*',
+    ])
+
+    parsed = GerberFile.from_string(data)
+    assert parsed.file_attrs['.FlagLike'] == ()
+
 # Note: We have a testcase for gitlab issues #10/#11 in therm_1.gbr, but we can't test for that at this time because
 # gerbv chokes on that gerber file and does'nt produce any output.
 REFERENCE_FILES = [ l.strip() for l in '''
