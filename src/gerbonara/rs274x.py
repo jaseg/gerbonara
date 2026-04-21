@@ -599,6 +599,8 @@ class GerberParser:
     NUMBER = r"[\+-]?\d+"
     DECIMAL = r"[\+-]?\d+([.]?\d+)?"
     NAME = r"[a-zA-Z_$\.][a-zA-Z_$\.0-9+\-]+"
+    MAX_STEP_REPEAT_INSTANCES = 100000
+    MAX_STEP_REPEAT_RESULT_OBJECTS = 100000
 
     STATEMENT_REGEXES = {
         'coord': fr"(G0?[123]|G74|G75|G54|G55)?\s*(?:X\+?(-?)({NUMBER}))?(?:Y\+?(-?)({NUMBER}))?" \
@@ -1095,18 +1097,23 @@ class GerberParser:
             i, j = float(match['I']), float(match['J'])
             if x < 1 or y < 1:
                 raise SyntaxError('SR step-repeat X and Y values must be at least 1')
+            if x * y > self.MAX_STEP_REPEAT_INSTANCES:
+                raise SyntaxError('SR step-repeat expands to too many instances')
 
-            self.step_repeat_coords = [
-                    (i*nx, j*ny)
-                    for nx in range(x) for ny in range(y)] # the order matters here, cf. the spec
+            self.step_repeat_coords = (x, y, i, j)
             self.step_repeat_objects = []
 
         else:
+            x, y, i, j = self.step_repeat_coords
+            if len(self.step_repeat_objects) * x * y > self.MAX_STEP_REPEAT_RESULT_OBJECTS:
+                raise SyntaxError('SR step-repeat expands to too many objects')
+
             for obj in self.step_repeat_objects:
-                for dx, dy in self.step_repeat_coords: 
-                    new_obj = copy.copy(obj)
-                    new_obj.offset(dx, dy)
-                    self.target.objects.append(new_obj)
+                for nx in range(x):
+                    for ny in range(y):
+                        new_obj = copy.copy(obj)
+                        new_obj.offset(i * nx, j * ny)
+                        self.target.objects.append(new_obj)
             self.step_repeat_coords = None
             self.step_repeat_objects = None
 

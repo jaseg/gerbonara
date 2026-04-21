@@ -624,6 +624,23 @@ def test_syntax_error():
     assert '7' in exc_info.value.msg # lineno
 
 @filter_syntax_warnings
+def test_step_repeat_rejects_huge_instance_counts():
+    data = '\n'.join([
+        'G04 test*',
+        '%MOIN*%',
+        '%FSLAX24Y24*%',
+        '%ADD10C,0.0100*%',
+        '%SRX1000Y1000I1.0J1.0*%',
+        'D10*',
+        'X0000Y0000D03*',
+        '%SR*%',
+        'M02*',
+    ])
+
+    with pytest.raises(SyntaxError, match='too many instances'):
+        GerberFile.from_string(data)
+
+@filter_syntax_warnings
 @pytest.mark.parametrize('reference', MIN_REFERENCE_FILES, indirect=True)
 def test_invert_polarity(reference, tmpfile, img_support):
     tmp_gbr = tmpfile('Output gerber', '.gbr')
