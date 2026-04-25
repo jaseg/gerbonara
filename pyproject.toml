@@ -1,6 +1,6 @@
 [project]
 name = "gerbonara"
-version = "1.6.2"
+version = "1.6.3"
 description = "Tools to handle Gerber and Excellon files in Python"
 readme = "README.md"
 license = "Apache-2.0"
