@@ -578,6 +578,26 @@ class LayerStack:
                 else:
                     filemap['mechanical outline'] = [sorted(mechs.items(), key=lambda x: x[0])[0][1]]
 
+            # Altium exports .GPn for internal plane and .Gn for internal signal layers. Both types are inner copper layers
+            # Try to detect this comment in the header portion:  G04 Layer_Physical_Order=2*
+            # This resolves the collision and gives the correct stack order for free
+            inner_keys = [key for key in filemap if key.startswith('inner_') and key.endswith(' copper')]
+            if inner_keys:
+                order_re = re.compile(r'^G04\s+Layer_Physical_Order\s*=\s*\[?([0-9]+)\]?\*', re.MULTILINE)
+                by_order, unresolved = {}, {}
+                for key in inner_keys:
+                    for layer in filemap.pop(key):
+                        if (m := order_re.search(layer.read_text())):
+                            by_order[int(m[1])] = layer
+                        else:
+                            # No physical-order comment found, fall back to the old,
+                            # possibly-ambiguous key so the existing error handling can still catch real ambiguities.
+                            unresolved.setdefault(key, []).append(layer)
+                for num, layer in by_order.items():
+                    filemap[f'inner_{num:02d} copper'] = [layer]
+                for key, layers in unresolved.items():
+                    filemap[key] = filemap.get(key, []) + layers
+
         else:
             excellon_settings = None
 
