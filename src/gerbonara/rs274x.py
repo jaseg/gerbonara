@@ -813,7 +813,8 @@ class GerberParser:
                     self.target.objects.append(self.current_region)
                 self.current_region = go.Region(
                         polarity_dark=self.graphics_state.polarity_dark,
-                        unit=self.file_settings.unit)
+                        unit=self.file_settings.unit,
+                        attrs=copy.copy(self.graphics_state.object_attrs))
 
         elif op == '3':
             if self.current_region is None:
@@ -1041,7 +1042,8 @@ class GerberParser:
     def _parse_region_start(self, _match):
         self.current_region = go.Region(
                 polarity_dark=self.graphics_state.polarity_dark,
-                unit=self.file_settings.unit)
+                unit=self.file_settings.unit,
+                attrs=copy.copy(self.graphics_state.object_attrs))
 
     def _parse_region_end(self, _match):
         if self.current_region is None:

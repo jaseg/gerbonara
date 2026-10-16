@@ -289,9 +289,10 @@ class Region(GraphicObject):
     ``False`` for a counter-clockwise arc. ``cx`` and ``cy`` are the absolute coordinates of the arc's center. 
     """
 
-    def __init__(self, outline=None, arc_centers=None, *, unit=MM, polarity_dark=True):
+    def __init__(self, outline=None, arc_centers=None, *, unit=MM, polarity_dark=True, attrs=None):
         self.unit = unit
         self.polarity_dark = polarity_dark
+        self.attrs = {} if attrs is None else attrs
         self.outline = [] if outline is None else outline
         self.arc_centers = [] if arc_centers is None else arc_centers
         self.close()

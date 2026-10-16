@@ -43,6 +43,73 @@ def test_attribute_without_value_is_stored_as_empty_tuple():
     parsed = GerberFile.from_string(data)
     assert parsed.file_attrs['.FlagLike'] == ()
 
+def test_region_object_attributes():
+    data = '\n'.join([
+        '%FSLAX26Y26*%',
+        '%MOMM*%',
+        '%LPD*%',
+        '%TO.N,GND*%',
+        'G36*',
+        'X0Y0D02*',
+        'X1000000Y0D01*',
+        'X1000000Y1000000D01*',
+        'X0Y1000000D01*',
+        'X0Y0D01*',
+        'G37*',
+        '%TO.N,VCC*%',
+        'G36*',
+        'X2000000Y0D02*',
+        'X3000000Y0D01*',
+        'X3000000Y1000000D01*',
+        'X2000000Y0D01*',
+        'G37*',
+        '%TD*%',
+        'G36*',
+        'X4000000Y0D02*',
+        'X5000000Y0D01*',
+        'X5000000Y1000000D01*',
+        'X4000000Y0D01*',
+        'G37*',
+        'M02*',
+    ])
+
+    gnd, vcc, plain = GerberFile.from_string(data).objects
+    assert gnd.attrs == {'.N': ('GND',)}
+    assert vcc.attrs == {'.N': ('VCC',)}
+    assert plain.attrs == {}
+
+def test_region_object_attributes_survive_outline_split():
+    # A D02 inside G36/G37 starts a new region, which must carry the object attributes as well.
+    data = '\n'.join([
+        '%FSLAX26Y26*%',
+        '%MOMM*%',
+        '%LPD*%',
+        '%TO.N,GND*%',
+        'G36*',
+        'X0Y0D02*',
+        'X1000000Y0D01*',
+        'X1000000Y1000000D01*',
+        'X0Y0D01*',
+        'X2000000Y0D02*',
+        'X3000000Y0D01*',
+        'X3000000Y1000000D01*',
+        'X2000000Y0D01*',
+        'G37*',
+        '%TD*%',
+        'M02*',
+    ])
+
+    regions = GerberFile.from_string(data).objects
+    assert len(regions) == 2
+    assert all(reg.attrs == {'.N': ('GND',)} for reg in regions)
+
+def test_region_object_attributes_default_to_empty_dict():
+    from gerbonara.graphic_objects import Region
+
+    reg = Region()
+    assert reg.attrs == {}
+    assert Region().attrs is not reg.attrs
+
 # Note: We have a testcase for gitlab issues #10/#11 in therm_1.gbr, but we can't test for that at this time because
 # gerbv chokes on that gerber file and does'nt produce any output.
 REFERENCE_FILES = [ l.strip() for l in '''
