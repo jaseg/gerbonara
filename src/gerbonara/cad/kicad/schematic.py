@@ -653,6 +653,51 @@ class TextBox(TextMixin):
         yield from gr.TextBox.render(self, variables=variables)
 
 
+@sexp_type('border')
+class TableBorder:
+    external: Named(YesNoAtom()) = True
+    header: Named(YesNoAtom()) = True
+    stroke: Stroke = field(default_factory=Stroke)
+
+
+@sexp_type('separators')
+class TableSeparators:
+    rows: Named(YesNoAtom()) = True
+    cols: Named(YesNoAtom()) = True
+    stroke: Stroke = field(default_factory=Stroke)
+
+
+@sexp_type('span')
+class TableCellSpan:
+    columns: int = 1
+    rows: int = 1
+
+
+@sexp_type('table_cell')
+class TableCell:
+    text: str = ''
+    exclude_from_sim: Named(YesNoAtom()) = False
+    at: AtPos = field(default_factory=AtPos)
+    size: Rename(XYCoord) = field(default_factory=XYCoord)
+    margins: Margins = None
+    span: TableCellSpan = field(default_factory=TableCellSpan)
+    fill: OmitDefault(Fill) = None
+    effects: TextEffect = field(default_factory=TextEffect)
+    uuid: UUID = field(default_factory=UUID)
+
+
+# Cells are listed row by row, including the ones covered by another cell's span.
+@sexp_type('table')
+class Table:
+    column_count: Named(int) = 1
+    border: TableBorder = field(default_factory=TableBorder)
+    separators: TableSeparators = field(default_factory=TableSeparators)
+    column_widths: Named(Array(float)) = field(default_factory=list)
+    row_heights: Named(Array(float)) = field(default_factory=list)
+    cells: Named(Array(TableCell)) = field(default_factory=list)
+    uuid: UUID = None
+
+
 @sexp_type('lib_symbols')
 class LocalLibrary:
     symbols: List(Symbol) = field(default_factory=list)
@@ -688,6 +733,7 @@ class Schematic:
     beziers: List(Bezier) = field(default_factory=list)
     texts: List(Text) = field(default_factory=list)
     text_boxes: List(TextBox) = field(default_factory=list)
+    tables: List(Table) = field(default_factory=list)
     local_labels: List(LocalLabel) = field(default_factory=list)
     global_labels: List(GlobalLabel) = field(default_factory=list)
     hierarchical_labels: List(HierarchicalLabel) = field(default_factory=list)
