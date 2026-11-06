@@ -508,6 +508,7 @@ class Symbol:
     raw_name: str = None
     extends: Named(str) = None
     power: Named(AtomChoice(Atom('global'), Atom('local'), value_when_empty=True), omit_empty=False) = None
+    body_styles: Named(Array(object)) = None
     pin_numbers: OmitDefault(PinNumberSpec) = field(default_factory=PinNumberSpec)
     pin_names: OmitDefault(PinNameSpec) = field(default_factory=PinNameSpec)
     exclude_from_sim: OmitDefault(Named(YesNoAtom())) = False

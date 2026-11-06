@@ -69,6 +69,8 @@ def sexp(t, v):
             return []
         elif t in (int, float, str, Atom):
             return [t(v)]
+        elif t is object:
+            return [v]
         elif hasattr(t, '__sexp__'):
             return list(t.__sexp__(v))
         elif isinstance(t, list):
@@ -94,7 +96,7 @@ def map_sexp(t, v, parent=None, path=''):
         if t is not Atom and hasattr(t, '__map__'):
             return t.__map__(v, parent=parent)
 
-        elif t in (int, float, str, Atom):
+        elif t in (int, float, str, Atom, object):
             v, = v
             if not isinstance(v, t):
                 types = set({type(v), t})
