@@ -372,6 +372,8 @@ class FontSpec:
     thickness: Named(float) = None
     bold: OmitDefault(Named(LegacyCompatibleFlag())) = False
     italic: OmitDefault(Named(LegacyCompatibleFlag())) = False
+    # Schematic text only
+    color: Color = None
     line_spacing: Named(float) = None
 
 
@@ -401,6 +403,8 @@ class TextEffect:
     font: FontSpec = field(default_factory=FontSpec)
     justify: OmitDefault(Justify) = field(default_factory=Justify)
     hide: OmitDefault(Named(LegacyCompatibleFlag())) = False
+    # Hyperlink of schematic text
+    href: Named(str) = None
 
 
 class TextMixin:
