@@ -220,6 +220,7 @@ def label_shape_path_d(shape, w, h):
 
 @sexp_type('property')
 class DrawnProperty(TextMixin):
+    private: Flag() = False
     key: str = None
     value: str = None
     id: Named(int) = None
@@ -536,8 +537,8 @@ class Subsheet:
     # AFAICT this is completely redundant, just like the one in SymbolInstance
     instances: Named(Array(SubsheetCrosslinkProject)) = field(default_factory=list)
     _ : SEXP_END = None
-    sheet_name: object = field(default_factory=lambda: DrawnProperty('Sheetname', ''))
-    file_name: object = field(default_factory=lambda: DrawnProperty('Sheetfile', ''))
+    sheet_name: object = field(default_factory=lambda: DrawnProperty(key='Sheetname', value=''))
+    file_name: object = field(default_factory=lambda: DrawnProperty(key='Sheetfile', value=''))
     extra_properties: list = field(default_factory=list)
     schematic: object = field(repr=False, default=None)
 
