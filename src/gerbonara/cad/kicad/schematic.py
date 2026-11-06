@@ -340,6 +340,24 @@ class Pin:
     alternate: Named(str) = None
 
 
+@sexp_type('field')
+class VariantField:
+    name: Named(str) = ''
+    value: Named(str) = ''
+
+
+# Attributes that are None are inherited from the symbol or sheet.
+@sexp_type('variant')
+class Variant:
+    name: Named(str) = ''
+    dnp: Named(YesNoAtom()) = None
+    exclude_from_sim: Named(YesNoAtom()) = None
+    in_bom: Named(YesNoAtom()) = None
+    on_board: Named(YesNoAtom()) = None
+    in_pos_files: Named(YesNoAtom()) = None
+    fields: List(VariantField) = field(default_factory=list)
+
+
 # Suddenly, we're doing syntax like this is yaml or something.
 @sexp_type('path')
 class SymbolCrosslinkSheet:
@@ -348,6 +366,7 @@ class SymbolCrosslinkSheet:
     unit: Named(int) = 1
     value: OmitDefault(Named(str)) = None
     footprint: OmitDefault(Named(str)) = None
+    variants: List(Variant) = field(default_factory=list)
 
 
 @sexp_type('project')
@@ -466,6 +485,7 @@ class SymbolInstance:
 class SubsheetCrosslinkSheet:
     path: str = ''
     page: Named(str) = ''
+    variants: List(Variant) = field(default_factory=list)
 
 
 @sexp_type('project')
