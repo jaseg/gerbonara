@@ -412,7 +412,10 @@ class Property(TextMixin):
     value: str = None
     id: Named(int) = None
     at: AtPos = field(default_factory=AtPos)
-    show_name: Flag() = False
+    # These three are None when absent, so files without them round trip unchanged.
+    show_name: Named(LegacyCompatibleFlag()) = None
+    do_not_autoplace: Named(LegacyCompatibleFlag()) = None
+    hide: Named(LegacyCompatibleFlag()) = None
     effects: TextEffect = field(default_factory=TextEffect)
 
     # Alias value for text mixin
@@ -425,7 +428,8 @@ class Property(TextMixin):
         self.value = value
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield from TextMixin.to_svg(self, colorscheme.text)
+        if not self.hide:
+            yield from TextMixin.to_svg(self, colorscheme.text)
 
 
 @sexp_type('pin_numbers')

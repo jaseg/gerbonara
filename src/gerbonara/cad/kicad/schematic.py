@@ -311,7 +311,9 @@ class DrawnProperty(TextMixin):
     value: str = None
     id: Named(int) = None
     at: AtPos = field(default_factory=AtPos)
-    hide: Flag() = False
+    show_name: Named(LegacyCompatibleFlag()) = None
+    do_not_autoplace: Named(LegacyCompatibleFlag()) = None
+    hide: OmitDefault(Named(LegacyCompatibleFlag())) = False
     effects: TextEffect = field(default_factory=TextEffect)
     _: SEXP_END = None
     parent: object = None
