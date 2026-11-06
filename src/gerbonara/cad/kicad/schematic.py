@@ -693,6 +693,7 @@ class Schematic:
     hierarchical_labels: List(HierarchicalLabel) = field(default_factory=list)
     symbols: List(SymbolInstance) = field(default_factory=list)
     subsheets: List(Subsheet) = field(default_factory=list)
+    groups: List(Group) = field(default_factory=list)
     sheet_instances: Named(Array(SubsheetCrosslinkSheet)) = field(default_factory=list)
     symbol_instances: Named(Array(SymbolCrosslinkSheet)) = field(default_factory=list)
     embedded_fonts: Named(YesNoAtom()) = False
