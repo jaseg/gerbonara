@@ -359,8 +359,6 @@ class Base64Blob:
     @classmethod
     def __map__(kls, obj, parent=None, path=''):
         _data, *content = obj
-        for x in content[:10]:
-            print(str(x))
         return base64.b64decode(''.join(map(str, content)))
 
     @classmethod
