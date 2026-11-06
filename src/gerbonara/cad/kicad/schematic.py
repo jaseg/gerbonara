@@ -617,7 +617,6 @@ class Schematic:
     uuid: UUID = field(default_factory=UUID)
     page_settings: PageSettings = field(default_factory=PageSettings)
     legacy_page: Named(Array(int), name='page') = None
-    legacy_paper: Named(str, name='paper') = None
     title_block: TitleBlock = None
     # The doc says this is expected, but eeschema barfs when it's there.
     # path: SheetPath = field(default_factory=SheetPath)
