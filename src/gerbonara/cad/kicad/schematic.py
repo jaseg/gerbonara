@@ -195,6 +195,24 @@ class Rectangle:
     uuid: UUID = field(default_factory=UUID)
 
 
+@sexp_type('arc')
+class Arc:
+    start: Rename(XYCoord) = field(default_factory=XYCoord)
+    mid: Rename(XYCoord) = field(default_factory=XYCoord)
+    end: Rename(XYCoord) = field(default_factory=XYCoord)
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: OmitDefault(Fill) = None
+    uuid: UUID = field(default_factory=UUID)
+
+
+@sexp_type('bezier')
+class Bezier:
+    points: PointList = field(default_factory=list)
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: OmitDefault(Fill) = None
+    uuid: UUID = field(default_factory=UUID)
+
+
 def label_shape_path_d(shape, w, h):
     l, r = {
         Atom.input: '<]',
@@ -661,6 +679,8 @@ class Schematic:
     polylines: List(Polyline) = field(default_factory=list)
     circles: List(Circle) = field(default_factory=list)
     rectangles: List(Rectangle) = field(default_factory=list)
+    arcs: List(Arc) = field(default_factory=list)
+    beziers: List(Bezier) = field(default_factory=list)
     texts: List(Text) = field(default_factory=list)
     text_boxes: List(TextBox) = field(default_factory=list)
     local_labels: List(LocalLabel) = field(default_factory=list)
