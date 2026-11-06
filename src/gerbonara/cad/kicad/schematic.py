@@ -628,6 +628,11 @@ class Subsheet:
 
 @sexp_type('rule_area')
 class RuleArea:
+    # KiCad 10 lets rule areas set these attributes of the symbols inside them.
+    exclude_from_sim: Named(YesNoAtom()) = None
+    in_bom: Named(YesNoAtom()) = None
+    on_board: Named(YesNoAtom()) = None
+    dnp: Named(YesNoAtom()) = None
     polyline: Polyline = None
 
 
