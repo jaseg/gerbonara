@@ -621,7 +621,7 @@ class Schematic:
     title_block: TitleBlock = None
     # The doc says this is expected, but eeschema barfs when it's there.
     # path: SheetPath = field(default_factory=SheetPath)
-    lib_symbols: LocalLibrary = field(default_factory=list)
+    lib_symbols: LocalLibrary = field(default_factory=LocalLibrary)
     junctions: List(Junction) = field(default_factory=list)
     no_connects: List(NoConnect) = field(default_factory=list)
     rule_areas: List(RuleArea) = field(default_factory=list)
