@@ -256,7 +256,10 @@ class Wrap(WrapperType):
 
 class Array(WrapperType):
     def __map__(self, value, parent=None, path=''):
-        return [map_sexp(self.next_type, [elem], parent=parent, path=path) for elem in value]
+        # sexp_type classes map a whole (key ...) list, everything else maps a list of values.
+        whole = isinstance(self.next_type, type) and hasattr(self.next_type, 'name_atom')
+        return [map_sexp(self.next_type, elem if whole and isinstance(elem, list) else [elem], parent=parent, path=path)
+                for elem in value]
     
     def __sexp__(self, value):
         for e in value:

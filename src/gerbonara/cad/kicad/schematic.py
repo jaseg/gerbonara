@@ -464,7 +464,7 @@ class SubsheetCrosslinkSheet:
 @sexp_type('project')
 class SubsheetCrosslinkProject:
     project_name: str = ''
-    instances: List(SymbolCrosslinkSheet) = field(default_factory=list)
+    instances: List(SubsheetCrosslinkSheet) = field(default_factory=list)
 
 
 @sexp_type('pin')
@@ -528,7 +528,7 @@ class Subsheet:
     _properties: List(DrawnProperty) = field(default_factory=list)
     pins: List(SubsheetPin) = field(default_factory=list)
     # AFAICT this is completely redundant, just like the one in SymbolInstance
-    instances: Named(List(SubsheetCrosslinkProject)) = field(default_factory=list)
+    instances: Named(Array(SubsheetCrosslinkProject)) = field(default_factory=list)
     _ : SEXP_END = None
     sheet_name: object = field(default_factory=lambda: DrawnProperty('Sheetname', ''))
     file_name: object = field(default_factory=lambda: DrawnProperty('Sheetfile', ''))
@@ -641,7 +641,7 @@ class Schematic:
     symbols: List(SymbolInstance) = field(default_factory=list)
     subsheets: List(Subsheet) = field(default_factory=list)
     sheet_instances: Named(Array(SubsheetCrosslinkSheet)) = field(default_factory=list)
-    symbol_instances: Named(Array(SymbolCrosslinkProject)) = field(default_factory=list)
+    symbol_instances: Named(Array(SymbolCrosslinkSheet)) = field(default_factory=list)
     embedded_fonts: Named(YesNoAtom()) = False
     _ : SEXP_END = None
     original_filename: str = None
