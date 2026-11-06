@@ -218,6 +218,62 @@ def label_shape_path_d(shape, w, h):
         return d + f'L {e+r:.3f} {0:.3f} L {e:.3f} {r:.3f} Z'
 
 
+@sexp_type('property')
+class DrawnProperty(TextMixin):
+    key: str = None
+    value: str = None
+    id: Named(int) = None
+    at: AtPos = field(default_factory=AtPos)
+    show_name: Named(LegacyCompatibleFlag()) = None
+    do_not_autoplace: Named(LegacyCompatibleFlag()) = None
+    hide: OmitDefault(Named(LegacyCompatibleFlag())) = False
+    effects: TextEffect = field(default_factory=TextEffect)
+    _: SEXP_END = None
+    parent: object = None
+
+    def __after_parse__(self, parent=None):
+        self.parent = parent
+
+    # Alias value for text mixin
+    @property
+    def text(self):
+        if self.key == 'Reference' and getattr(self.parent, 'unit', 0) > 0:
+            return f'{self.value}{string.ascii_uppercase[self.parent.unit-1]}'
+        else:
+            return self.value
+
+    @text.setter
+    def text(self, value):
+        self.value = value
+
+    @property
+    def default_v_align(self):
+        return 'middle'
+
+    @property
+    def h_align(self):
+        align = self.effects.justify.h_str
+        if self.rotation in (90, 270):
+            align = {'left': 'right', 'right': 'left'}.get(align, align)
+        return align
+
+    @property
+    def rotation(self):
+        rot = self.at.rotation
+        rot += getattr(self.parent.at, 'rotation', 0)
+        return rot%360
+
+    @property
+    def mirrored(self):
+        if hasattr(self.parent, 'mirror'):
+            return self.parent.mirror.x, self.parent.mirror.y
+        return False, False
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        if not self.hide:
+            yield from TextMixin.to_svg(self, colorscheme.values)
+
+
 @dataclass
 class TextLabel(TextMixin):
     text: str = ''
@@ -303,62 +359,6 @@ class SymbolCrosslinkProject:
 class MirrorFlags:
     x: Flag() = False
     y: Flag() = False
-
-
-@sexp_type('property')
-class DrawnProperty(TextMixin):
-    key: str = None
-    value: str = None
-    id: Named(int) = None
-    at: AtPos = field(default_factory=AtPos)
-    show_name: Named(LegacyCompatibleFlag()) = None
-    do_not_autoplace: Named(LegacyCompatibleFlag()) = None
-    hide: OmitDefault(Named(LegacyCompatibleFlag())) = False
-    effects: TextEffect = field(default_factory=TextEffect)
-    _: SEXP_END = None
-    parent: object = None
-
-    def __after_parse__(self, parent=None):
-        self.parent = parent
-
-    # Alias value for text mixin
-    @property
-    def text(self):
-        if self.key == 'Reference' and self.parent.unit > 0:
-            return f'{self.value}{string.ascii_uppercase[self.parent.unit-1]}'
-        else:
-            return self.value
-
-    @text.setter
-    def text(self, value):
-        self.value = value
-
-    @property
-    def default_v_align(self):
-        return 'middle'
-
-    @property
-    def h_align(self):
-        align = self.effects.justify.h_str
-        if self.rotation in (90, 270):
-            align = {'left': 'right', 'right': 'left'}.get(align, align)
-        return align
-
-    @property
-    def rotation(self):
-        rot = self.at.rotation
-        rot += getattr(self.parent.at, 'rotation', 0)
-        return rot%360
-
-    @property
-    def mirrored(self):
-        if hasattr(self.parent, 'mirror'):
-            return self.parent.mirror.x, self.parent.mirror.y
-        return False, False
-
-    def to_svg(self, colorscheme=Colorscheme.KiCad):
-        if not self.hide:
-            yield from TextMixin.to_svg(self, colorscheme.values)
 
 
 @sexp_type('default_instance')
