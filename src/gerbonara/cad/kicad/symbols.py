@@ -503,7 +503,7 @@ class Unit:
 class Symbol:
     raw_name: str = None
     extends: Named(str) = None
-    power: Wrap(Flag()) = False
+    power: Named(AtomChoice(Atom('global'), Atom('local'), value_when_empty=True), omit_empty=False) = None
     pin_numbers: OmitDefault(PinNumberSpec) = field(default_factory=PinNumberSpec)
     pin_names: OmitDefault(PinNameSpec) = field(default_factory=PinNameSpec)
     exclude_from_sim: OmitDefault(Named(YesNoAtom())) = False

@@ -10,8 +10,9 @@ SEXP_END = type('SEXP_END', (), {})
 
 
 class AtomChoice:
-    def __init__(self, *choices):
+    def __init__(self, *choices, value_when_empty=None):
         self.choices = choices
+        self.value_when_empty = value_when_empty
 
     def __contains__(self, value):
         return value in self.choices
@@ -20,13 +21,16 @@ class AtomChoice:
         return self.choices
 
     def __map__(self, obj, parent=None):
+        if not obj and self.value_when_empty is not None:
+            return self.value_when_empty
         obj, = obj
         if obj not in self:
             raise TypeError(f'Invalid atom {obj} for {type(self)}, valid choices are: {", ".join(map(str, self.choices))}')
         return obj
 
     def __sexp__(self, value):
-        yield value
+        if value is not self.value_when_empty:
+            yield value
 
     def __str__(self):
         choices = '|'.join(map(str, self.choices))
@@ -151,9 +155,10 @@ class Named(WrapperType):
             return map_sexp(self.next_type, obj, parent=parent, path=f'{path}/{self.name_atom}')
 
     def __sexp__(self, value):
-        value = sexp(self.next_type, value)
         if value is None:
             return
+
+        value = sexp(self.next_type, value)
 
         if self.omit_empty and not value:
             return
