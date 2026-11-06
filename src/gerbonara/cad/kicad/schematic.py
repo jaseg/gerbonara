@@ -377,9 +377,13 @@ class SymbolInstance:
     at: AtPos = field(default_factory=AtPos)
     mirror: OmitDefault(MirrorFlags) = field(default_factory=MirrorFlags)
     unit: Named(int) = 1
+    # De Morgan body style. KiCad 9 renamed (convert ...) to (body_style ...).
+    convert: Named(int) = None
+    body_style: Named(int) = None
     exclude_from_sim: Named(YesNoAtom()) = False
     in_bom: Named(YesNoAtom()) = True
     on_board: Named(YesNoAtom()) = True
+    in_pos_files: Named(YesNoAtom()) = None
     dnp: Named(YesNoAtom()) = True
     fields_autoplaced: Named(YesNoAtom()) = True
     uuid: UUID = field(default_factory=UUID)
