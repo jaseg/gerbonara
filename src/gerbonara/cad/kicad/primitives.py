@@ -239,21 +239,8 @@ class Margins:
 
 @sexp_type('comment')
 class TitleComment:
-    @classmethod
-    def __map__(kls, obj, parent=None, path=''):
-        lines = []
-        for lineno, content in zip(obj[1::2], obj[2::2]):
-            while lineno > len(lines):
-                lines.append('')
-            lines[lineno-1] = content
-
-    @classmethod
-    def __sexp__(kls, value):
-        l = [Atom.comment]
-        for i, line in enumerate(value.splitlines(), start=1):
-            l.append(i)
-            l.append(line.rstrip('\n'))
-        return l
+    number: int = 1
+    text: str = ''
 
 
 @sexp_type('title_block')
@@ -262,6 +249,10 @@ class TitleBlock:
     date: Named(str) = ''
     rev: Named(str) = ''
     company: Named(str) = ''
-    comment: TitleComment = None
+    comments: List(TitleComment) = field(default_factory=list)
+
+    def comment(self, number):
+        """ Text of comment line `number` (1-9), or '' when it is not set. """
+        return next((c.text for c in self.comments if c.number == number), '')
 
 
