@@ -514,6 +514,9 @@ class Symbol:
     exclude_from_sim: Named(YesNoAtom()) = False
     in_bom: Named(YesNoAtom()) = True
     on_board: Named(YesNoAtom()) = True
+    in_pos_files: Named(YesNoAtom()) = None
+    duplicate_pin_numbers_are_jumpers: Named(YesNoAtom()) = None
+    jumper_pin_groups: Named(Array(Array(str))) = None
     properties: List(Property) = field(default_factory=list)
     units: List(Unit) = field(default_factory=list)
     embedded_fonts: Named(YesNoAtom()) = False
