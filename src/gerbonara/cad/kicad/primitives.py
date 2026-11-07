@@ -294,3 +294,34 @@ def sheet_to_lib_vector(dx, dy, rotation=0, mirror_x=False, mirror_y=False):
     # The inverse of lib_to_sheet_vector, whose matrix is orthogonal
     (a, b), (c, d) = (lib_to_sheet_vector(*v, rotation, mirror_x, mirror_y) for v in ((1, 0), (0, 1)))
     return a*dx + b*dy, c*dx + d*dy
+
+
+@sexp_type('ellipse')
+class Ellipse:
+    center: Rename(XYCoord) = field(default_factory=XYCoord)
+    major_radius: Named(float) = 0.0
+    minor_radius: Named(float) = 0.0
+    rotation_angle: Named(float) = 0.0
+
+    def svg_path_d(self, segments=64):
+        a, b = self.major_radius, self.minor_radius
+        rot = math.radians(self.rotation_angle or 0)
+        arc = hasattr(self, 'start_angle')
+        t0, t1 = (math.radians(self.start_angle), math.radians(self.end_angle)) if arc else (0, 2*math.pi)
+        if t1 <= t0:
+            t1 += 2*math.pi
+        pts = []
+        for i in range(segments + 1):
+            t = t0 + (t1 - t0) * i / segments
+            x, y = a*math.cos(t), b*math.sin(t)
+            x, y = x*math.cos(rot) - y*math.sin(rot), x*math.sin(rot) + y*math.cos(rot)
+            # Angles run counter-clockwise on the sheet, whose y axis points down
+            pts.append((self.center.x + x, self.center.y - y))
+        d = 'M ' + ' L '.join(f'{x:.3f} {y:.3f}' for x, y in pts)
+        return d if arc else d + ' Z'
+
+
+@sexp_type('ellipse_arc')
+class EllipseArc(Ellipse):
+    start_angle: Named(float) = 0.0
+    end_angle: Named(float) = 0.0

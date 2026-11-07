@@ -22,6 +22,7 @@ from ... import __version__
 from ...newstroke import Newstroke
 from .schematic_colors import *
 from .primitives import kicad_mid_to_center_arc, kicad_arc_svg_flags, Margins, lib_to_sheet_vector
+from . import primitives
 
 
 PIN_ETYPE = AtomChoice(Atom.input, Atom.output, Atom.bidirectional, Atom.tri_state, Atom.passive, Atom.free,
@@ -56,6 +57,7 @@ class Pin:
     name: Rename(StyledText) = field(default_factory=StyledText)
     number: Rename(StyledText) = field(default_factory=StyledText)
     alternates: List(AltFunction) = field(default_factory=list)
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
     _: SEXP_END = None
     unit: object = None
 
@@ -241,7 +243,9 @@ class Pin:
 
 @sexp_type('fill')
 class Fill:
-    type: Named(AtomChoice(Atom.none, Atom.outline, Atom.background, Atom.color)) = Atom.none
+    # hatch, reverse_hatch and cross_hatch are new in KiCad 10.99
+    type: Named(AtomChoice(Atom.none, Atom.outline, Atom.background, Atom.color, Atom.hatch, Atom.reverse_hatch,
+                           Atom.cross_hatch)) = Atom.none
     color: Color = None
 
     def svg(self, fg, bg, own_color=True, stroked=True):
@@ -275,6 +279,7 @@ class Circle:
     radius: Named(float) = 0.0
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def bounding_box(self, default=None):
         x, y, r = self.center.x, self.center.y, self.radius
@@ -311,6 +316,9 @@ class Arc:
     radius: ArcRadius = None
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
+    start_shape: LineStart = None
+    end_shape: LineEnd = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     @property
     def midpoint(self):
@@ -362,6 +370,9 @@ class Bezier:
     points: PointList = field(default_factory=list)
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
+    start_shape: LineStart = None
+    end_shape: LineEnd = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def bounding_box(self, default=None):
         # The control polygon contains the curve.
@@ -379,11 +390,28 @@ class Bezier:
                   **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme)))
 
 
+@sexp_type('ellipse')
+class Ellipse(primitives.Ellipse):
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: Fill = field(default_factory=Fill)
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
+
+
+@sexp_type('ellipse_arc')
+class EllipseArc(primitives.EllipseArc):
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: Fill = field(default_factory=Fill)
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
+
+
 @sexp_type('polyline')
 class Polyline:
     pts: PointList = field(default_factory=list)
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
+    start_shape: LineStart = None
+    end_shape: LineEnd = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     @property
     def points(self):
@@ -470,6 +498,7 @@ class Text(TextMixin):
     at: TextPos = field(default_factory=TextPos)
     rotation: float = None
     effects: TextEffect = field(default_factory=TextEffect)
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         yield from TextMixin.to_svg(self, colorscheme.text)
@@ -484,6 +513,7 @@ class Rectangle:
     end: Rename(XYCoord) = None
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def to_polyline(self):
         x1, y1 = self.start.x, self.start.y
@@ -523,6 +553,7 @@ class Property(TextMixin):
     do_not_autoplace: Named(LegacyCompatibleFlag()) = None
     hide: Named(LegacyCompatibleFlag()) = None
     effects: TextEffect = field(default_factory=TextEffect)
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     # Alias value for text mixin
     @property
@@ -558,6 +589,7 @@ class TextBox:
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
     effects: TextEffect = field(default_factory=TextEffect)
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
 
 @sexp_type('symbol')
@@ -567,6 +599,8 @@ class Unit:
     arcs: List(Arc) = field(default_factory=list)
     polylines: List(Polyline) = field(default_factory=list)
     beziers: List(Bezier) = field(default_factory=list)
+    ellipses: List(Ellipse) = field(default_factory=list)
+    ellipse_arcs: List(EllipseArc) = field(default_factory=list)
     rectangles: List(Rectangle) = field(default_factory=list)
     texts: List(Text) = field(default_factory=list)
     text_boxes: List(TextBox) = field(default_factory=list)
@@ -611,6 +645,18 @@ class Unit:
         return stacks
 
 
+@sexp_type('footprint')
+class AssociatedFootprint:
+    lib_id: str = ''
+    map: Named(str) = None
+
+
+@sexp_type('pin_map')
+class PinMap:
+    name: str = ''
+    entries: Dict('entry') = field(default_factory=dict)
+
+
 @sexp_type('symbol')
 class Symbol:
     raw_name: str = None
@@ -627,8 +673,12 @@ class Symbol:
     duplicate_pin_numbers_are_jumpers: Named(YesNoAtom()) = None
     jumper_pin_groups: Named(Array(Array(str))) = None
     properties: List(Property) = field(default_factory=list)
+    # KiCad 10.99: footprints that fit the symbol, with the pin map each one uses
+    associated_footprints: Named(Array(AssociatedFootprint)) = field(default_factory=list)
+    pin_maps: Named(Array(PinMap)) = field(default_factory=list)
     units: List(Unit) = field(default_factory=list)
     embedded_fonts: Named(YesNoAtom()) = False
+    embedded_files: EmbeddedFiles = None
     _ : SEXP_END = None
     library = None
     name: str = None

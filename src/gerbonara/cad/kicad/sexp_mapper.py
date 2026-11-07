@@ -312,6 +312,29 @@ class List(WrapperType):
         return f'List@{self.attr}({self.next_type})'
 
 
+class Dict:
+    # Repeated (name key value) elements as a dict of {key: value}
+    def __init__(self, name):
+        self.name_atom = Atom(name)
+
+    def __bind_field__(self, field):
+        self.attr = field.name
+
+    def __atoms__(self):
+        return [self.name_atom]
+
+    def __map__(self, value, parent, path=''):
+        _name, key, val = value
+        getattr(parent, self.attr)[str(key)] = str(val)
+
+    def __sexp__(self, value):
+        for key, val in value.items():
+            yield [self.name_atom, str(key), str(val)]
+
+    def __str__(self):
+        return f'Dict@{self.attr}({self.name_atom})'
+
+
 class _SexpTemplate:
     @staticmethod
     def __atoms__(kls):
