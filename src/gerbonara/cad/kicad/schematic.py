@@ -382,6 +382,50 @@ def _is_vertical(item):
     return round(item.at.rotation or 0) % 180 == 90
 
 
+def _wrap_text(text, size, width):
+    out = []
+    for para in kicad_unescape(text or '').split('\n'):
+        line = ''
+        for word in para.split(' '):
+            candidate = f'{line} {word}' if line else word
+            if line and kicad_text_width(candidate, size) > width:
+                out.append(line)
+                line = word
+            else:
+                line = candidate
+        out.append(line)
+    return '\n'.join(out)
+
+
+def _text_box_svg(box, colorscheme, border=True):
+    x, y = box.at.x, box.at.y
+    w, h = (box.size.x, box.size.y) if box.size is not None else (0, 0)
+    if w < 0:
+        x, w = x + w, -w
+    if h < 0:
+        y, h = y + h, -h
+    stroke = getattr(box, 'stroke', None)
+    # Table cells have no stroke of their own, but KiCad fills them like stroked shapes
+    has_pen = stroke is None or (stroke.width or 0) >= 0
+    fill = _fill_svg(box.fill, colorscheme, has_pen, stroke)
+    attrs = {}
+    if border and stroke is not None and has_pen:
+        attrs = stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme))
+    if attrs or fill != 'none':
+        yield Tag('rect', x=f'{x:.3f}', y=f'{y:.3f}', width=f'{w:.3f}', height=f'{h:.3f}', fill=fill, **attrs)
+
+    size = _text_size(box)
+    m = box.margins
+    ml, mt, mr, mb = (m.left, m.top, m.right, m.bottom) if m is not None else (size*0.75,)*4
+    h_align, v_align = _justify(box, default_h='left', default_v='top')
+    tx = {'left': x + ml, 'center': x + w/2, 'right': x + w - mr}[h_align]
+    ty = {'top': y + mt, 'middle': y + h/2, 'bottom': y + h - mb}[v_align]
+    text = _wrap_text(box.text, size, w - ml - mr)
+    if text.strip():
+        yield kicad_text_svg(text, tx, ty, size, h_align=h_align, v_align=v_align, stroke_width=_pen_width(box),
+                             stroke=colorscheme.text)
+
+
 def label_shape_path_d(shape, w, h):
     """ Outline of a global or hierarchical label, from the connection point towards +x """
     left, right = {
@@ -1039,6 +1083,9 @@ class TextBox(TextMixin):
     def render(self, variables={}, cache=None):
         yield from gr.TextBox.render(self, variables=variables)
 
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        yield from _text_box_svg(self, colorscheme)
+
 
 @sexp_type('border')
 class TableBorder:
@@ -1086,6 +1133,65 @@ class Table:
     cells: Named(Array(TableCell)) = field(default_factory=list)
     uuid: UUID = None
     custom_properties: Dict('custom_property') = field(default_factory=dict)
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        if not self.cells:
+            return
+        for cell in self.cells:
+            yield from _text_box_svg(cell, colorscheme, border=False)
+
+        # Like KiCad's SCH_TABLE::DrawBorders(): the separators cell by cell, and the border side by side
+        ncols = len(self.column_widths)
+        nrows = len(self.cells) // ncols if ncols else 0
+        if not ncols or not nrows:
+            return
+        cell = lambda row, col: self.cells[row*ncols + col]
+        def corners(c):
+            x1, x2 = sorted((c.at.x, c.at.x + c.size.x))
+            y1, y2 = sorted((c.at.y, c.at.y + c.size.y))
+            return (x1, y1), (x2, y1), (x2, y2), (x1, y2)
+        # A stroke width of 0 means KiCad's default line width
+        # Lines whose width is 0, or negative, have KiCad's default line width
+        width = lambda stroke: stroke.width if (stroke.width or 0) > 0 else 0
+        stroke_attrs = lambda stroke: replace(stroke or Stroke(0), width=width(stroke or Stroke(0))).svg_attrs(
+            colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme))
+        line = lambda a, b, stroke: Tag('path', d=f'M {a[0]:.3f} {a[1]:.3f} L {b[0]:.3f} {b[1]:.3f}', fill='none',
+                                        **stroke_attrs(stroke))
+        sep, border = self.separators, self.border
+        header = border is not None and border.header
+        # The cells of the header row are separated with the stroke of the border, the others with that of the
+        # separators, if they are separated
+        strokes = lambda separated: [border.stroke if row == 0 and header else (sep.stroke if separated else False)
+                                     for row in range(nrows)]
+        col_strokes, row_strokes = strokes(sep is not None and sep.cols), strokes(sep is not None and sep.rows)
+
+        for col in range(ncols - 1):
+            for row in range(nrows):
+                if (stroke := col_strokes[row]) is False:
+                    continue
+                c = cell(row, col)
+                span = c.span.columns if c.span is not None else 1
+                if span == 0 or col + span == ncols:
+                    continue
+                _tl, tr, br, _bl = corners(c)
+                yield line(tr, br, stroke)
+
+        for row in range(nrows - 1):
+            if (stroke := row_strokes[row]) is False:
+                continue
+            for col in range(ncols):
+                c = cell(row, col)
+                span = c.span.rows if c.span is not None else 1
+                if span == 0 or row + span == nrows:
+                    continue
+                _tl, _tr, br, bl = corners(c)
+                yield line(br, bl, stroke)
+
+        if border is not None and border.external and ((border.stroke.width or 0) if border.stroke else 0) >= 0:
+            tl, tr, br, bl = corners(cell(0, 0))[0], corners(cell(0, ncols - 1))[1], \
+                corners(cell(nrows - 1, ncols - 1))[2], corners(cell(nrows - 1, 0))[3]
+            for a, b in ((tl, tr), (tr, br), (br, bl), (bl, tl)):
+                yield line(a, b, border.stroke)
 
 
 @sexp_type('from')
@@ -1232,6 +1338,8 @@ class Schematic:
         yield from self.buses
         yield from self.ellipses
         yield from self.ellipse_arcs
+        yield from self.text_boxes
+        yield from self.tables
         yield from self.texts
         yield from self.local_labels
         yield from self.global_labels
