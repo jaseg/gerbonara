@@ -52,7 +52,7 @@ class Pin:
     style: PIN_STYLE = Atom.line
     at: AtPos = field(default_factory=AtPos)
     length: Named(float) = 2.54
-    hide: OmitDefault(Named(YesNoAtom())) = False
+    hide: OmitDefault(Named(LegacyCompatibleFlag())) = False
     name: Rename(StyledText) = field(default_factory=StyledText)
     number: Rename(StyledText) = field(default_factory=StyledText)
     alternates: List(AltFunction) = field(default_factory=list)
@@ -427,13 +427,13 @@ class Property(TextMixin):
 
 @sexp_type('pin_numbers')
 class PinNumberSpec:
-    hide: Named(YesNoAtom()) = False
+    hide: Named(LegacyCompatibleFlag()) = False
 
 
 @sexp_type('pin_names')
 class PinNameSpec:
     offset: OmitDefault(Named(float)) = 0.508
-    hide: OmitDefault(Named(YesNoAtom())) = False
+    hide: OmitDefault(Named(LegacyCompatibleFlag())) = False
 
 @sexp_type('text_box')
 class TextBox:
