@@ -454,6 +454,81 @@ class TextEffect:
     href: Named(str) = None
 
 
+# KiCad's stroke font line pitch per text height (font metrics interline pitch times the stroke font's legacy factor)
+KICAD_INTERLINE = 1.68 * 0.9583
+# Width of a space in KiCad's stroke font per text height: the font's space glyph, 16 of its 21 units per height
+KICAD_SPACE_WIDTH = 16/21
+# Gap between schematic text and the wire or pin it belongs to: round(24 mil × KiCad's default text offset ratio of 0.15)
+KICAD_TEXT_OFFSET = MM(0.004, Inch)
+
+
+def _kicad_text_lines(text, size, h_align, v_align, stroke_width):
+    # (line, x, y) of each line of text, like KiCad's FONT::getLinePositions(), including its fudge factors for stroke
+    # fonts. Newstroke's glyphs sit 2/21 of the text size lower than KiCad's.
+    lines = kicad_unescape(text).split('\n')
+    pitch = size * KICAD_INTERLINE
+    height = 1.17*size + (len(lines)-1)*pitch
+    first = size - 0.052*stroke_width - {'top': 0, 'middle': height/2, 'bottom': height}[v_align] + 2*size/21
+    dx = {'left': 1, 'center': 0, 'right': -1}[h_align] * stroke_width/1.52
+    return [(line, dx, first + i*pitch) for i, line in enumerate(lines) if line]
+
+
+def kicad_text_svg(text, x, y, size, h_align='left', v_align='bottom', vertical=False, stroke_width=None, **svg_attrs):
+    """ `text` in KiCad's stroke font, laid out and aligned like KiCad does. """
+    font = Newstroke.load()
+    if stroke_width is None:
+        stroke_width = kicad_pen_width(size)
+    children = [font.render_svg(line, size=size, x0=x0, y0=y0, h_align=h_align, v_align='bottom',
+                                space_width=KICAD_SPACE_WIDTH, scale=(1, 1), stroke_width=f'{stroke_width:.3f}',
+                                **svg_attrs)
+                for line, x0, y0 in _kicad_text_lines(text, size, h_align, v_align, stroke_width)]
+    return Tag('g', children=children, transform=f'translate({x:.3f} {y:.3f})' + (' rotate(-90)' if vertical else ''))
+
+
+def kicad_text_bounds(text, x, y, size, h_align='left', v_align='bottom', vertical=False, stroke_width=None):
+    """ Bounding box of what kicad_text_svg() draws, or None if it draws nothing """
+    font = Newstroke.load()
+    if stroke_width is None:
+        stroke_width = kicad_pen_width(size)
+    points = [pt for line, x0, y0 in _kicad_text_lines(text, size, h_align, v_align, stroke_width)
+              for stroke in font.render(line, size=size, x0=x0, y0=y0, h_align=h_align, v_align='bottom',
+                                        space_width=KICAD_SPACE_WIDTH, scale=(1, 1))
+              for pt in stroke]
+    if not points:
+        return None
+    if vertical:
+        points = [(py, -px) for px, py in points]
+    r = stroke_width/2
+    return ((x + min(px for px, py in points) - r, y + min(py for px, py in points) - r),
+            (x + max(px for px, py in points) + r, y + max(py for px, py in points) + r))
+
+
+def kicad_text_width(text, size):
+    font = Newstroke.load()
+    return max(font.bounding_box(line, size=size, space_width=KICAD_SPACE_WIDTH)[1][0]
+               for line in kicad_unescape(text).split('\n'))
+
+
+def kicad_pen_width(size, thickness=None, bold=False, strict=False):
+    """ KiCad's pen width for text: its thickness, else a fifth of its size for bold text and KiCad's default line width
+    for normal text, limited to a quarter of its size (0.18 with strict, as for pin names and numbers) """
+    pen = thickness or (size / 5 if bold else KICAD_SCH_LINE_WIDTH)
+    return min(pen, size * (0.18 if strict else 0.25))
+
+
+def kicad_text_box(text, size, x, y, rotation=0, h_align='left', v_align='bottom'):
+    """ Corners of the box KiCad lays text at (x, y) out in, rotated about (x, y) in steps of 90 degrees """
+    lines = kicad_unescape(text).split('\n')
+    # KiCad's box is wider than the text's advance width, by 0.175 of the text size in KiCad 10's SVG exports
+    w, h = kicad_text_width(text, size) + 0.175*size, size * (1 + (len(lines)-1) * KICAD_INTERLINE)
+    x0 = x + {'left': 0, 'center': -w/2, 'right': -w}[h_align]
+    y0 = y + {'top': 0, 'middle': -h/2, 'bottom': -h}[v_align]
+    corners = [(x0, y0), (x0 + w, y0 + h)]
+    for _ in range(round(rotation or 0) % 360 // 90):
+        corners = [(x + (cy - y), y - (cx - x)) for cx, cy in corners]
+    return corners
+
+
 class TextMixin:
     @property
     def size(self):
