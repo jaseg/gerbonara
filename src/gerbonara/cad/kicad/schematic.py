@@ -385,7 +385,7 @@ class DrawnProperty(TextMixin):
         return False, False
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        if not self.hide:
+        if self.visible:
             yield from TextMixin.to_svg(self, colorscheme.values)
 
 

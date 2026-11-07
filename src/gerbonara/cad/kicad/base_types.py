@@ -465,6 +465,10 @@ class TextMixin:
     def line_width(self):
         return self.effects.font.thickness or 0.254
 
+    @property
+    def visible(self):
+        return not getattr(self, 'hide', False) and not (self.effects and self.effects.hide)
+
     @line_width.setter
     def line_width(self, value):
         self.effects.font.thickness = value
@@ -523,7 +527,7 @@ class TextMixin:
         return rot, h_align
 
     def to_svg(self, color='black', variables={}):
-        if not self.effects or self.effects.hide or not self.effects.font:
+        if not self.effects or not self.visible or not self.effects.font:
             return
 
         font = Newstroke.load()

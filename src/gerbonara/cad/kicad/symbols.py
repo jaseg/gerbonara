@@ -534,7 +534,7 @@ class Property(TextMixin):
         self.value = value
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        if not self.hide:
+        if self.visible:
             yield from TextMixin.to_svg(self, colorscheme.text)
 
 
