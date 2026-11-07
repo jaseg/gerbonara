@@ -446,19 +446,13 @@ class TextMixin:
 
     @property
     def h_align(self):
-        return 'left' if self.effects.justify.h else 'center'
+        return self.effects.justify.h_str
 
     @property
     def mirrored(self):
         return False, False
 
-    def to_svg(self, color='black', variables={}):
-        if not self.effects or self.effects.hide or not self.effects.font:
-            return
-
-        font = Newstroke.load()
-        text = string.Template(self.text).safe_substitute(variables)
-        aperture = ap.CircleAperture(self.line_width or 0.2, unit=MM)
+    def _svg_rotation(self):
         rot = self.rotation
         h_align = self.h_align
         mx, my = self.mirrored
@@ -481,6 +475,16 @@ class TextMixin:
         if rot == 90:
             rot = 270
             h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
+        return rot, h_align
+
+    def to_svg(self, color='black', variables={}):
+        if not self.effects or self.effects.hide or not self.effects.font:
+            return
+
+        font = Newstroke.load()
+        text = string.Template(self.text).safe_substitute(variables)
+        aperture = ap.CircleAperture(self.line_width or 0.2, unit=MM)
+        rot, h_align = self._svg_rotation()
 
         yield font.render_svg(text,
                               size=self.size or 1.27,

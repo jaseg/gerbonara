@@ -305,6 +305,11 @@ class TextLabel(TextMixin):
     uuid: UUID = field(default_factory=UUID)
     properties: List(DrawnProperty) = field(default_factory=list)
 
+    def _svg_rotation(self):
+        # KiCad keeps text upright: at 180 or 270 degrees, it is drawn at 0 or 90 degrees with the justification its
+        # file stores.
+        return (270 if (self.at.rotation or 0) % 180 == 90 else 0), self.h_align
+
 
 @sexp_type('text')
 class Text(TextLabel):
