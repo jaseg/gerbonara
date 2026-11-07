@@ -466,11 +466,6 @@ class TextLabel(TextMixin):
     locked: Named(YesNoAtom()) = None
     custom_properties: Dict('custom_property') = field(default_factory=dict)
 
-    def _svg_rotation(self):
-        # KiCad keeps text upright: at 180 or 270 degrees, it is drawn at 0 or 90 degrees with the justification its
-        # file stores.
-        return (270 if (self.at.rotation or 0) % 180 == 90 else 0), self.h_align
-
 
 @sexp_type('text')
 class Text(TextLabel):
@@ -595,8 +590,34 @@ class NetclassFlag(TextLabel):
     length: Named(float) = 2.54
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        # FIXME
-        yield from TextMixin.to_svg(self, colorscheme.text)
+        h_align, _v = _justify(self, default_h='left')
+        right = h_align != 'right'
+        # KiCad draws the flag downwards and turns it by the spin style
+        # (KiCad's RotatePoint() turns (x, y) into (y, -x) for +90 degrees)
+        turn = {(False, True): (-1, 0, 0, -1), (False, False): (1, 0, 0, 1),
+                (True, True): (0, -1, 1, 0), (True, False): (0, 1, -1, 0)}[_is_vertical(self), right]
+        pt = lambda u, v: (self.at.x + turn[0]*u + turn[1]*v, self.at.y + turn[2]*u + turn[3]*v)
+        length, sym = self.length or 2.54, 0.508
+        style = {'fill': 'none', 'stroke': colorscheme.lines, 'stroke_width': _label_pen_widths(self)[0],
+                 'stroke_linejoin': 'round', 'stroke_linecap': 'round'}
+        shape = str(self.shape)
+        if shape in ('dot', 'round'):
+            r = sym * (0.7 if shape == 'dot' else 1)
+            (x1, y1), (cx, cy) = pt(0, length - r), pt(0, length)
+            yield Tag('path', d=f'M {self.at.x:.3f} {self.at.y:.3f} L {x1:.3f} {y1:.3f}', **style)
+            yield Tag('circle', cx=f'{cx:.3f}', cy=f'{cy:.3f}', r=f'{r:.3f}',
+                      **{**style, 'fill': colorscheme.lines if shape == 'dot' else 'none'})
+        else:
+            if shape == 'diamond':
+                pts = [(0, 0), (0, length - sym), (-2*sym, length), (0, length + sym), (2*sym, length), (0, length - sym)]
+            else: # rectangle
+                r = sym * 0.8
+                pts = [(0, 0), (0, length - r), (-2*r, length - r), (-2*r, length + r), (2*r, length + r),
+                       (2*r, length - r), (0, length - r)]
+            d = 'M ' + ' L '.join(f'{x:.3f} {y:.3f}' for x, y in (pt(u, v) for u, v in pts))
+            yield Tag('path', d=d, **style)
+        for prop in self.properties:
+            yield from prop.to_svg(colorscheme)
 
 
 # Older name of netclass_flag that KiCad still reads
@@ -1215,6 +1236,8 @@ class Schematic:
         yield from self.local_labels
         yield from self.global_labels
         yield from self.hierarchical_labels
+        yield from self.netclass_flags
+        yield from self.directive_labels
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         children = []
