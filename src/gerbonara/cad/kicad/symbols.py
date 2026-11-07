@@ -271,18 +271,38 @@ class Arc:
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
 
+    @property
+    def midpoint(self):
+        # KiCad 6 symbols may give arcs as (radius (at center) (length r) (angles a1 a2)), running counter-clockwise
+        if self.mid is not None and self.mid.x is not None:
+            return self.mid
+        if self.radius is None:
+            raise ValueError('Arc has neither a midpoint nor a radius')
+        a1, a2 = self.radius.angles.x, self.radius.angles.y
+        if a2 < a1:
+            a2 += 360
+        a = math.radians((a1 + a2) / 2)
+        return XYCoord(self.radius.at.x + self.radius.length*math.cos(a), self.radius.at.y + self.radius.length*math.sin(a))
+
     def _arc(self):
-        return kicad_arc_svg_flags(self.start, self.mid, self.end)
+        return kicad_arc_svg_flags(self.start, self.midpoint, self.end)
 
     def bounding_box(self, default=None):
-        (cx, cy), _r, sweep, _large = self._arc()
+        try:
+            (cx, cy), _r, sweep, _large = self._arc()
+        except ValueError: # start, mid and end on one line
+            return ((min(self.start.x, self.end.x), min(self.start.y, self.end.y)),
+                    (max(self.start.x, self.end.x), max(self.start.y, self.end.y)))
         # Symbol coordinates have the y axis pointing up like arc_bounds expects, so increasing angle means counter-
         # clockwise.
         return arc_bounds(self.start.x, self.start.y, self.end.x, self.end.y, cx, cy, not sweep)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        _c, r, sweep, large = self._arc()
-        d = f'M {self.start.x:.3f} {self.start.y:.3f} A {r:.3f} {r:.3f} 0 {int(large)} {int(sweep)} {self.end.x:.3f} {self.end.y:.3f}'
+        try:
+            _c, r, sweep, large = self._arc()
+            d = f'M {self.start.x:.3f} {self.start.y:.3f} A {r:.3f} {r:.3f} 0 {int(large)} {int(sweep)} {self.end.x:.3f} {self.end.y:.3f}'
+        except ValueError: # start, mid and end on one line
+            d = f'M {self.start.x:.3f} {self.start.y:.3f} L {self.end.x:.3f} {self.end.y:.3f}'
         yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill),
                   **self.stroke.svg_attrs(colorscheme.lines))
 

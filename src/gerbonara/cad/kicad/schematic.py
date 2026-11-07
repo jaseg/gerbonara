@@ -210,9 +210,12 @@ class Arc:
     uuid: UUID = field(default_factory=UUID)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        _c, r, sweep, large = kicad_arc_svg_flags(self.start, self.mid, self.end)
-        yield _shape_svg(self, colorscheme, d=f'M {self.start.x:.3f} {self.start.y:.3f} '
-                         f'A {r:.3f} {r:.3f} 0 {int(large)} {int(sweep)} {self.end.x:.3f} {self.end.y:.3f}')
+        try:
+            _c, r, sweep, large = kicad_arc_svg_flags(self.start, self.mid, self.end)
+            to = f'A {r:.3f} {r:.3f} 0 {int(large)} {int(sweep)}'
+        except ValueError: # start, mid and end on one line
+            to = 'L'
+        yield _shape_svg(self, colorscheme, d=f'M {self.start.x:.3f} {self.start.y:.3f} {to} {self.end.x:.3f} {self.end.y:.3f}')
 
 
 @sexp_type('bezier')
