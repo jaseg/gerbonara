@@ -276,8 +276,9 @@ class DrawnProperty(TextMixin):
     # Alias value for text mixin
     @property
     def text(self):
-        if self.key == 'Reference' and getattr(self.parent, 'unit', 0) > 0:
-            return f'{self.value}{string.ascii_uppercase[self.parent.unit-1]}'
+        unit = getattr(self.parent, 'unit', 0)
+        if self.key == 'Reference' and unit > 0 and getattr(self.parent, 'unit_count', 1) > 1:
+            return f'{self.value}{string.ascii_uppercase[unit-1]}'
         else:
             return self.value
 
@@ -504,6 +505,14 @@ class SymbolInstance:
     @property
     def rotation(self):
         return self.at.rotation
+
+    @property
+    def unit_count(self):
+        try:
+            sym = self.schematic.lookup_symbol(self.lib_name, self.lib_id).resolve()
+        except (AttributeError, KeyError):
+            return 1
+        return len({unit.unit_index for unit in sym.units} - {0}) or 1
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         children = []
