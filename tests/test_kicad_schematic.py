@@ -4,6 +4,7 @@ from collections import Counter
 import pytest
 import subprocess
 import re
+import xml.etree.ElementTree as ET
 
 import bs4
 
@@ -76,3 +77,10 @@ def test_kicad_schematic_round_trip(kicad_sch_file):
     lost = Counter(_nodes(parse_sexp(original))) - Counter(_nodes(parse_sexp(output)))
     lost = {'/'.join(path): values for path, values in lost if not {'generator', 'generator_version'} & set(path)}
     assert not lost
+
+
+def test_kicad_schematic_svg_export(kicad_sch_file):
+    sch = Schematic.open(kicad_sch_file)
+    root = ET.fromstring(str(sch.to_svg()))
+    w, h = sch.page_settings.size
+    assert [float(v) for v in root.get('viewBox').split()] == pytest.approx([0, 0, w, h])
