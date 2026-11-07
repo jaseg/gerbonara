@@ -92,7 +92,7 @@ def _update_repo_cache(lib_dir, repo_url, rev, sparse_patterns=None):
     return True
 
 
-KICAD_SOURCE_PATTERNS = ['/demos/**/*.kicad_sch', '/qa/data/**/*.kicad_sch']
+KICAD_SOURCE_PATTERNS = ['/demos/**/*.kicad_sch', '/qa/data/**/*.kicad_sch', '/qa/data/cli/**/*.svg']
 KICAD_SOURCE_PCB_PATTERNS = ['/demos/*.kicad_pcb', '/qa/data/**/*.kicad_pcb']
 
 
@@ -201,6 +201,17 @@ def pytest_generate_tests(metafunc):
         d = metafunc.config.kicad_render_source_dir
         files = [d / f for f in KICAD_RENDER_DOCUMENTS] if d else []
         metafunc.parametrize('kicad_sch_render_file', files, ids=list(map(str, files)))
+
+    if 'kicad_sch_reference' in metafunc.fixturenames:
+        # Schematics of KiCad's command line tests, which come with KiCad's own SVG export of them. Copies that are the
+        # same in several KiCad versions are only tested once.
+        refs = {}
+        for d in source_dirs:
+            for svg in sorted(d.glob('qa/data/cli/*/*_nobg_bnw_nods.svg')):
+                if (sch := svg.parent / svg.name.replace('_nobg_bnw_nods.svg', '.kicad_sch')).is_file():
+                    refs.setdefault((sch.read_bytes(), svg.read_bytes()), (sch, svg))
+        refs = list(refs.values())
+        metafunc.parametrize('kicad_sch_reference', refs, ids=[str(svg) for _sch, svg in refs])
 
     if 'kicad_pcb_file' in metafunc.fixturenames:
         # PCBs are only tested with the first KiCad version
