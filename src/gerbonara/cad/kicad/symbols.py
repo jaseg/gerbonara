@@ -146,7 +146,12 @@ class Pin:
 
         rot = self.at.rotation + p_rotation
         trot = self.at.rotation
-        ax, ay = self.length+0.2, 0
+        # With a positive pin name offset, names go inside the body, that far beyond the pin's inner end. With an
+        # offset of 0, names go above the middle of the pin and numbers below it.
+        spec = self.unit.symbol.pin_names if self.unit is not None and self.unit.symbol is not None else None
+        offset = spec.offset if spec is not None and spec.offset is not None else 0.508
+        names_inside = offset > 0
+        ax, ay = (self.length + offset if names_inside else self.length/2), 0
         ax, ay = rotate_point(ax, ay, math.radians(-self.at.rotation))
 
         #lx, ly = self.at.x, -self.at.y
@@ -191,9 +196,9 @@ class Pin:
             yield font.render_svg(self.name.value,
                                   size=self.name.effects.font.size.y or 1.27,
                                   x0=0,
-                                  y0=0,
-                                  h_align=h_align,
-                                  v_align='middle',
+                                  y0=0 if names_inside else -0.4,
+                                  h_align=h_align if names_inside else 'center',
+                                  v_align='middle' if names_inside else 'bottom',
                                   rotation=-frot,
                                   stroke=colorscheme.pin_names,
                                   transform=f'translate({lx:.3f} {ly:.3f})',
@@ -204,10 +209,10 @@ class Pin:
         if self.number.value != '~' and not self.unit.symbol.pin_numbers.hide:
             yield font.render_svg(self.number.value,
                                   size=self.number.effects.font.size.y or 1.27,
-                                  x0=-0.4 if h_align == 'left' else 0.4,
-                                  y0=-0.4,
-                                  h_align={'left': 'right', 'right': 'left'}[h_align],
-                                  v_align='bottom',
+                                  x0=(-0.4 if h_align == 'left' else 0.4) if names_inside else 0,
+                                  y0=-0.4 if names_inside else 0.4,
+                                  h_align={'left': 'right', 'right': 'left'}[h_align] if names_inside else 'center',
+                                  v_align='bottom' if names_inside else 'top',
                                   rotation=-frot,
                                   stroke=colorscheme.pin_numbers,
                                   scale=(sx, sy),
