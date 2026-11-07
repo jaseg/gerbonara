@@ -72,29 +72,25 @@ class Pin:
 
     def bounding_box(self, default=None):
         font = Newstroke.load()
-        strokes = list(font.render(self.name, size=2.54))
-        min_x = min(x for st in strokes for x, y in st)
-        min_y = min(y for st in strokes for x, y in st)
-        max_x = max(x for st in strokes for x, y in st)
-        max_y = max(y for st in strokes for x, y in st)
-        w, h = max_x - min_x, max_y - min_y
+        (_x1, _y1), (w, _y2) = font.bounding_box(self.name.value or '', size=2.54)
+        h = 2.54
         l = self.length + 0.2 + w
 
         x1, y1 = x2, y2 = self.at.x, self.at.y
         if self.at.rotation == 0:
-            x2 += w
+            x2 += l
             y1 -= h/2
             y2 += h/2
-        if self.at.rotation == 90:
-            y2 += w
+        elif self.at.rotation == 90:
+            y2 += l
             x1 -= h/2
             x2 += h/2
-        if self.at.rotation == 180:
-            x1 -= w
+        elif self.at.rotation == 180:
+            x1 -= l
             y1 -= h/2
             y2 += h/2
-        if self.at.rotation == 270:
-            y1 -= w
+        elif self.at.rotation == 270:
+            y1 -= l
             x1 -= h/2
             x2 += h/2
         else:
