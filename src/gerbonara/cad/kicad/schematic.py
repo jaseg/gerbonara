@@ -110,6 +110,20 @@ def _polyline_svg(self, default_color):
     return da.svg(stroke=self.stroke.svg_color(default_color))
 
 
+def _fill_svg(fill, colorscheme):
+    if fill is None or fill.type == Atom.none:
+        return 'none'
+    elif fill.type == Atom.outline:
+        return colorscheme.lines
+    elif fill.type == Atom.color and fill.color:
+        return fill.color.svg(colorscheme.fill)
+    return colorscheme.fill
+
+
+def _shape_svg(self, colorscheme, name='path', **attrs):
+    return Tag(name, **attrs, fill=_fill_svg(self.fill, colorscheme), **self.stroke.svg_attrs(colorscheme.lines))
+
+
 def _polyline_bounds(self):
     x1 = min(pt.x for pt in self.points)
     y1 = min(pt.y for pt in self.points)
@@ -168,6 +182,10 @@ class Circle:
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
 
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        yield _shape_svg(self, colorscheme, 'circle', cx=f'{self.center.x:.3f}', cy=f'{self.center.y:.3f}',
+                         r=f'{self.radius:.3f}')
+
 
 @sexp_type('rectangle')
 class Rectangle:
@@ -176,6 +194,10 @@ class Rectangle:
     stroke: Stroke = field(default_factory=Stroke)
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        x1, y1, x2, y2 = self.start.x, self.start.y, self.end.x, self.end.y
+        yield _shape_svg(self, colorscheme, d=f'M {x1:.3f} {y1:.3f} H {x2:.3f} V {y2:.3f} H {x1:.3f} Z')
 
 
 @sexp_type('arc')
@@ -187,6 +209,11 @@ class Arc:
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
 
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        _c, r, sweep, large = kicad_arc_svg_flags(self.start, self.mid, self.end)
+        yield _shape_svg(self, colorscheme, d=f'M {self.start.x:.3f} {self.start.y:.3f} '
+                         f'A {r:.3f} {r:.3f} 0 {int(large)} {int(sweep)} {self.end.x:.3f} {self.end.y:.3f}')
+
 
 @sexp_type('bezier')
 class Bezier:
@@ -194,6 +221,12 @@ class Bezier:
     stroke: Stroke = field(default_factory=Stroke)
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        if len(self.points) != 4:
+            return
+        p0, *rest = self.points
+        yield _shape_svg(self, colorscheme, d=f'M {p0.x:.3f} {p0.y:.3f} C ' + ' '.join(f'{p.x:.3f} {p.y:.3f}' for p in rest))
 
 
 def label_shape_path_d(shape, w, h):
@@ -633,6 +666,13 @@ class RuleArea:
     dnp: Named(YesNoAtom()) = None
     polyline: Polyline = None
 
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        if self.polyline is None or len(self.polyline.points) < 3:
+            return
+        p0, *rest = self.polyline.points
+        d = f'M {p0.x:.3f} {p0.y:.3f} ' + ' '.join(f'L {p.x:.3f} {p.y:.3f}' for p in rest) + ' Z'
+        yield _shape_svg(self.polyline, colorscheme, d=d)
+
 
 @sexp_type('text_box')
 class TextBox(TextMixin):
@@ -780,7 +820,12 @@ class Schematic:
     def elements(self):
         yield from self.subsheets
         yield from self.images
+        yield from self.rule_areas
         yield from self.polylines
+        yield from self.rectangles
+        yield from self.circles
+        yield from self.arcs
+        yield from self.beziers
         yield from self.symbols
         yield from self.junctions
         yield from self.no_connects

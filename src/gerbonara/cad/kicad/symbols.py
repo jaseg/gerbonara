@@ -21,7 +21,7 @@ from ...utils import rotate_point, Tag, arc_bounds
 from ... import __version__
 from ...newstroke import Newstroke
 from .schematic_colors import *
-from .primitives import kicad_mid_to_center_arc, Margins
+from .primitives import kicad_mid_to_center_arc, kicad_arc_svg_flags, Margins
 
 
 PIN_ETYPE = AtomChoice(Atom.input, Atom.output, Atom.bidirectional, Atom.tri_state, Atom.passive, Atom.free,
@@ -272,14 +272,7 @@ class Arc:
     fill: Fill = field(default_factory=Fill)
 
     def _arc(self):
-        """ (center, radius, sweep flag, large arc flag): the sweep flag is set when the arc runs from start through
-        mid to end in the direction of increasing angle. """
-        (cx, cy), r, _ = kicad_mid_to_center_arc(self.mid, self.start, self.end)
-        s, m, e = self.start, self.mid, self.end
-        sweep = (m.x - s.x)*(e.y - s.y) - (m.y - s.y)*(e.x - s.x) > 0
-        a1, a2 = math.atan2(s.y - cy, s.x - cx), math.atan2(e.y - cy, e.x - cx)
-        span = (a2 - a1) % (2*math.pi) if sweep else (a1 - a2) % (2*math.pi)
-        return (cx, cy), r, sweep, span > math.pi
+        return kicad_arc_svg_flags(self.start, self.mid, self.end)
 
     def bounding_box(self, default=None):
         (cx, cy), _r, sweep, _large = self._arc()
