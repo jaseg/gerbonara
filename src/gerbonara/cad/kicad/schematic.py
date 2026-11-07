@@ -15,7 +15,7 @@ import warnings
 from .sexp import *
 from .base_types import *
 from .primitives import *
-from .symbols import Symbol
+from .symbols import Symbol, _lookup_symbol
 from . import symbols
 from . import graphical_primitives as gr
 
@@ -993,6 +993,9 @@ class Table:
 @sexp_type('lib_symbols')
 class LocalLibrary:
     symbols: List(Symbol) = field(default_factory=list)
+
+    def __getitem__(self, name):
+        return _lookup_symbol(self.symbols, name)
 
 
 SUPPORTED_FILE_FORMAT_VERSIONS = [20230620]

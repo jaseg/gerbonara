@@ -672,10 +672,15 @@ class Symbol:
             self.properties[name] = Property(name=name, value=value, id=i, effects=TextEffect(hide=hide))
 
     def resolve(self):
-        if self.extends:
-            return self.library[self.extends]
-        else:
+        """ The symbol this one extends, or this symbol itself """
+        if not self.extends:
             return self
+        if self.library_name:
+            try:
+                return self.library[f'{self.library_name}:{self.extends}']
+            except KeyError:
+                pass
+        return self.library[self.extends]
 
     def is_graphic_symbol(self):
         return self.extends is None and (
@@ -718,6 +723,16 @@ class Symbol:
         return bool(self.get_center_rectangle(range(self.unit_count)))
 
 
+def _lookup_symbol(symbols, name):
+    for sym in symbols:
+        if sym.raw_name == name:
+            return sym
+    for sym in symbols:
+        if sym.name == name:
+            return sym
+    raise KeyError(name)
+
+
 SUPPORTED_FILE_FORMAT_VERSIONS = [20211014, 20220914]
 @sexp_type('kicad_symbol_lib')
 class Library:
@@ -736,6 +751,9 @@ class Library:
     def version(self, value):
         if value not in SUPPORTED_FILE_FORMAT_VERSIONS:
             raise FormatError(f'File format version {value} is not supported. Supported versions are {", ".join(map(str, SUPPORTED_FILE_FORMAT_VERSIONS))}.')
+
+    def __getitem__(self, name):
+        return _lookup_symbol(self.symbols, name)
 
     @classmethod
     def open(cls, filename: str):
