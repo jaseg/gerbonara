@@ -116,10 +116,11 @@ class BusEntry:
 
 def _polyline_svg(self, default_color):
     da = Dasher(self)
-    if len(self.points.xy) < 2:
+    if len(self.points) < 2:
         warnings.warn(f'Schematic {type(self)} with less than two points')
+        return Tag('path', d='')
 
-    p0, *rest = self.points.xy
+    p0, *rest = self.points
     da.move(p0.x, p0.y)
     for pn in rest:
         da.line(pn.x, pn.y)

@@ -319,17 +319,17 @@ class Bezier:
 
 @sexp_type('polyline')
 class Polyline:
-    pts: PointList = field(default_factory=PointList)
+    pts: PointList = field(default_factory=list)
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
 
     @property
     def points(self):
-        return self.pts.xy
+        return self.pts
 
     @points.setter
     def points(self, value):
-        self.pts.xy = value
+        self.pts = value
 
     @property
     def closed(self):
@@ -419,7 +419,7 @@ class Rectangle:
     def to_polyline(self):
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
-        return Polyline(PointList([XYCoord(x1, y1), XYCoord(x2, y1), XYCoord(x2, y2), XYCoord(x1, y2), XYCoord(x1, y1)]),
+        return Polyline([XYCoord(x1, y1), XYCoord(x2, y1), XYCoord(x2, y2), XYCoord(x1, y2), XYCoord(x1, y1)],
                         self.stroke, self.fill)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
