@@ -215,7 +215,8 @@ class Bezier:
 
 
 def label_shape_path_d(shape, w, h):
-    l, r = {
+    """ Outline of a global or hierarchical label, from the connection point towards +x """
+    left, right = {
         Atom.input: '<]',
         Atom.output: '[>',
         Atom.bidirectional: '<>',
@@ -223,7 +224,7 @@ def label_shape_path_d(shape, w, h):
         Atom.passive: '[]'}.get(shape, '<]')
     r = h/2
 
-    if l == '[':
+    if left == '[':
         d = f'M {r:.3f} {r:.3f} L 0 {r:.3f} L 0 {-r:.3f} L {r:.3f} {-r:.3f}'
     else:
         d = f'M {r:.3f} {r:.3f} L 0 0 L {r:.3f} {-r:.3f}'
@@ -231,10 +232,10 @@ def label_shape_path_d(shape, w, h):
     e = w+r
     d += f' L {e:.3f} {-r:.3f}'
 
-    if l == '[':
-        return d + f'L {e+r:.3f} {-r:.3f} L {e+r:.3f} {r:.3f} L {e:.3f} {r:.3f} Z'
+    if right == ']':
+        return d + f' L {e+r:.3f} {-r:.3f} L {e+r:.3f} {r:.3f} L {e:.3f} {r:.3f} Z'
     else:
-        return d + f'L {e+r:.3f} {0:.3f} L {e:.3f} {r:.3f} Z'
+        return d + f' L {e+r:.3f} {0:.3f} L {e:.3f} {r:.3f} Z'
 
 
 @sexp_type('property')
