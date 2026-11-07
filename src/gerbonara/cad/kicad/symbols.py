@@ -223,13 +223,16 @@ class Pin:
 
 @sexp_type('fill')
 class Fill:
-    type: Named(AtomChoice(Atom.none, Atom.outline, Atom.background)) = Atom.none
+    type: Named(AtomChoice(Atom.none, Atom.outline, Atom.background, Atom.color)) = Atom.none
+    color: Color = None
 
     def svg(self, fg, bg):
         if self.type == 'outline':
             return fg
         elif self.type == 'background':
             return bg
+        elif self.type == 'color' and self.color is not None:
+            return self.color.svg(bg)
         else:
             return 'none'
 
