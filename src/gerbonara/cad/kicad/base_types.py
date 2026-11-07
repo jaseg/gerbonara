@@ -82,7 +82,7 @@ class Color:
     a: float = None
     
     def __bool__(self):
-        return self.r or self.b or self.g or not math.isclose(self.a, 0, abs_tol=1e-3)
+        return bool(self.r or self.b or self.g or not math.isclose(self.a or 0, 0, abs_tol=1e-3))
 
     def svg(self, default=None):
         if default and not self:
