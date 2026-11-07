@@ -122,7 +122,7 @@ class Stroke:
             return default
     
     def svg_attrs(self, default_color=None):
-        w = self.width
+        w = self.width or 0.254
         if not (color := self.color or default_color):
             return {}
 
@@ -135,8 +135,8 @@ class Stroke:
             attrs['stroke_dasharray'] = {
                     Atom.dash: f'{w*5:.3f},{w*5:.3f}',
                     Atom.dot: f'{w*2:.3f},{w*2:.3f}',
-                    Atom.dash_dot: f'{w*5:.3f},{w*3:.3f}{w:.3f},{w*3:.3f}',
-                    Atom.dash_dot_dot: f'{w*5:.3f},{w*3:.3f}{w:.3f},{w*3:.3f}{w:.3f},{w*3:.3f}',
+                    Atom.dash_dot: f'{w*5:.3f},{w*3:.3f},{w:.3f},{w*3:.3f}',
+                    Atom.dash_dot_dot: f'{w*5:.3f},{w*3:.3f},{w:.3f},{w*3:.3f},{w:.3f},{w*3:.3f}',
                     }[self.type]
 
         return attrs
