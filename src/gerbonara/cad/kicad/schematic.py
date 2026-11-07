@@ -99,9 +99,8 @@ class BusEntry:
     uuid: UUID = field(default_factory=UUID)
 
     def bounding_box(self, default=None):
-        r = math.hypot(self.size.x, self.size.y)
         x1, y1 = self.at.x, self.at.y
-        x2, y2 = rotate_point(x1+r, y1+r, self.at.rotation or 0)
+        x2, y2 = x1 + self.size.x, y1 + self.size.y
         x1, x2 = min(x1, x2), max(x1, x2)
         y1, y2 = min(y1, y2), max(y1, y2)
 
@@ -109,9 +108,9 @@ class BusEntry:
         return (x1-r, y1-r), (x2+r, y2+r)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield Tag('path', d='M {self.at.x} {self.at.y} l {self.size.x} {self.size.y}',
-                   transform=f'rotate({self.at.rotation or 0})',
-                   fill='none', stroke=self.stroke.svg_color(colorscheme.bus), width=self.stroke.width or '0.254')
+        yield Tag('path', d=f'M {self.at.x:.3f} {self.at.y:.3f} l {self.size.x:.3f} {self.size.y:.3f}',
+                  fill='none', stroke=self.stroke.svg_color(colorscheme.bus), stroke_width=self.stroke.width or 0.254,
+                  stroke_linecap='round')
 
 
 def _polyline_svg(self, default_color):
