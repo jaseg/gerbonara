@@ -420,7 +420,7 @@ class SymbolInstance:
     in_bom: Named(YesNoAtom()) = True
     on_board: Named(YesNoAtom()) = True
     in_pos_files: Named(YesNoAtom()) = None
-    dnp: Named(YesNoAtom()) = True
+    dnp: Named(YesNoAtom()) = False
     fields_autoplaced: Named(YesNoAtom()) = True
     uuid: UUID = field(default_factory=UUID)
     default_instance: DefaultSymbolInstance = None
