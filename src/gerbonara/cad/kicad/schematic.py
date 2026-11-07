@@ -328,25 +328,34 @@ class LocalLabel(TextLabel):
         yield from TextMixin.to_svg(self, colorscheme.labels)
 
 
+def _label_svg(label, colorscheme, text_offset, frame_d):
+    x, y, rot = label.at.x, label.at.y, round(label.at.rotation or 0) % 360
+    dx, dy = {0: (1, 0), 90: (0, -1), 180: (-1, 0), 270: (0, 1)}.get(rot, (1, 0))
+    text = Newstroke.load().render_svg(label.text,
+                                       size=label.size,
+                                       h_align='left' if rot in (0, 90) else 'right',
+                                       v_align='middle',
+                                       rotation=-90 if rot in (90, 270) else 0,
+                                       scale=(1, 1),
+                                       stroke=colorscheme.labels,
+                                       transform=f'translate({x + dx*text_offset:.3f} {y + dy*text_offset:.3f})')
+    frame = Tag('path', fill='none', stroke_width=0.254, stroke=colorscheme.lines, d=frame_d,
+                transform=f'translate({x:.3f} {y:.3f}) rotate({-rot})')
+    return Tag('g', children=[frame, text])
+
+
 @sexp_type('global_label')
 class GlobalLabel(TextLabel):
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        text = super(TextMixin, self).to_svg(colorscheme.labels),
-        text.attrs['transform'] = f'translate({self.size*0.6:.3f} 0)'
-        (x1, y1), (x2, y2) = self.bounding_box()
-        frame = Tag('path', fill='none', stroke_width=0.254, stroke=colorscheme.lines,
-            d=label_shape_path_d(self.shape, self.size*0.2 + y2-y1, self.size*1.2 + 0.254))
-        yield Tag('g', children=[frame, text])
+        (_x1, _y1), (w, _y2) = Newstroke.load().bounding_box(self.text, size=self.size)
+        yield _label_svg(self, colorscheme, self.size*0.6,
+                         label_shape_path_d(self.shape, w + self.size*0.2, self.size*1.2 + 0.254))
 
 
 @sexp_type('hierarchical_label')
 class HierarchicalLabel(TextLabel):
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        text, = TextMixin.to_svg(self, colorscheme.labels),
-        text.attrs['transform'] = f'translate({self.size*1.2:.3f} 0)'
-        frame = Tag('path', fill='none', stroke_width=0.254, stroke=colorscheme.lines,
-            d=label_shape_path_d(self.shape, self.size, self.size))
-        yield Tag('g', children=[frame, text])
+        yield _label_svg(self, colorscheme, self.size*1.2, label_shape_path_d(self.shape, 0, self.size))
 
 
 @sexp_type('netclass_flag')
