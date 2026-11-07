@@ -670,6 +670,14 @@ class SymbolInstance:
     def rotation(self):
         return self.at.rotation
 
+    def transform_vector(self, dx, dy):
+        """ Library symbol coordinates (y up) to sheet coordinates (y down), following rotation and mirroring """
+        return lib_to_sheet_vector(dx, dy, self.at.rotation, self.mirror.x, self.mirror.y)
+
+    def transform_point(self, x, y):
+        dx, dy = self.transform_vector(x, y)
+        return self.at.x + dx, self.at.y + dy
+
     @property
     def unit_count(self):
         try:
@@ -762,7 +770,7 @@ class SymbolInstance:
             return
 
         def box(points):
-            points = [symbols.sheet_vector(x, y, self.at.rotation, self.mirror) for x, y in points]
+            points = [self.transform_vector(x, y) for x, y in points]
             xs, ys = [x for x, y in points], [y for x, y in points]
             return min(xs), min(ys), max(xs), max(ys)
         bx1, by1, bx2, by2 = box(body)

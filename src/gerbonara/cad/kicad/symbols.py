@@ -21,7 +21,7 @@ from ...utils import rotate_point, Tag, arc_bounds
 from ... import __version__
 from ...newstroke import Newstroke
 from .schematic_colors import *
-from .primitives import kicad_mid_to_center_arc, kicad_arc_svg_flags, Margins
+from .primitives import kicad_mid_to_center_arc, kicad_arc_svg_flags, Margins, lib_to_sheet_vector
 
 
 PIN_ETYPE = AtomChoice(Atom.input, Atom.output, Atom.bidirectional, Atom.tri_state, Atom.passive, Atom.free,
@@ -105,7 +105,7 @@ class Pin:
         # Like KiCad's SCH_PIN::PlotPinType(), in the frame of the placed symbol, without its translation: from the
         # root of the pin at the body to its connection point, with decorations sized by KiCad's default pin symbol
         # size, and always above or left of the pin on the sheet where they are one-sided.
-        sheet = lambda x, y: sheet_vector(x, y, p_rotation, p_mirror)
+        sheet = lambda x, y: lib_to_sheet_vector(x, y, p_rotation, p_mirror.x, p_mirror.y)
         a = math.radians(self.at.rotation or 0)
         px, py = sheet(self.at.x, self.at.y)
         x1, y1 = sheet(self.at.x + self.length*math.cos(a), self.at.y + self.length*math.sin(a))
@@ -258,13 +258,6 @@ class Fill:
             return 'none'
 
 
-def sheet_vector(x, y, rotation, mirror):
-    # Library coordinates turned and mirrored like a placed symbol is, see SymbolInstance.to_svg()
-    sx, sy = (-1, -1) if mirror.y else ((1, 1) if mirror.x else (1, -1))
-    c, s = math.cos(math.radians(rotation or 0)), math.sin(math.radians(rotation or 0))
-    return sx*(c*x - s*y), sy*(s*x + c*y)
-
-
 def _sheet_sweep(sweep, orientation):
     # The sweep flag of an arc on the sheet, which mirroring the symbol turns around
     rotation, mirror = orientation
@@ -295,8 +288,9 @@ class Circle:
             return
         # KiCad draws circles on the sheet, so that their dashes start on the right and run clockwise there
         x, y, r = self.center.x, self.center.y, self.radius
-        dx, dy = next((dx, dy) for dx, dy in ((r, 0), (-r, 0), (0, r), (0, -r))
-                      if all(abs(a - b) < 1e-6 for a, b in zip(sheet_vector(dx, dy, *orientation), (r, 0))))
+        rotation, mirror = orientation
+        dx, dy = next((dx, dy) for dx, dy in ((r, 0), (-r, 0), (0, r), (0, -r)) if all(
+            abs(a - b) < 1e-6 for a, b in zip(lib_to_sheet_vector(dx, dy, rotation, mirror.x, mirror.y), (r, 0))))
         sweep = int(not _sheet_sweep(False, orientation))
         yield Tag('path', d=f'M {x+dx:.3f} {y+dy:.3f} A {r:.4f} {r:.4f} 0 1 {sweep} {x-dx:.3f} {y-dy:.3f} '
                             f'A {r:.4f} {r:.4f} 0 1 {sweep} {x+dx:.3f} {y+dy:.3f} Z', **attrs)
@@ -503,7 +497,8 @@ class Rectangle:
             # KiCad draws rectangles on the sheet from their top left corner clockwise, or as a line from the top left
             # if they are flat, so that their dashes start at the same place
             corners = polyline.points[:4]
-            sheet = [sheet_vector(pt.x, pt.y, *orientation) for pt in corners]
+            rotation, mirror = orientation
+            sheet = [lib_to_sheet_vector(pt.x, pt.y, rotation, mirror.x, mirror.y) for pt in corners]
             key = lambda i: (round(sheet[i][0], 6), round(sheet[i][1], 6))
             first, last = min(range(4), key=key), max(range(4), key=key)
             if self.start.x == self.end.x or self.start.y == self.end.y:

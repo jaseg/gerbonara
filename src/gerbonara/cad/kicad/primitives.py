@@ -275,3 +275,22 @@ class TitleBlock:
     def comments_joined(self, value):
         self.comments = value.split('\n')
 
+
+def lib_to_sheet_vector(dx, dy, rotation=0, mirror_x=False, mirror_y=False):
+    """ Library symbol coordinates (y up) to sheet coordinates (y down), following rotation and mirroring """
+    a = math.radians(rotation or 0)
+    c, s = math.cos(a), math.sin(a)
+    c, s = (round(c) if abs(c - round(c)) < 1e-9 else c), (round(s) if abs(s - round(s)) < 1e-9 else s)
+    x, y = dx, -dy
+    x, y = x*c + y*s, -x*s + y*c
+    if mirror_x:
+        y = -y
+    elif mirror_y:
+        x = -x
+    return x, y
+
+
+def sheet_to_lib_vector(dx, dy, rotation=0, mirror_x=False, mirror_y=False):
+    # The inverse of lib_to_sheet_vector, whose matrix is orthogonal
+    (a, b), (c, d) = (lib_to_sheet_vector(*v, rotation, mirror_x, mirror_y) for v in ((1, 0), (0, 1)))
+    return a*dx + b*dy, c*dx + d*dy

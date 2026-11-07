@@ -18,7 +18,6 @@ from gerbonara.cad.kicad.sexp import build_sexp, parse_sexp, Atom
 from gerbonara.cad.kicad.sexp_mapper import sexp
 from gerbonara.cad.kicad.tmtheme import *
 from gerbonara.cad.kicad.schematic import Schematic
-from gerbonara.cad.kicad.symbols import sheet_vector
 from gerbonara.newstroke import Newstroke
 from gerbonara.cad.kicad.schematic_colors import Colorscheme
 
@@ -152,8 +151,7 @@ def _render_features(sch):
 
     for sym in sch.symbols:
         lib = sch.lookup_symbol(sym.lib_name, sym.lib_id)
-        to_sheet = lambda x, y: tuple(a + b for a, b in zip((sym.at.x, sym.at.y),
-                                                            sheet_vector(x, y, sym.at.rotation, sym.mirror)))
+        to_sheet = sym.transform_point
         mirror = 'mirrored ' if sym.mirror and (sym.mirror.x or sym.mirror.y) else ''
         boxes = []
         for pin in (pin for unit in sym._units() for pin in unit.pins if not pin.hide):
