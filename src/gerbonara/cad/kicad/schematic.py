@@ -30,23 +30,6 @@ from ...utils import MM, rotate_point, Tag, setup_svg
 from .schematic_colors import *
 
 
-KICAD_PAPER_SIZES = {
-    'A5': (210,   148),
-    'A4': (297,   210),
-    'A3': (420,   297),
-    'A2': (594,   420),
-    'A1': (841,   594),
-    'A0': (1189,  841),
-    'A': (11*25.4, 8.5*25.4),
-    'B': (17*25.4, 11*25.4),
-    'C': (22*25.4, 17*25.4),
-    'D': (34*25.4, 22*25.4),
-    'E': (44*25.4, 34*25.4),
-    'USLetter': (11*25.4, 8.5*25.4),
-    'USLegal': (14*25.4, 8.5*25.4),
-    'USLedger': (17*25.4, 11*25.4),
-    }
-
 @sexp_type('path')
 class SheetPath:
     path: str = '/'
@@ -813,7 +796,7 @@ class Schematic:
         children = []
         for elem in self.elements:
             children += elem.to_svg(colorscheme)
-        w, h = KICAD_PAPER_SIZES[self.page_settings.page_format]
+        w, h = self.page_settings.size
         return setup_svg(children, ((0, 0), (w, h)), pagecolor=colorscheme.background)
 
 

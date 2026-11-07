@@ -9,7 +9,7 @@ from itertools import cycle
 from .sexp import *
 from .sexp_mapper import *
 from ...newstroke import Newstroke
-from ...utils import rotate_point, sum_bounds, Tag, MM
+from ...utils import rotate_point, sum_bounds, Tag, MM, Inch
 from ...layers import LayerStack
 from ... import apertures as ap
 from ... import graphic_objects as go
@@ -36,6 +36,24 @@ LAYER_MAP_K2G = {
         }
 
 LAYER_MAP_G2K = {v: k for k, v in LAYER_MAP_K2G.items()}
+
+# KiCad's paper sizes in landscape orientation, in mm
+KICAD_PAPER_SIZES = {
+    'A5': (210, 148),
+    'A4': (297, 210),
+    'A3': (420, 297),
+    'A2': (594, 420),
+    'A1': (841, 594),
+    'A0': (1189, 841),
+    'A': (MM(11, Inch), MM(8.5, Inch)),
+    'B': (MM(17, Inch), MM(11, Inch)),
+    'C': (MM(22, Inch), MM(17, Inch)),
+    'D': (MM(34, Inch), MM(22, Inch)),
+    'E': (MM(44, Inch), MM(34, Inch)),
+    'USLetter': (MM(11, Inch), MM(8.5, Inch)),
+    'USLegal': (MM(14, Inch), MM(8.5, Inch)),
+    'USLedger': (MM(17, Inch), MM(11, Inch)),
+    }
 
 
 class BBoxMixin:
@@ -572,6 +590,19 @@ class PageSettings:
     width: float = None
     height: float = None
     portrait: Flag() = False
+
+    @property
+    def size(self):
+        """ (width, height) in mm """
+        if self.page_format == 'User' and self.width and self.height:
+            w, h = float(self.width), float(self.height)
+        else:
+            w, h = KICAD_PAPER_SIZES.get(str(self.page_format), KICAD_PAPER_SIZES['A4'])
+        # Like KiCad's PAGE_INFO::SetPortrait(), which turns landscape pages upright and leaves portrait pages as they
+        # are. KiCad's standard sizes are all landscape. KiCad only writes the flag for them, not for user sizes.
+        if self.portrait and w > h:
+            w, h = h, w
+        return w, h
 
 
 @sexp_type('property')
