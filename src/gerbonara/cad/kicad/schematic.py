@@ -532,14 +532,15 @@ class Subsheet:
     _ : SEXP_END = None
     sheet_name: object = field(default_factory=lambda: DrawnProperty('Sheetname', ''))
     file_name: object = field(default_factory=lambda: DrawnProperty('Sheetfile', ''))
+    extra_properties: list = field(default_factory=list)
     schematic: object = field(repr=False, default=None)
 
     def __after_parse__(self, parent):
-        self.sheet_name, self.file_name, *_extra_params = self._properties
+        self.sheet_name, self.file_name, *self.extra_properties = self._properties
         self.schematic = parent
 
     def __before_sexp__(self):
-        self._properties = [self.sheet_name, self.file_name]
+        self._properties = [self.sheet_name, self.file_name, *self.extra_properties]
 
     @property
     def rotation(self):
