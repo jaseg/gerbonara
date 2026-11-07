@@ -23,6 +23,9 @@ def test_load_kicad_schematic(kicad_sch_file):
             # contains legacy syntax
             ]:
         pytest.skip()
+    # Refers to a sub-sheet that is missing from KiCad's repository
+    if kicad_sch_file.parts[-2:] == ('pcbnew', 'component_classes.kicad_sch'):
+        pytest.skip()
     sch = Schematic.open(kicad_sch_file)
     print('Loaded schematic with', len(sch.wires), 'wires and', len(sch.symbols), 'symbols.')
     for subsh in sch.subsheets:
