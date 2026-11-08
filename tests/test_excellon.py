@@ -59,15 +59,21 @@ REFERENCE_FILES = {
         'kicad-x2-tests/x2ap/Flashpads-PTH.drl': (None, None),
         'kicad-x2-tests/x2noap/Flashpads-NPTH.drl': (None, None),
         'kicad-x2-tests/x2noap/Flashpads-PTH.drl': (None, None),
+        # PADS writes no header at all, so we have to tell gerbonara its number format. With Excellon's default format,
+        # its holes match the pads of pads/Top.pho.
+        'pads/Drill.drl': (('inch', 'trailing', 2), 'pads/Top.pho', dict(unit=Inch, number_format=(2, 4), zeros='trailing')),
         }
+
+def open_reference(reference, settings=None):
+    return ExcellonFile.open(reference, settings=FileSettings(**settings) if settings else None)
 
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', list(REFERENCE_FILES.items()), indirect=True)
 def test_round_trip(reference, tmpfile, img_support):
-    reference, (unit_spec, _) = reference
+    reference, (unit_spec, _, *settings) = reference
     tmp = tmpfile('Output excellon', '.drl')
 
-    f = ExcellonFile.open(reference)
+    f = open_reference(reference, *settings)
     f.save(tmp)
 
     if reference.name == '80101_0125_F200_ContourPlated.ncd':
@@ -83,12 +89,12 @@ def test_round_trip(reference, tmpfile, img_support):
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', list(REFERENCE_FILES.items()), indirect=True)
 def test_first_level_idempotence_svg(reference, tmpfile, img_support):
-    reference, (unit_spec, _) = reference
+    reference, (unit_spec, _, *settings) = reference
     tmp = tmpfile('Output excellon', '.drl')
     ref_svg = tmpfile('Reference SVG render', '.svg')
     out_svg = tmpfile('Output SVG render', '.svg')
 
-    a = ExcellonFile.open(reference)
+    a = open_reference(reference, *settings)
     a.save(tmp)
     b = ExcellonFile.open(tmp)
 
@@ -104,12 +110,12 @@ def test_first_level_idempotence_svg(reference, tmpfile, img_support):
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', list(REFERENCE_FILES.items()), indirect=True)
 def test_gerber_conversion(reference, tmpfile, img_support):
-    reference, (unit_spec, _) = reference
+    reference, (unit_spec, _, *settings) = reference
     tmp = tmpfile('Output gerber', '.gbr')
     ref_svg = tmpfile('Reference SVG render', '.svg')
     out_svg = tmpfile('Output SVG render', '.svg')
 
-    a = ExcellonFile.open(reference)
+    a = open_reference(reference, *settings)
     a.to_gerber().save(tmp)
     b = GerberFile.open(tmp)
 
@@ -125,7 +131,7 @@ def test_gerber_conversion(reference, tmpfile, img_support):
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', list(REFERENCE_FILES.items()), indirect=True)
 def test_idempotence(reference, tmpfile):
-    reference, (unit_spec, _) = reference
+    reference, (unit_spec, _, *settings) = reference
 
     if reference.name == '80101_0125_F200_ContourPlated.ncd':
         # this file contains a duplicate tool definition that we optimize out on our second pass.
@@ -136,7 +142,7 @@ def test_idempotence(reference, tmpfile):
     tmp_1 = tmpfile('First generation output', '.drl')
     tmp_2 = tmpfile('Second generation output', '.drl')
 
-    f1 = ExcellonFile.open(reference)
+    f1 = open_reference(reference, *settings)
     f1.save(tmp_1)
     print(f'{f1.import_settings=}')
     f2 = ExcellonFile.open(tmp_1)
@@ -149,13 +155,13 @@ def test_idempotence(reference, tmpfile):
 @filter_syntax_warnings
 @pytest.mark.parametrize('reference', list(REFERENCE_FILES.items()), indirect=True)
 def test_gerber_alignment(reference, tmpfile, print_on_error):
-    reference, (unit_spec, gerber) = reference
+    reference, (unit_spec, gerber, *settings) = reference
     tmp = tmpfile('Output excellon', '.drl')
 
     if gerber is None:
         pytest.skip()
 
-    excf = ExcellonFile.open(reference)
+    excf = open_reference(reference, *settings)
     gerf_path = reference_path(gerber)
     print_on_error('Reference gerber file:', gerf_path)
     gerf = GerberFile.open(gerf_path)
