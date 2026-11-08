@@ -593,7 +593,9 @@ class SymbolInstance:
 
         sym = self.schematic.lookup_symbol(self.lib_name, self.lib_id)
 
-        units = [unit for unit in sym.units if unit.unit_global or unit.unit_index == self.unit]
+        style = self.body_style or self.convert or 1
+        units = [unit for unit in sym.units if (unit.unit_global or unit.unit_index == self.unit)
+                 and (unit.style_global or unit.demorgan_style == style)]
 
 
         at_xform = xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
