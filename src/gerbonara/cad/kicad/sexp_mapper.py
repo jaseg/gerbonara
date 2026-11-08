@@ -10,8 +10,9 @@ SEXP_END = type('SEXP_END', (), {})
 
 
 class AtomChoice:
-    def __init__(self, *choices):
+    def __init__(self, *choices, value_when_empty=None):
         self.choices = choices
+        self.value_when_empty = value_when_empty
 
     def __contains__(self, value):
         return value in self.choices
@@ -20,13 +21,16 @@ class AtomChoice:
         return self.choices
 
     def __map__(self, obj, parent=None):
+        if not obj and self.value_when_empty is not None:
+            return self.value_when_empty
         obj, = obj
         if obj not in self:
             raise TypeError(f'Invalid atom {obj} for {type(self)}, valid choices are: {", ".join(map(str, self.choices))}')
         return obj
 
     def __sexp__(self, value):
-        yield value
+        if value is not self.value_when_empty:
+            yield value
 
     def __str__(self):
         choices = '|'.join(map(str, self.choices))
@@ -65,6 +69,8 @@ def sexp(t, v):
             return []
         elif t in (int, float, str, Atom):
             return [t(v)]
+        elif t is object:
+            return [v]
         elif hasattr(t, '__sexp__'):
             return list(t.__sexp__(v))
         elif isinstance(t, list):
@@ -90,7 +96,7 @@ def map_sexp(t, v, parent=None, path=''):
         if t is not Atom and hasattr(t, '__map__'):
             return t.__map__(v, parent=parent)
 
-        elif t in (int, float, str, Atom):
+        elif t in (int, float, str, Atom, object):
             v, = v
             if not isinstance(v, t):
                 types = set({type(v), t})
@@ -151,9 +157,10 @@ class Named(WrapperType):
             return map_sexp(self.next_type, obj, parent=parent, path=f'{path}/{self.name_atom}')
 
     def __sexp__(self, value):
-        value = sexp(self.next_type, value)
         if value is None:
             return
+
+        value = sexp(self.next_type, value)
 
         if self.omit_empty and not value:
             return
@@ -256,14 +263,19 @@ class Wrap(WrapperType):
 
 class Array(WrapperType):
     def __map__(self, value, parent=None, path=''):
-        # sexp_type classes map a whole (key ...) list, everything else maps a list of values.
-        whole = isinstance(self.next_type, type) and hasattr(self.next_type, 'name_atom')
+        # sexp_type classes map a whole (key ...) list and nested arrays a whole (...) list, everything else maps a list
+        # of values.
+        whole = isinstance(self.next_type, Array) or \
+                (isinstance(self.next_type, type) and hasattr(self.next_type, 'name_atom'))
         return [map_sexp(self.next_type, elem if whole and isinstance(elem, list) else [elem], parent=parent, path=path)
                 for elem in value]
     
     def __sexp__(self, value):
         for e in value:
-            yield from sexp(self.next_type, e)
+            if isinstance(self.next_type, Array):
+                yield sexp(self.next_type, e)
+            else:
+                yield from sexp(self.next_type, e)
 
     def __str__(self):
         return f'Array({self.next_type})'

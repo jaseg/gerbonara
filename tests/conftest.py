@@ -57,38 +57,50 @@ def pytest_sessionstart(session):
         f.unlink()
 
     try:
-        run_cargo_cmd('resvg', '--help', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        run_cargo_cmd('resvg', ['--help'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError:
         pytest.exit('resvg binary not found, aborting test.', 2)
 
 
-def _update_repo_cache(lib_dir, repo_url, tag):
-    if not lib_dir.is_dir():
-        print(f'Checking out KiCad footprint repo tag {tag}')
-        subprocess.run(['git', '-c', 'advice.detachedHead=false', 'clone', '--branch', tag, '--depth', '1', repo_url, str(lib_dir)], check=True)
-        return True
+def _update_repo_cache(lib_dir, repo_url, rev, sparse_patterns=None):
+    """ Check out `rev` (a tag, branch or commit) of `repo_url` into `lib_dir` without history. With `sparse_patterns`,
+    only the files matching them are fetched. """
+    def git(*args, check=True, **kwargs):
+        return subprocess.run(['git', '-c', 'advice.detachedHead=false', '-C', str(lib_dir), *args], check=check,
+                              **kwargs)
 
-    else:
-        print(f'Found cached KiCad footprint checkout, updating to {tag}')
-        res = subprocess.run(['git', '-C', str(lib_dir), 'rev-parse', 'HEAD', f'{tag}^{{commit}}'], check=True, capture_output=True, text=True)
-        head_commit, tag_commit = res.stdout.strip().splitlines()
-        print('got commits', head_commit, tag_commit)
-        if head_commit != tag_commit:
-            subprocess.run(['git', '-C', str(lib_dir), 'fetch', '--depth', '1', 'origin', tag], check=True)
-            subprocess.run(['git', '-c', 'advice.detachedHead=false', '-C', str(lib_dir), 'reset', '--hard', tag], check=True)
-            subprocess.run(['git', '-C', str(lib_dir), 'clean', '--force', '-d', '-x'], check=True)
-            return True
-        else:
-            print('Up to date, only cleaning.')
-            subprocess.run(['git', '-C', str(lib_dir), 'clean', '--force', '-d', '-x'], check=True)
-            return False
+    if not lib_dir.is_dir():
+        print(f'Checking out {repo_url} at {rev}')
+        lib_dir.mkdir(parents=True)
+        git('init', '-q')
+        git('remote', 'add', 'origin', repo_url)
+    if sparse_patterns:
+        git('sparse-checkout', 'set', '--no-cone', *sparse_patterns)
+
+    # Remember what each rev resolved to, so that being up to date can be checked without fetching
+    ref = f'refs/cache/{rev}'
+    head, cached = (git('rev-parse', '-q', '--verify', f'{r}^{{commit}}', capture_output=True, text=True,
+                        check=False).stdout.strip() for r in ('HEAD', ref))
+    if head and head == cached:
+        print(f'{lib_dir} is up to date, only cleaning.')
+        git('clean', '-q', '--force', '-d', '-x')
+        return False
+
+    git('fetch', '-q', '--depth', '1', *(['--filter=blob:none'] if sparse_patterns else []), 'origin', f'+{rev}:{ref}')
+    git('checkout', '-q', '--force', '--detach', ref)
+    git('clean', '-q', '--force', '-d', '-x')
+    return True
+
+
+KICAD_SOURCE_PATTERNS = ['/demos/**/*.kicad_sch', '/qa/data/**/*.kicad_sch']
+KICAD_SOURCE_PCB_PATTERNS = ['/demos/*.kicad_pcb', '/qa/data/**/*.kicad_pcb']
 
 
 def pytest_addoption(parser):
     parser.addini('kicad_footprints_tag', 'git tag or branch for KiCad footprint library repo used as testdata', default='main')
     parser.addini('kicad_symbols_tag', 'git tag or branch for KiCad symbol library repo used as testdata', default='main')
     parser.addini('kicad_container_tag', 'docker hub tag for the KiCad container to use for exporting footprint images', default='main')
-    parser.addini('kicad_source_tag', 'git tag for the KiCad source repo whose demos directory is used as testdata', default='main')
+    parser.addini('kicad_source_tag', 'git tags or commits of the KiCad source repo whose demo and QA files are used as testdata, separated by spaces', default='main')
     parser.addoption("--use-cached-data", action="store_true", help="Do not re-check git repo caches and podman image")
 
 
@@ -108,10 +120,11 @@ def pytest_configure(config):
     else:
         config.kicad_symbols_libdir = config.cache.mkdir('kicad-symbols') / 'repo'
 
-    if (lib_dir := os.environ.get('KICAD_SOURCE')):
-        config.kicad_source_dir = Path(lib_dir).expanduser()
+    if (lib_dirs := os.environ.get('KICAD_SOURCE')):
+        config.kicad_source_dirs = [Path(d).expanduser() for d in lib_dirs.split(os.pathsep)]
     else:
-        config.kicad_source_dir = config.cache.mkdir('kicad-source') / 'repo'
+        config.kicad_source_dirs = [config.cache.mkdir(f'kicad-source-{rev}') / 'repo'
+                                    for rev in config.getini('kicad_source_tag').split()]
 
     did_updates = False
     is_pytest_controller = 'PYTEST_XDIST_WORKER' not in os.environ
@@ -126,8 +139,11 @@ def pytest_configure(config):
             did_updates |= _update_repo_cache(config.kicad_symbols_libdir, 'https://gitlab.com/kicad/libraries/kicad-symbols', tag)
 
         if not os.environ.get('KICAD_SOURCE'):
-            tag = config.getini('kicad_source_tag')
-            did_updates |= _update_repo_cache(config.kicad_source_dir, 'https://gitlab.com/kicad/code/kicad', tag)
+            revs = config.getini('kicad_source_tag').split()
+            for i, (rev, lib_dir) in enumerate(zip(revs, config.kicad_source_dirs)):
+                # PCBs are only tested with the first KiCad version
+                patterns = KICAD_SOURCE_PATTERNS + (KICAD_SOURCE_PCB_PATTERNS if i == 0 else [])
+                did_updates |= _update_repo_cache(lib_dir, 'https://gitlab.com/kicad/code/kicad', rev, patterns)
 
     tag = config.getini("kicad_container_tag")
     config.kicad_container = os.environ.get('KICAD_CONTAINER', f'registry.hub.docker.com/kicad/kicad:{tag}')
@@ -160,13 +176,15 @@ def pytest_generate_tests(metafunc):
         mod_files = list(metafunc.config.kicad_footprints_libdir.glob('*.pretty/*.kicad_mod'))
         metafunc.parametrize('kicad_mod_file', mod_files, ids=list(map(str, mod_files)))
 
+    source_dirs = metafunc.config.kicad_source_dirs
     if 'kicad_sch_file' in metafunc.fixturenames:
-        files = list(metafunc.config.kicad_source_dir.glob('demos/*.kicad_sch'))
-        files += list(metafunc.config.kicad_source_dir.glob('qa/data/**/*.kicad_sch'))
+        files = [f for d in source_dirs for pattern in ('demos/**/*.kicad_sch', 'qa/data/**/*.kicad_sch')
+                 for f in sorted(d.glob(pattern))]
         metafunc.parametrize('kicad_sch_file', files, ids=list(map(str, files)))
 
     if 'kicad_pcb_file' in metafunc.fixturenames:
-        files = list(metafunc.config.kicad_source_dir.glob('demos/*.kicad_pcb'))
-        files += list(metafunc.config.kicad_source_dir.glob('qa/data/**/*.kicad_pcb'))
+        # PCBs are only tested with the first KiCad version
+        files = list(source_dirs[0].glob('demos/*.kicad_pcb'))
+        files += list(source_dirs[0].glob('qa/data/**/*.kicad_pcb'))
         metafunc.parametrize('kicad_pcb_file', files, ids=list(map(str, files)))
 

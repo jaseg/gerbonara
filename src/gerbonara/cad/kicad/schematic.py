@@ -195,6 +195,24 @@ class Rectangle:
     uuid: UUID = field(default_factory=UUID)
 
 
+@sexp_type('arc')
+class Arc:
+    start: Rename(XYCoord) = field(default_factory=XYCoord)
+    mid: Rename(XYCoord) = field(default_factory=XYCoord)
+    end: Rename(XYCoord) = field(default_factory=XYCoord)
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: OmitDefault(Fill) = None
+    uuid: UUID = field(default_factory=UUID)
+
+
+@sexp_type('bezier')
+class Bezier:
+    points: PointList = field(default_factory=list)
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: OmitDefault(Fill) = None
+    uuid: UUID = field(default_factory=UUID)
+
+
 def label_shape_path_d(shape, w, h):
     l, r = {
         Atom.input: '<]',
@@ -216,6 +234,63 @@ def label_shape_path_d(shape, w, h):
         return d + f'L {e+r:.3f} {-r:.3f} L {e+r:.3f} {r:.3f} L {e:.3f} {r:.3f} Z'
     else:
         return d + f'L {e+r:.3f} {0:.3f} L {e:.3f} {r:.3f} Z'
+
+
+@sexp_type('property')
+class DrawnProperty(TextMixin):
+    private: Flag() = False
+    key: str = None
+    value: str = None
+    id: Named(int) = None
+    at: AtPos = field(default_factory=AtPos)
+    show_name: Named(LegacyCompatibleFlag()) = None
+    do_not_autoplace: Named(LegacyCompatibleFlag()) = None
+    hide: OmitDefault(Named(LegacyCompatibleFlag())) = False
+    effects: TextEffect = field(default_factory=TextEffect)
+    _: SEXP_END = None
+    parent: object = None
+
+    def __after_parse__(self, parent=None):
+        self.parent = parent
+
+    # Alias value for text mixin
+    @property
+    def text(self):
+        if self.key == 'Reference' and getattr(self.parent, 'unit', 0) > 0:
+            return f'{self.value}{string.ascii_uppercase[self.parent.unit-1]}'
+        else:
+            return self.value
+
+    @text.setter
+    def text(self, value):
+        self.value = value
+
+    @property
+    def default_v_align(self):
+        return 'middle'
+
+    @property
+    def h_align(self):
+        align = self.effects.justify.h_str
+        if self.rotation in (90, 270):
+            align = {'left': 'right', 'right': 'left'}.get(align, align)
+        return align
+
+    @property
+    def rotation(self):
+        rot = self.at.rotation
+        rot += getattr(self.parent.at, 'rotation', 0)
+        return rot%360
+
+    @property
+    def mirrored(self):
+        if hasattr(self.parent, 'mirror'):
+            return self.parent.mirror.x, self.parent.mirror.y
+        return False, False
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        if not self.hide:
+            yield from TextMixin.to_svg(self, colorscheme.values)
 
 
 @dataclass
@@ -283,6 +358,24 @@ class Pin:
     alternate: Named(str) = None
 
 
+@sexp_type('field')
+class VariantField:
+    name: Named(str) = ''
+    value: Named(str) = ''
+
+
+# Attributes that are None are inherited from the symbol or sheet.
+@sexp_type('variant')
+class Variant:
+    name: Named(str) = ''
+    dnp: Named(YesNoAtom()) = None
+    exclude_from_sim: Named(YesNoAtom()) = None
+    in_bom: Named(YesNoAtom()) = None
+    on_board: Named(YesNoAtom()) = None
+    in_pos_files: Named(YesNoAtom()) = None
+    fields: List(VariantField) = field(default_factory=list)
+
+
 # Suddenly, we're doing syntax like this is yaml or something.
 @sexp_type('path')
 class SymbolCrosslinkSheet:
@@ -291,6 +384,7 @@ class SymbolCrosslinkSheet:
     unit: Named(int) = 1
     value: OmitDefault(Named(str)) = None
     footprint: OmitDefault(Named(str)) = None
+    variants: List(Variant) = field(default_factory=list)
 
 
 @sexp_type('project')
@@ -303,60 +397,6 @@ class SymbolCrosslinkProject:
 class MirrorFlags:
     x: Flag() = False
     y: Flag() = False
-
-
-@sexp_type('property')
-class DrawnProperty(TextMixin):
-    key: str = None
-    value: str = None
-    id: Named(int) = None
-    at: AtPos = field(default_factory=AtPos)
-    hide: Flag() = False
-    effects: TextEffect = field(default_factory=TextEffect)
-    _: SEXP_END = None
-    parent: object = None
-
-    def __after_parse__(self, parent=None):
-        self.parent = parent
-
-    # Alias value for text mixin
-    @property
-    def text(self):
-        if self.key == 'Reference' and self.parent.unit > 0:
-            return f'{self.value}{string.ascii_uppercase[self.parent.unit-1]}'
-        else:
-            return self.value
-
-    @text.setter
-    def text(self, value):
-        self.value = value
-
-    @property
-    def default_v_align(self):
-        return 'middle'
-
-    @property
-    def h_align(self):
-        align = self.effects.justify.h_str
-        if self.rotation in (90, 270):
-            align = {'left': 'right', 'right': 'left'}.get(align, align)
-        return align
-
-    @property
-    def rotation(self):
-        rot = self.at.rotation
-        rot += getattr(self.parent.at, 'rotation', 0)
-        return rot%360
-
-    @property
-    def mirrored(self):
-        if hasattr(self.parent, 'mirror'):
-            return self.parent.mirror.x, self.parent.mirror.y
-        return False, False
-
-    def to_svg(self, colorscheme=Colorscheme.KiCad):
-        if not self.hide:
-            yield from TextMixin.to_svg(self, colorscheme.values)
 
 
 @sexp_type('default_instance')
@@ -375,9 +415,13 @@ class SymbolInstance:
     at: AtPos = field(default_factory=AtPos)
     mirror: OmitDefault(MirrorFlags) = field(default_factory=MirrorFlags)
     unit: Named(int) = 1
+    # De Morgan body style. KiCad 9 renamed (convert ...) to (body_style ...).
+    convert: Named(int) = None
+    body_style: Named(int) = None
     exclude_from_sim: Named(YesNoAtom()) = False
     in_bom: Named(YesNoAtom()) = True
     on_board: Named(YesNoAtom()) = True
+    in_pos_files: Named(YesNoAtom()) = None
     dnp: Named(YesNoAtom()) = True
     fields_autoplaced: Named(YesNoAtom()) = True
     uuid: UUID = field(default_factory=UUID)
@@ -459,6 +503,7 @@ class SymbolInstance:
 class SubsheetCrosslinkSheet:
     path: str = ''
     page: Named(str) = ''
+    variants: List(Variant) = field(default_factory=list)
 
 
 @sexp_type('project')
@@ -530,8 +575,8 @@ class Subsheet:
     # AFAICT this is completely redundant, just like the one in SymbolInstance
     instances: Named(Array(SubsheetCrosslinkProject)) = field(default_factory=list)
     _ : SEXP_END = None
-    sheet_name: object = field(default_factory=lambda: DrawnProperty('Sheetname', ''))
-    file_name: object = field(default_factory=lambda: DrawnProperty('Sheetfile', ''))
+    sheet_name: object = field(default_factory=lambda: DrawnProperty(key='Sheetname', value=''))
+    file_name: object = field(default_factory=lambda: DrawnProperty(key='Sheetfile', value=''))
     extra_properties: list = field(default_factory=list)
     schematic: object = field(repr=False, default=None)
 
@@ -583,6 +628,11 @@ class Subsheet:
 
 @sexp_type('rule_area')
 class RuleArea:
+    # KiCad 10 lets rule areas set these attributes of the symbols inside them.
+    exclude_from_sim: Named(YesNoAtom()) = None
+    in_bom: Named(YesNoAtom()) = None
+    on_board: Named(YesNoAtom()) = None
+    dnp: Named(YesNoAtom()) = None
     polyline: Polyline = None
 
 
@@ -601,6 +651,51 @@ class TextBox(TextMixin):
 
     def render(self, variables={}, cache=None):
         yield from gr.TextBox.render(self, variables=variables)
+
+
+@sexp_type('border')
+class TableBorder:
+    external: Named(YesNoAtom()) = True
+    header: Named(YesNoAtom()) = True
+    stroke: Stroke = field(default_factory=Stroke)
+
+
+@sexp_type('separators')
+class TableSeparators:
+    rows: Named(YesNoAtom()) = True
+    cols: Named(YesNoAtom()) = True
+    stroke: Stroke = field(default_factory=Stroke)
+
+
+@sexp_type('span')
+class TableCellSpan:
+    columns: int = 1
+    rows: int = 1
+
+
+@sexp_type('table_cell')
+class TableCell:
+    text: str = ''
+    exclude_from_sim: Named(YesNoAtom()) = False
+    at: AtPos = field(default_factory=AtPos)
+    size: Rename(XYCoord) = field(default_factory=XYCoord)
+    margins: Margins = None
+    span: TableCellSpan = field(default_factory=TableCellSpan)
+    fill: OmitDefault(Fill) = None
+    effects: TextEffect = field(default_factory=TextEffect)
+    uuid: UUID = field(default_factory=UUID)
+
+
+# Cells are listed row by row, including the ones covered by another cell's span.
+@sexp_type('table')
+class Table:
+    column_count: Named(int) = 1
+    border: TableBorder = field(default_factory=TableBorder)
+    separators: TableSeparators = field(default_factory=TableSeparators)
+    column_widths: Named(Array(float)) = field(default_factory=list)
+    row_heights: Named(Array(float)) = field(default_factory=list)
+    cells: Named(Array(TableCell)) = field(default_factory=list)
+    uuid: UUID = None
 
 
 @sexp_type('lib_symbols')
@@ -634,13 +729,17 @@ class Schematic:
     polylines: List(Polyline) = field(default_factory=list)
     circles: List(Circle) = field(default_factory=list)
     rectangles: List(Rectangle) = field(default_factory=list)
+    arcs: List(Arc) = field(default_factory=list)
+    beziers: List(Bezier) = field(default_factory=list)
     texts: List(Text) = field(default_factory=list)
     text_boxes: List(TextBox) = field(default_factory=list)
+    tables: List(Table) = field(default_factory=list)
     local_labels: List(LocalLabel) = field(default_factory=list)
     global_labels: List(GlobalLabel) = field(default_factory=list)
     hierarchical_labels: List(HierarchicalLabel) = field(default_factory=list)
     symbols: List(SymbolInstance) = field(default_factory=list)
     subsheets: List(Subsheet) = field(default_factory=list)
+    groups: List(Group) = field(default_factory=list)
     sheet_instances: Named(Array(SubsheetCrosslinkSheet)) = field(default_factory=list)
     symbol_instances: Named(Array(SymbolCrosslinkSheet)) = field(default_factory=list)
     embedded_fonts: Named(YesNoAtom()) = False

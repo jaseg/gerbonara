@@ -296,6 +296,27 @@ class Arc:
                   **self.stroke.svg_attrs(colorscheme.lines))
 
 
+@sexp_type('bezier')
+class Bezier:
+    points: PointList = field(default_factory=list)
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: Fill = field(default_factory=Fill)
+
+    def bounding_box(self, default=None):
+        # The control polygon contains the curve.
+        if not self.points:
+            return default
+        return (min(p.x for p in self.points), min(p.y for p in self.points)), \
+               (max(p.x for p in self.points), max(p.y for p in self.points))
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        if len(self.points) != 4:
+            return
+        p0, *rest = self.points
+        d = f'M {p0.x:.3f} {p0.y:.3f} C ' + ' '.join(f'{p.x:.3f} {p.y:.3f}' for p in rest)
+        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill), **self.stroke.svg_attrs(colorscheme.lines))
+
+
 @sexp_type('polyline')
 class Polyline:
     pts: PointList = field(default_factory=PointList)
@@ -412,7 +433,10 @@ class Property(TextMixin):
     value: str = None
     id: Named(int) = None
     at: AtPos = field(default_factory=AtPos)
-    show_name: Flag() = False
+    # These three are None when absent, so files without them round trip unchanged.
+    show_name: Named(LegacyCompatibleFlag()) = None
+    do_not_autoplace: Named(LegacyCompatibleFlag()) = None
+    hide: Named(LegacyCompatibleFlag()) = None
     effects: TextEffect = field(default_factory=TextEffect)
 
     # Alias value for text mixin
@@ -425,7 +449,8 @@ class Property(TextMixin):
         self.value = value
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield from TextMixin.to_svg(self, colorscheme.text)
+        if not self.hide:
+            yield from TextMixin.to_svg(self, colorscheme.text)
 
 
 @sexp_type('pin_numbers')
@@ -456,6 +481,7 @@ class Unit:
     circles: List(Circle) = field(default_factory=list)
     arcs: List(Arc) = field(default_factory=list)
     polylines: List(Polyline) = field(default_factory=list)
+    beziers: List(Bezier) = field(default_factory=list)
     rectangles: List(Rectangle) = field(default_factory=list)
     texts: List(Text) = field(default_factory=list)
     text_boxes: List(TextBox) = field(default_factory=list)
@@ -487,6 +513,7 @@ class Unit:
         yield from self.polylines
         yield from self.circles
         yield from self.arcs
+        yield from self.beziers
         yield from self.texts
 
     def __before_sexp__(self):
@@ -503,13 +530,17 @@ class Unit:
 class Symbol:
     raw_name: str = None
     extends: Named(str) = None
-    power: Wrap(Flag()) = False
+    power: Named(AtomChoice(Atom('global'), Atom('local'), value_when_empty=True), omit_empty=False) = None
+    body_styles: Named(Array(object)) = None
     pin_numbers: OmitDefault(PinNumberSpec) = field(default_factory=PinNumberSpec)
     pin_names: OmitDefault(PinNameSpec) = field(default_factory=PinNameSpec)
     exclude_from_sim: OmitDefault(Named(YesNoAtom())) = False
     exclude_from_sim: Named(YesNoAtom()) = False
     in_bom: Named(YesNoAtom()) = True
     on_board: Named(YesNoAtom()) = True
+    in_pos_files: Named(YesNoAtom()) = None
+    duplicate_pin_numbers_are_jumpers: Named(YesNoAtom()) = None
+    jumper_pin_groups: Named(Array(Array(str))) = None
     properties: List(Property) = field(default_factory=list)
     units: List(Unit) = field(default_factory=list)
     embedded_fonts: Named(YesNoAtom()) = False
