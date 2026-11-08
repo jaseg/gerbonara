@@ -358,6 +358,53 @@ class LocalLabel(TextLabel):
         yield from TextMixin.to_svg(self, colorscheme.labels)
 
 
+def _label_pen_widths(label):
+    # KiCad's pen width for the outline of a label, and the one it lays out the outline of global labels with
+    f = label.effects.font
+    size = f.size.y or 1.27
+    if f.thickness:
+        pens = f.thickness, f.thickness
+    elif f.bold:
+        pens = size/5, size/5
+    else:
+        pens = KICAD_SCH_LINE_WIDTH, size/8
+    return [min(pen, size/4) for pen in pens]
+
+
+def _markup_runs(text, size, base_size=None):
+    # (text, size) of the runs of text with KiCad's overbar (~{...}), subscript (_{...}) and superscript (^{...})
+    # markup, which can be nested. KiCad does not draw the markup characters, and draws sub- and superscripts, also
+    # nested ones, at 0.8 times the text's size.
+    base_size = base_size or size
+    runs, plain, i = [], '', 0
+    while i < len(text):
+        if text[i] in '~_^' and text[i+1:i+2] == '{':
+            depth, j = 1, i + 2
+            while j < len(text) and depth:
+                depth += {'{': 1, '}': -1}.get(text[j], 0)
+                j += 1
+            if depth == 0:
+                runs.append((plain, size))
+                runs += _markup_runs(text[i+2:j-1], size if text[i] == '~' else 0.8*base_size, base_size)
+                plain, i = '', j
+                continue
+        plain += text[i]
+        i += 1
+    return [run for run in runs + [(plain, size)] if run[0]]
+
+
+def _markup_glyph_width(text, size):
+    # Width of the box of the glyphs of text with KiCad's markup, which is a fifth of the size of the last run narrower
+    # than the advance width
+    font = Newstroke.load()
+    x = end = 0
+    for run, run_size in _markup_runs(text, size):
+        w = font.bounding_box(kicad_unescape(run), size=run_size, space_width=16/21)[1][0]
+        end = max(end, x + w - 0.2*run_size)
+        x += w
+    return end
+
+
 def _label_svg(label, colorscheme, text_offset, frame_d):
     x, y, rot = label.at.x, label.at.y, round(label.at.rotation or 0) % 360
     dx, dy = {0: (1, 0), 90: (0, -1), 180: (-1, 0), 270: (0, 1)}.get(rot, (1, 0))
@@ -369,7 +416,8 @@ def _label_svg(label, colorscheme, text_offset, frame_d):
                                        scale=(1, 1),
                                        stroke=colorscheme.labels,
                                        transform=f'translate({x + dx*text_offset:.3f} {y + dy*text_offset:.3f})')
-    frame = Tag('path', fill='none', stroke_width=0.254, stroke=colorscheme.lines, d=frame_d,
+    frame = Tag('path', fill='none', stroke_width=_label_pen_widths(label)[0], stroke=colorscheme.lines, d=frame_d,
+                stroke_linejoin='round',
                 transform=f'translate({x:.3f} {y:.3f}) rotate({-rot})')
     return Tag('g', children=[frame, text])
 
@@ -377,9 +425,23 @@ def _label_svg(label, colorscheme, text_offset, frame_d):
 @sexp_type('global_label')
 class GlobalLabel(TextLabel):
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        (_x1, _y1), (w, _y2) = Newstroke.load().bounding_box(self.text, size=self.size)
-        yield _label_svg(self, colorscheme, self.size*0.6,
-                         label_shape_path_d(self.shape, w + self.size*0.2, self.size*1.2 + 0.254))
+        yield _label_svg(self, colorscheme, self.size*0.6, self._shape_d())
+
+    def _shape_d(self):
+        # Like KiCad's SCH_GLOBALLABEL::CreateGraphicShape(): drawn towards -x, then turned towards +x
+        margin = 0.375*self.size
+        half = self.size/2 + margin
+        pen = _label_pen_widths(self)[1]
+        # KiCad's text box is the box of the glyphs, grown by one and a half pen widths on each side
+        x, y = _markup_glyph_width(self.text, self.size) + 3*pen + 2*margin + pen, half + pen
+        points = [[0, 0], [0, -y], [-x, -y], [-x, 0], [-x, y], [0, y]]
+        x_offset = 0
+        if self.shape in (Atom.input, Atom.bidirectional, Atom.tri_state):
+            x_offset = -half
+            points[0][0] += half
+        if self.shape in (Atom.output, Atom.bidirectional, Atom.tri_state):
+            points[3][0] -= half
+        return 'M ' + ' L '.join(f'{-(px + x_offset):.3f} {-py:.3f}' for px, py in points) + ' Z'
 
 
 @sexp_type('hierarchical_label')
@@ -533,6 +595,7 @@ class SymbolInstance:
 
         units = [unit for unit in sym.units if unit.unit_global or unit.unit_index == self.unit]
 
+
         at_xform = xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
         if self.mirror.y:
             xform += f'scale(-1 -1)'
@@ -582,9 +645,12 @@ class SubsheetPin:
     def __after_parse__(self, parent):
         self.subsheet = parent
 
-    def to_svg(self):
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
         size = self.effects.font.size.y or 1.27
-        yield Tag('path', fill='none', d=label_shape_path_d(self.shape, 0, size+0.5),
+        # KiCad draws input sheet pins with the shape of output hierarchical labels, and the other way around
+        shape = {Atom.input: Atom.output, Atom.output: Atom.input}.get(self.shape, self.shape)
+        yield Tag('path', fill='none', d=label_shape_path_d(shape, 0, size), stroke=colorscheme.lines,
+                  stroke_width=_label_pen_widths(self)[0], stroke_linejoin='round',
                   transform=f'translate({self.at.x:.3f} {self.at.y:.3f}) rotate({180-self.at.rotation})')
 
         lx, ly = self.at.x, self.at.y
@@ -608,6 +674,7 @@ class SubsheetPin:
                               transform=f'translate({lx:.3f} {ly:.3f})',
                               scale=(1, 1),
                               mirror=(False, False),
+                              stroke=colorscheme.labels,
                               )
 
 @sexp_type('fill')
@@ -676,7 +743,7 @@ class Subsheet:
 
         children = []
         for pin in self.pins:
-            children += pin.to_svg()
+            children += pin.to_svg(colorscheme)
 
         #xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
         yield Tag('g', children=children, #transform=xform,

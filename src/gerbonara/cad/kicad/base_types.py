@@ -1,3 +1,4 @@
+import re
 import string
 import time
 from dataclasses import field, replace
@@ -107,6 +108,18 @@ class Color:
             return default
 
         return f'rgba({self.r} {self.g} {self.b} {self.a})'
+
+
+_KICAD_ESCAPES = {'dblquote': '"', 'quote': "'", 'lt': '<', 'gt': '>', 'backslash': '\\', 'slash': '/', 'bar': '|',
+                  'comma': ',', 'colon': ':', 'space': ' ', 'dollar': '$', 'tab': '\t', 'return': '\n', 'brace': '{'}
+
+
+_KICAD_ESCAPE_RE = re.compile(r'(?<![$~^_])\{(' + '|'.join(_KICAD_ESCAPES) + r')\}')
+
+
+def kicad_unescape(text):
+    """ Undo KiCad's escaping of special characters like KiCad's UnescapeString() does. """
+    return _KICAD_ESCAPE_RE.sub(lambda m: _KICAD_ESCAPES[m[1]], text) if text else text
 
 
 # KiCad's default widths of lines and wires, and of buses, in schematics and symbols
