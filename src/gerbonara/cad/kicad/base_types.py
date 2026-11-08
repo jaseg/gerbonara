@@ -109,6 +109,11 @@ class Color:
         return f'rgba({self.r} {self.g} {self.b} {self.a})'
 
 
+# KiCad's default widths of lines and wires, and of buses, in schematics and symbols
+KICAD_SCH_LINE_WIDTH = MM(0.006, Inch)
+KICAD_SCH_BUS_WIDTH = MM(0.012, Inch)
+
+
 @sexp_type('stroke')
 class Stroke:
     width: Named(float) = 0.254
@@ -121,15 +126,18 @@ class Stroke:
         else:
             return default
     
-    def svg_attrs(self, default_color=None):
-        w = self.width or 0.254
-        if not (color := self.color or default_color):
+    def svg_attrs(self, default_color=None, default_width=0.254):
+        # KiCad does not stroke shapes with a negative width
+        if self.width is not None and self.width < 0:
+            return {'stroke': 'none'}
+        w = self.width or default_width
+        if not (color := self.svg_color(default_color)):
             return {}
 
         attrs = {'stroke': color,
                 'stroke_linecap': 'round',
                 'stroke_linejoin': 'round',
-                'stroke_width': self.width or 0.254}
+                'stroke_width': w}
 
         if self.type not in (Atom.default, Atom.solid):
             attrs['stroke_dasharray'] = {
@@ -155,9 +163,9 @@ class WidthMixin:
 
 
 class Dasher:
-    def __init__(self, obj):
+    def __init__(self, obj, default_width=0.254):
         if obj.stroke:
-            w = obj.stroke.width if obj.stroke.width not in (None, 0, 0.0) else 0.254
+            w = obj.stroke.width if obj.stroke.width and obj.stroke.width > 0 else default_width
             t = obj.stroke.type
         else:
             w = obj.width or 0
@@ -244,7 +252,7 @@ class Dasher:
         if 'stroke' not in kwargs:
             kwargs['stroke'] = 'black'
         if 'stroke_width' not in kwargs:
-            kwargs['stroke_width'] = 0.254
+            kwargs['stroke_width'] = self.width
         if 'stroke_linecap' not in kwargs:
             kwargs['stroke_linecap'] = 'round'
 

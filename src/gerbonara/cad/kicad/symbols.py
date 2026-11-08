@@ -252,7 +252,7 @@ class Circle:
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         yield Tag('circle', cx=f'{self.center.x:.3f}', cy=f'{self.center.y:.3f}', r=f'{self.radius:.3f}',
                   fill=self.fill.svg(colorscheme.lines, colorscheme.fill),
-                  **self.stroke.svg_attrs(colorscheme.lines))
+                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
 
 
 @sexp_type('radius')
@@ -304,7 +304,7 @@ class Arc:
         except ValueError: # start, mid and end on one line
             d = f'M {self.start.x:.3f} {self.start.y:.3f} L {self.end.x:.3f} {self.end.y:.3f}'
         yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill),
-                  **self.stroke.svg_attrs(colorscheme.lines))
+                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
 
 
 @sexp_type('bezier')
@@ -325,7 +325,8 @@ class Bezier:
             return
         p0, *rest = self.points
         d = f'M {p0.x:.3f} {p0.y:.3f} C ' + ' '.join(f'{p.x:.3f} {p.y:.3f}' for p in rest)
-        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill), **self.stroke.svg_attrs(colorscheme.lines))
+        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill),
+                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
 
 
 @sexp_type('polyline')
@@ -365,7 +366,8 @@ class Polyline:
             return
 
         d = ' '.join([f'M {p0.x:.3f} {p0.y:.3f}', *(f'L {pn.x:.3f} {pn.y:.3f}' for pn in rest)])
-        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill), **self.stroke.svg_attrs(colorscheme.lines))
+        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill),
+                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
 
     def is_rectangle(self):
         # A rectangle has 5 points and is closed

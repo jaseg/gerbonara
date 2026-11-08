@@ -26,7 +26,7 @@ from ... import graphic_objects as go
 from ... import apertures as ap
 from ...layers import LayerStack
 from ...newstroke import Newstroke
-from ...utils import MM, rotate_point, Tag, setup_svg
+from ...utils import MM, Inch, rotate_point, Tag, setup_svg
 from .schematic_colors import *
 
 
@@ -48,7 +48,13 @@ class Junction:
         return (self.at.x - r, self.at.y - r), (self.at.x + r, self.at.y + r)
     
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield Tag('circle', cx=f'{self.at.x:.3f}', cy=f'{self.at.y:.3f}', r=(self.diameter/2 or 0.5),
+        # KiCad's default diameter is six times its default wire width, and it draws junctions at least 1.7 times as
+        # wide as the wire. A diameter of one of KiCad's schematic units, 100 nm, means that junctions are not drawn.
+        if round(self.diameter * 1e4) == 1:
+            return
+        d = self.diameter or 6*KICAD_SCH_LINE_WIDTH
+        r = max(d, 1.7*KICAD_SCH_LINE_WIDTH) / 2
+        yield Tag('circle', cx=f'{self.at.x:.3f}', cy=f'{self.at.y:.3f}', r=f'{r:.3f}',
                    fill=self.color.svg(colorscheme.wire))
 
 
@@ -62,10 +68,10 @@ class NoConnect:
         return (self.at.x - r, self.at.y - r), (self.at.x + r, self.at.y + r)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        r = 0.635
+        r = MM(0.024, Inch) # half of KiCad's default size
         x, y = self.at.x, self.at.y
         yield Tag('path', d=f'M {x-r:.3f} {y-r:.3f} L {x+r:.3f} {y+r:.3f} M {x-r:.3f} {y+r:.3f} L {x+r:.3f} {y-r:.3f}',
-                   fill='none', stroke_width='0.254', stroke=colorscheme.no_connect)
+                   fill='none', stroke_width=KICAD_SCH_LINE_WIDTH, stroke=colorscheme.no_connect, stroke_linecap='round')
 
 
 @sexp_type('bus_alias')
@@ -92,12 +98,13 @@ class BusEntry:
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         yield Tag('path', d=f'M {self.at.x:.3f} {self.at.y:.3f} l {self.size.x:.3f} {self.size.y:.3f}',
-                  fill='none', stroke=self.stroke.svg_color(colorscheme.bus), stroke_width=self.stroke.width or 0.254,
+                  fill='none', stroke=self.stroke.svg_color(colorscheme.wire),
+                  stroke_width=self.stroke.width if (self.stroke.width or 0) > 0 else KICAD_SCH_LINE_WIDTH,
                   stroke_linecap='round')
 
 
-def _polyline_svg(self, default_color):
-    da = Dasher(self)
+def _polyline_svg(self, default_color, default_width=KICAD_SCH_LINE_WIDTH):
+    da = Dasher(self, default_width)
     if len(self.points) < 2:
         warnings.warn(f'Schematic {type(self)} with less than two points')
         return Tag('path', d='')
@@ -121,7 +128,8 @@ def _fill_svg(fill, colorscheme):
 
 
 def _shape_svg(self, colorscheme, name='path', **attrs):
-    return Tag(name, **attrs, fill=_fill_svg(self.fill, colorscheme), **self.stroke.svg_attrs(colorscheme.lines))
+    return Tag(name, **attrs, fill=_fill_svg(self.fill, colorscheme),
+               **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
 
 
 def _polyline_bounds(self):
@@ -157,7 +165,7 @@ class Bus:
         return _polyline_bounds(self)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield _polyline_svg(self, colorscheme.bus)
+        yield _polyline_svg(self, colorscheme.bus, KICAD_SCH_BUS_WIDTH)
 
 
 @sexp_type('polyline')
@@ -171,6 +179,9 @@ class Polyline:
         return _polyline_bounds(self)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
+        # KiCad does not stroke shapes with a negative width, but lines of two points it draws with its default width
+        if len(self.points) > 2 and self.stroke.width is not None and self.stroke.width < 0:
+            return
         yield _polyline_svg(self, colorscheme.lines)
 
 
@@ -657,7 +668,8 @@ class Subsheet:
 
         yield Tag('rect', x=f'{self.at.x:.3f}', y=f'{self.at.y:.3f}',
                   width=f'{self.size.x:.3f}', height=f'{self.size.y:.3f}',
-                  **self.stroke.svg_attrs(colorscheme.lines), fill=self.fill.color.svg(colorscheme.fill))
+                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH),
+                  fill=self.fill.color.svg(colorscheme.fill))
 
         children = []
         for pin in self.pins:
@@ -666,7 +678,7 @@ class Subsheet:
         #xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
         yield Tag('g', children=children, #transform=xform,
                   fill=self.fill.color.svg(colorscheme.fill),
-                  **self.stroke.svg_attrs(colorscheme.lines))
+                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
 
 
 @sexp_type('rule_area')
