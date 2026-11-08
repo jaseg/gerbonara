@@ -571,6 +571,7 @@ class ExcellonParser(object):
         self.found_kicad_format_comment = False
         self.allegro_eof_toolchange_hack = False
         self.allegro_eof_toolchange_hack_index = 1
+        self.starts_with_rewind = False
 
     def warn(self, msg):
         warnings.warn(f'{self.filename}:{self.lineno} "{self.line}": {msg}', SyntaxWarning)
@@ -670,15 +671,20 @@ class ExcellonParser(object):
     @exprs.match('T([0-9]+)(([A-Z][.0-9]+)+)') # Tool definition: T** with at least one parameter
     def parse_normal_tooldef(self, match):
         # We ignore parameters like feed rate or spindle speed that are not used for EDA -> CAM file transfer. This is
-        # not a parser for the type of Excellon files a CAM program sends to the machine.
+        # not a parser for the type of Excellon files a CAM program sends to the machine. Only the diameter is a length
+        # in the file's number format; the other parameters are plain numbers that we leave unparsed.
 
         if (index := int(match[1])) in self.tools:
             self.warn('Re-definition of tool index {index}, overwriting old definition.') 
 
-        params = { m[0]: self.settings.parse_gerber_value(m[1:]) for m in re.findall('[BCFHSTZ][.0-9]+', match[2]) }
+        params = { m[0]: m[1:] for m in re.findall('[BCFHSTZ][.0-9]+', match[2]) }
+        diameter = self.settings.parse_gerber_value(params.get('C'))
 
-        self.tools[index] = ExcellonTool(diameter=params.get('C'), plated=self.is_plated,
-                unit=self.settings.unit)
+        self.tools[index] = ExcellonTool(diameter=diameter, plated=self.is_plated, unit=self.settings.unit)
+        # In the program body, a tool definition is a tool change that also sets the tool's parameters, like KiCad and
+        # gerbv read it. PADS writes files without a header that define each tool right where they start using it.
+        if self.program_state not in (None, ProgramState.HEADER):
+            self.active_tool = self.tools[index]
 
         if set(params.keys()) == set('TFSC'):
             self.generator_hints.append('target3001') # target files look like altium files without the comments
@@ -745,11 +751,10 @@ class ExcellonParser(object):
 
     @exprs.match('M48')
     def handle_begin_header(self, match):
-        if self.program_state == ProgramState.HEADER:
-            # It seems that only fritzing puts both a '%' start of header thingy and an M48 statement at the beginning
-            # of the file.
+        if self.starts_with_rewind and not self.tools and not self.objects:
+            # It seems that only fritzing puts both a '%' and an M48 statement at the beginning of the file.
             self.generator_hints.append('fritzing')
-        elif self.program_state is not None:
+        elif self.program_state not in (None, ProgramState.HEADER):
             self.warn(f'M48 "header start" statement found in the middle of the file, currently in {self.program_state}')
         self.program_state = ProgramState.HEADER
 
@@ -792,7 +797,10 @@ class ExcellonParser(object):
             if self.settings.number_format == (None, None):
                 # TARGET3001! exports zeros as "00" even when it uses an explicit decimal point everywhere else.
                 if x != '00':
-                    raise SyntaxError('No number format set and value does not contain a decimal point. If this is an Allegro '
+                    raise SyntaxError('No number format set and value does not contain a decimal point. The file does not '
+                        'say which number format it uses, so pass one in as a FileSettings object, e.g. '
+                        'ExcellonFile.open(path, settings=FileSettings(unit=Inch, number_format=(2, 4), '
+                        'zeros="trailing")) for Excellon\'s default format (used e.g. in PADS). If this is an Allegro '
                         'Excellon drill file make sure either nc_param.txt or ncdrill.log ends up in the same folder as '
                         'it, because Allegro does not include this critical information in their Excellon output. If you '
                         'call this through ExcellonFile.from_string, you must manually supply from_string with a '
@@ -830,7 +838,10 @@ class ExcellonParser(object):
     @exprs.match('%')
     def handle_rewind_shorthand(self, match):
         if self.program_state is None:
-            self.program_state = ProgramState.HEADER
+            # '%' ends the header, so a file that starts with it has no header, like PADS's. If an M48 follows,
+            # handle_begin_header starts the header after all.
+            self.program_state = ProgramState.DRILLING
+            self.starts_with_rewind = True
         elif self.program_state is ProgramState.HEADER:
             self.program_state = ProgramState.DRILLING
         # FIXME handle rewind start
