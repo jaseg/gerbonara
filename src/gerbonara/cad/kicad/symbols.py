@@ -98,51 +98,75 @@ class Pin:
 
         return (x1, y1), (x2, y2)
 
-    def to_svg(self, colorscheme, p_mirror, p_rotation):
+    def to_svg(self, colorscheme, p_mirror, p_rotation, alternate=None):
         if self.hide:
             return
 
-        psx, psy = (-1 if p_mirror.x else 1), (-1 if p_mirror.y else 1)
-        x1, y1 = self.at.x, self.at.y
-        x2, y2 = self.at.x+self.length, self.at.y
+        # Like KiCad's SCH_PIN::PlotPinType(), in the frame of the placed symbol, without its translation: from the
+        # root of the pin at the body to its connection point, with decorations sized by KiCad's default pin symbol
+        # size, and always above or left of the pin on the sheet where they are one-sided.
         if p_mirror.y:
-            p_xf = f'scale(-1 -1)'
+            sx, sy = -1, -1
         elif p_mirror.x:
-            p_xf = f'scale(1 1)'
+            sx, sy = 1, 1
         else:
-            p_xf = f'scale(1 -1)'
-        p_xf += f'rotate({p_rotation})'
-        xform = {'transform': f'{p_xf} translate({self.at.x:.3f} {self.at.y:.3f}) rotate({self.at.rotation})'}
-        style = {'stroke_width': 0.254, 'stroke': colorscheme.lines, 'stroke_linecap': 'round'}
+            sx, sy = 1, -1
+        c, s = math.cos(math.radians(p_rotation or 0)), math.sin(math.radians(p_rotation or 0))
+        sheet = lambda x, y: (sx*(c*x - s*y), sy*(s*x + c*y))
+        a = math.radians(self.at.rotation or 0)
+        px, py = sheet(self.at.x, self.at.y)
+        x1, y1 = sheet(self.at.x + self.length*math.cos(a), self.at.y + self.length*math.sin(a))
+        # From the root to the connection point, also for pins of length 0
+        ux, uy = sheet(math.cos(a), math.sin(a))
+        sign = lambda v: (v > 1e-6) - (v < -1e-6)
+        mx, my = sign(-ux), sign(-uy)
+        d = KICAD_PIN_SYMBOL_SIZE
+        # An alternate function selected on the placed symbol replaces the pin's shape and type
+        style, etype = (alternate.shape, alternate.etype) if alternate is not None else (self.style, self.etype)
 
-        yield Tag('path', **xform, **style, d=f'M 0 0 L {self.length:.3f} 0')
+        lines = []
+        if style in ('inverted', 'inverted_clock'):
+            yield Tag('circle', cx=f'{x1 + mx*d:.3f}', cy=f'{y1 + my*d:.3f}', r=f'{d:.3f}', fill='none',
+                      stroke=colorscheme.lines, stroke_width=KICAD_SCH_LINE_WIDTH)
+            lines.append([(x1 + mx*2*d, y1 + my*2*d), (px, py)])
+        elif style == 'edge_clock_high':
+            if my == 0:
+                lines.append([(x1, y1 + d), (x1 + mx*2*d, y1), (x1, y1 - d)])
+            else:
+                lines.append([(x1 + d, y1), (x1, y1 + my*2*d), (x1 - d, y1)])
+            lines.append([(x1 + mx*2*d, y1 + my*2*d), (px, py)])
+        else:
+            lines.append([(x1, y1), (px, py)])
 
-        eps = 1
-        for tag in {
-                'line': [],
-                'inverted': [
-                    Tag('circle', **xform, **style, cx=x2-eps/3-0.2, cy=y2, r=eps/3)],
-                'clock': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],
-                'inverted_clock': [
-                    Tag('circle', **xform, **style, cx=x2-eps/3-0.2, cy=y2, r=eps/3),
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],
-                'input_low': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}')],
-                'clock_low': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}'),
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],
-                'output_low': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps} L {x2-eps} {y2}')],
-                'edge_clock_high': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}'),
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],
-                'non_logic': [
-                    Tag('path', **xform, **style, d=f'M {x2-eps/2} {y2-eps/2} L {x2+eps/2} {y2+eps/2}'),
-                    Tag('path', **xform, **style, d=f'M {x2-eps/2} {y2+eps/2} L {x2+eps/2} {y2-eps/2}')],
-                # FIXME...
-        }.get(self.style, []):
-            yield tag
+        if style in ('clock', 'inverted_clock', 'clock_low'):
+            if my == 0:
+                lines.append([(x1, y1 + d), (x1 - mx*2*d, y1), (x1, y1 - d)])
+            else:
+                lines.append([(x1 + d, y1), (x1, y1 - my*2*d), (x1 - d, y1)])
+
+        if style in ('input_low', 'clock_low'):
+            if my == 0:
+                lines.append([(x1 + mx*2*d, y1), (x1 + mx*2*d, y1 - 2*d), (x1, y1)])
+            else:
+                lines.append([(x1, y1 + my*2*d), (x1 - 2*d, y1 + my*2*d), (x1, y1)])
+
+        if style == 'output_low':
+            if my == 0:
+                lines.append([(x1, y1 - 2*d), (x1 + mx*2*d, y1)])
+            else:
+                lines.append([(x1 - 2*d, y1), (x1, y1 + my*2*d)])
+        elif style == 'non_logic':
+            lines.append([(x1 - (mx + my)*d, y1 - (my - mx)*d), (x1 + (mx + my)*d, y1 + (my - mx)*d)])
+            lines.append([(x1 - (mx - my)*d, y1 - (my + mx)*d), (x1 + (mx - my)*d, y1 + (my + mx)*d)])
+
+        if etype in ('no_connect', 'unconnected'):
+            r = KICAD_TARGET_PIN_RADIUS
+            lines.append([(px - r, py - r), (px + r, py + r)])
+            lines.append([(px + r, py - r), (px - r, py + r)])
+
+        path_d = ' '.join('M ' + ' L '.join(f'{x:.3f} {y:.3f}' for x, y in line) for line in lines)
+        yield Tag('path', d=path_d, fill='none', stroke=colorscheme.lines, stroke_width=KICAD_SCH_LINE_WIDTH,
+                  stroke_linecap='round', stroke_linejoin='round')
 
         rot = self.at.rotation + p_rotation
         trot = self.at.rotation

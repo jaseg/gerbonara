@@ -546,7 +546,10 @@ class SymbolInstance:
         children = [foo for unit in units for elem in unit.graphical_elements for foo in elem.to_svg(colorscheme)]
         yield Tag('g', children=children, transform=xform, fill=colorscheme.fill, stroke=colorscheme.lines)
 
-        children = [foo for unit in units for pin in unit.pins for foo in pin.to_svg(colorscheme, self.mirror, rot)]
+        selected = {pin.name: pin.alternate for pin in self.pins if pin.alternate}
+        alternate = lambda pin: next((alt for alt in pin.alternates if alt.name == selected.get(pin.number.value)), None)
+        children = [foo for unit in units for pin in unit.pins
+                    for foo in pin.to_svg(colorscheme, self.mirror, rot, alternate(pin))]
         yield Tag('g', children=children, transform=at_xform, fill=colorscheme.fill, stroke=colorscheme.lines)
 
         for prop in self.properties:

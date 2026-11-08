@@ -112,6 +112,9 @@ class Color:
 # KiCad's default widths of lines and wires, and of buses, in schematics and symbols
 KICAD_SCH_LINE_WIDTH = MM(0.006, Inch)
 KICAD_SCH_BUS_WIDTH = MM(0.012, Inch)
+# KiCad's default size of pin decorations, and the size of the cross on no connect pins
+KICAD_PIN_SYMBOL_SIZE = MM(0.025, Inch)
+KICAD_TARGET_PIN_RADIUS = MM(0.015, Inch)
 
 
 @sexp_type('stroke')
