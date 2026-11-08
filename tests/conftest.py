@@ -100,6 +100,7 @@ def pytest_addoption(parser):
     parser.addini('kicad_footprints_tag', 'git tag or branch for KiCad footprint library repo used as testdata', default='main')
     parser.addini('kicad_symbols_tag', 'git tag or branch for KiCad symbol library repo used as testdata', default='main')
     parser.addini('kicad_container_tag', 'docker hub tag for the KiCad container to use for exporting footprint images', default='main')
+    parser.addini('kicad_schematic_container_tag', 'docker hub tag for the KiCad container to render schematics with, one of the kicad_source_tag versions', default='')
     parser.addini('kicad_source_tag', 'git tags or commits of the KiCad source repo whose demo and QA files are used as testdata, separated by spaces', default='main')
     parser.addoption("--use-cached-data", action="store_true", help="Do not re-check git repo caches and podman image")
 
@@ -148,17 +149,30 @@ def pytest_configure(config):
     tag = config.getini("kicad_container_tag")
     config.kicad_container = os.environ.get('KICAD_CONTAINER', f'registry.hub.docker.com/kicad/kicad:{tag}')
 
+    # Schematics are rendered by KiCad only for the KiCad version of its container
+    sch_tag = config.getini('kicad_schematic_container_tag')
+    config.kicad_sch_container = os.environ.get('KICAD_SCHEMATIC_CONTAINER',
+                                                f'registry.hub.docker.com/kicad/kicad:{sch_tag}' if sch_tag else None)
+    revs = config.getini('kicad_source_tag').split()
+    version = sch_tag.removesuffix('-full')
+    # KICAD_SOURCE lists the checkouts in the order of kicad_source_tag
+    i = revs.index(version) if version in revs else None
+    dirs = config.kicad_source_dirs
+    config.kicad_render_source_dir = dirs[i] if i is not None and i < len(dirs) else None
+
     if is_pytest_controller and not config.getoption("--use-cached-data"):
         print('Checking podman image')
-        res = subprocess.run(['podman', 'image', 'exists', config.kicad_container])
-        if res.returncode:
-            print('Updating podman image')
-            subprocess.run(['podman', 'pull', config.kicad_container], check=True)
-            did_updates = True
-        else:
-            print('Up to date.')
+        for container in filter(None, (config.kicad_container, config.kicad_sch_container)):
+            res = subprocess.run(['podman', 'image', 'exists', container])
+            if res.returncode:
+                print('Updating podman image')
+                subprocess.run(['podman', 'pull', container], check=True)
+                did_updates |= container == config.kicad_container
+            else:
+                print('Up to date.')
 
-    config.image_support = ImageSupport(config.cache.mkdir('image_cache'), config.kicad_container)
+    config.image_support = ImageSupport(config.cache.mkdir('image_cache'), config.kicad_container,
+                                        config.kicad_sch_container)
 
     if is_pytest_controller and did_updates and not config.getoption("--use-cached-data"):
         print('Checking KiCad footprint library render cache')
@@ -181,6 +195,12 @@ def pytest_generate_tests(metafunc):
         files = [f for d in source_dirs for pattern in ('demos/**/*.kicad_sch', 'qa/data/**/*.kicad_sch')
                  for f in sorted(d.glob(pattern))]
         metafunc.parametrize('kicad_sch_file', files, ids=list(map(str, files)))
+
+    if 'kicad_sch_render_file' in metafunc.fixturenames:
+        from .test_kicad_schematic import KICAD_RENDER_DOCUMENTS
+        d = metafunc.config.kicad_render_source_dir
+        files = [d / f for f in KICAD_RENDER_DOCUMENTS] if d else []
+        metafunc.parametrize('kicad_sch_render_file', files, ids=list(map(str, files)))
 
     if 'kicad_pcb_file' in metafunc.fixturenames:
         # PCBs are only tested with the first KiCad version
