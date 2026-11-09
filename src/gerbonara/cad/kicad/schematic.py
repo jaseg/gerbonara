@@ -27,7 +27,7 @@ from ... import graphic_objects as go
 from ... import apertures as ap
 from ...layers import LayerStack
 from ...newstroke import Newstroke
-from ...utils import MM, Inch, rotate_point, Tag, setup_svg
+from ...utils import MM, Inch, rotate_point, Tag, setup_svg, arc_bounds, sum_bounds
 from .schematic_colors import *
 
 
@@ -147,6 +147,13 @@ def _polyline_bounds(self):
     return (x1-r, y1-r), (x2+r, y2+r)
 
 
+def _shape_bounds(shape, points):
+    # The box of points on a shape's outline, grown by half its stroke
+    r = max(shape.stroke.width, 0)/2 if shape.stroke.width else KICAD_SCH_LINE_WIDTH/2
+    return ((min(x for x, y in points) - r, min(y for x, y in points) - r),
+            (max(x for x, y in points) + r, max(y for x, y in points) + r))
+
+
 @sexp_type('wire')
 class Wire:
     points: PointList = field(default_factory=list)
@@ -209,6 +216,10 @@ class Circle:
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
 
+    def bounding_box(self, default=None):
+        c, r = self.center, self.radius
+        return _shape_bounds(self, [(c.x - r, c.y - r), (c.x + r, c.y + r)])
+
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         yield _shape_svg(self, colorscheme, 'circle', cx=f'{self.center.x:.3f}', cy=f'{self.center.y:.3f}',
                          r=f'{self.radius:.3f}')
@@ -221,6 +232,9 @@ class Rectangle:
     stroke: Stroke = field(default_factory=Stroke)
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
+
+    def bounding_box(self, default=None):
+        return _shape_bounds(self, [(self.start.x, self.start.y), (self.end.x, self.end.y)])
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         # From the top left corner clockwise, like the SVG rect that KiCad draws, or as a line from the top left if it is
@@ -241,6 +255,18 @@ class Arc:
     stroke: Stroke = field(default_factory=Stroke)
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
+
+    def bounding_box(self, default=None):
+        start, end = self.start, self.end
+        try:
+            (cx, cy), _r, sweep, _large = kicad_arc_svg_flags(start, self.mid, end)
+        except ValueError: # start, mid and end on one line
+            return _shape_bounds(self, [(start.x, start.y), (end.x, end.y)])
+        points = arc_bounds(start.x, start.y, end.x, end.y, cx, cy, not sweep)
+        # KiCad fills arcs as pie wedges
+        if self.fill is not None and self.fill.type != Atom.none:
+            points += ((cx, cy),)
+        return _shape_bounds(self, points)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         start, end = self.start, self.end
@@ -267,6 +293,12 @@ class Bezier:
     stroke: Stroke = field(default_factory=Stroke)
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
+
+    def bounding_box(self, default=None):
+        # The control polygon contains the curve.
+        if not self.points:
+            return default
+        return _shape_bounds(self, [(pt.x, pt.y) for pt in self.points])
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         if len(self.points) != 4:
@@ -437,25 +469,49 @@ def _markup_glyph_width(text, size):
     return end
 
 
-def _label_svg(label, colorscheme, text_offset, frame_d):
+def _label_text(label, text_offset):
+    # Where the text of a global or hierarchical label goes, and how it is rendered
     x, y, rot = label.at.x, label.at.y, round(label.at.rotation or 0) % 360
     dx, dy = {0: (1, 0), 90: (0, -1), 180: (-1, 0), 270: (0, 1)}.get(rot, (1, 0))
-    text = Newstroke.load().render_svg(label.text,
-                                       size=label.size,
-                                       h_align='left' if rot in (0, 90) else 'right',
-                                       v_align='middle',
-                                       rotation=-90 if rot in (90, 270) else 0,
-                                       scale=(1, 1),
-                                       stroke=colorscheme.labels,
-                                       transform=f'translate({x + dx*text_offset:.3f} {y + dy*text_offset:.3f})')
+    return (x + dx*text_offset, y + dy*text_offset), dict(size=label.size,
+                                                         h_align='left' if rot in (0, 90) else 'right',
+                                                         v_align='middle',
+                                                         rotation=-90 if rot in (90, 270) else 0,
+                                                         scale=(1, 1))
+
+
+def _label_svg(label, colorscheme, text_offset, frame_d):
+    x, y, rot = label.at.x, label.at.y, round(label.at.rotation or 0) % 360
+    (tx, ty), text_args = _label_text(label, text_offset)
+    text = Newstroke.load().render_svg(label.text, **text_args, stroke=colorscheme.labels,
+                                       transform=f'translate({tx:.3f} {ty:.3f})')
     frame = Tag('path', fill='none', stroke_width=_label_pen_widths(label)[0], stroke=colorscheme.lines, d=frame_d,
                 stroke_linejoin='round',
                 transform=f'translate({x:.3f} {y:.3f}) rotate({-rot})')
     return Tag('g', children=[frame, text])
 
 
+def _label_bounds(label, text_offset, frame_d):
+    # The box of what _label_svg() draws
+    x, y, rot = label.at.x, label.at.y, round(label.at.rotation or 0) % 360
+    c, s = round(math.cos(math.radians(rot))), round(math.sin(math.radians(rot)))
+    coords = [float(v) for v in re.findall(r'-?\d+(?:\.\d+)?', frame_d)]
+    frame = [(x + c*px + s*py, y - s*px + c*py) for px, py in zip(coords[0::2], coords[1::2])]
+    (tx, ty), text_args = _label_text(label, text_offset)
+    text = [(tx + px, ty + py) for stroke in Newstroke.load().render(label.text, **text_args) for px, py in stroke]
+    boxes = []
+    for points, r in ((frame, _label_pen_widths(label)[0]/2), (text, 0.1*label.size)):
+        if points:
+            boxes.append(((min(px for px, py in points) - r, min(py for px, py in points) - r),
+                          (max(px for px, py in points) + r, max(py for px, py in points) + r)))
+    return sum_bounds(boxes)
+
+
 @sexp_type('global_label')
 class GlobalLabel(TextLabel):
+    def bounding_box(self, default=None):
+        return _label_bounds(self, self.size*0.6, self._shape_d())
+
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         yield _label_svg(self, colorscheme, self.size*0.6, self._shape_d())
 
@@ -478,6 +534,9 @@ class GlobalLabel(TextLabel):
 
 @sexp_type('hierarchical_label')
 class HierarchicalLabel(TextLabel):
+    def bounding_box(self, default=None):
+        return _label_bounds(self, self.size*1.2, label_shape_path_d(self.shape, 0, self.size))
+
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         yield _label_svg(self, colorscheme, self.size*1.2, label_shape_path_d(self.shape, 0, self.size))
 
