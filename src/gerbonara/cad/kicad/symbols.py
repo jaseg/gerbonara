@@ -244,13 +244,16 @@ class Fill:
     type: Named(AtomChoice(Atom.none, Atom.outline, Atom.background, Atom.color)) = Atom.none
     color: Color = None
 
-    def svg(self, fg, bg):
+    def svg(self, fg, bg, own_color=True, stroked=True):
         if self.type == 'outline':
             return fg
         elif self.type == 'background':
             return bg
-        elif self.type == 'color' and self.color is not None:
-            return self.color.svg(bg)
+        elif self.type == 'color':
+            if not own_color:
+                return black_and_white_fill(self.color, stroked, Colorscheme.KiCad, fg=fg, bg=bg)
+            # Without a fill color of its own, KiCad fills the shape with the line color
+            return self.color.svg(fg) if self.color else fg
         else:
             return 'none'
 
@@ -268,6 +271,11 @@ def _sheet_sweep(sweep, orientation):
     return sweep if bool(mirror.x) != bool(mirror.y) else not sweep
 
 
+def _symbol_fill_svg(shape, colorscheme):
+    stroked = shape.stroke.width is None or shape.stroke.width >= 0
+    return shape.fill.svg(colorscheme.lines, colorscheme.fill, item_colors(colorscheme), stroked)
+
+
 @sexp_type('circle')
 class Circle:
     center: Rename(XYCoord) = field(default_factory=XYCoord)
@@ -280,8 +288,8 @@ class Circle:
         return (x-r, y-r), (x+r, y+r)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad, orientation=None):
-        attrs = dict(fill=self.fill.svg(colorscheme.lines, colorscheme.fill),
-                     **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
+        attrs = dict(fill=_symbol_fill_svg(self, colorscheme),
+                     **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme)))
         if orientation is None or 'stroke_dasharray' not in attrs:
             yield Tag('circle', cx=f'{self.center.x:.3f}', cy=f'{self.center.y:.3f}', r=f'{self.radius:.3f}', **attrs)
             return
@@ -337,8 +345,8 @@ class Arc:
         return arc_bounds(self.start.x, self.start.y, self.end.x, self.end.y, cx, cy, not sweep)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad, orientation=None):
-        fill = self.fill.svg(colorscheme.lines, colorscheme.fill)
-        stroke = self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH)
+        fill = _symbol_fill_svg(self, colorscheme)
+        stroke = self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme))
         start, end = self.start, self.end
         try:
             (cx, cy), r, sweep, large = self._arc()
@@ -373,8 +381,8 @@ class Bezier:
             return
         p0, *rest = self.points
         d = f'M {p0.x:.3f} {p0.y:.3f} C ' + ' '.join(f'{p.x:.3f} {p.y:.3f}' for p in rest)
-        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill),
-                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
+        yield Tag('path', d=d, fill=_symbol_fill_svg(self, colorscheme),
+                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme)))
 
 
 @sexp_type('polyline')
@@ -420,8 +428,8 @@ class Polyline:
         else:
             close = ''
         d = ' '.join([f'M {p0.x:.3f} {p0.y:.3f}', *(f'L {pn.x:.3f} {pn.y:.3f}' for pn in rest)]) + close
-        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill), fill_rule='evenodd',
-                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
+        yield Tag('path', d=d, fill=_symbol_fill_svg(self, colorscheme), fill_rule='evenodd',
+                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme)))
 
     def is_rectangle(self):
         # A rectangle has 5 points and is closed

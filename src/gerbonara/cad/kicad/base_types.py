@@ -136,18 +136,18 @@ class Stroke:
     type: Named(AtomChoice(Atom.dash, Atom.dot, Atom.dash_dot_dot, Atom.dash_dot, Atom.default, Atom.solid)) = Atom.default
     color: Color = None
 
-    def svg_color(self, default=None):
-        if self.color:
+    def svg_color(self, default=None, own_color=True):
+        if self.color and own_color:
             return self.color.svg(default)
         else:
             return default
     
-    def svg_attrs(self, default_color=None, default_width=0.254):
+    def svg_attrs(self, default_color=None, default_width=0.254, own_color=True):
         # KiCad does not stroke shapes with a negative width
         if self.width is not None and self.width < 0:
             return {'stroke': 'none'}
         w = self.width or default_width
-        if not (color := self.svg_color(default_color)):
+        if not (color := self.svg_color(default_color, own_color)):
             return {}
 
         attrs = {'stroke': color,

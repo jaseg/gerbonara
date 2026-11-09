@@ -56,7 +56,7 @@ class Junction:
         d = self.diameter or 6*KICAD_SCH_LINE_WIDTH
         r = max(d, 1.7*KICAD_SCH_LINE_WIDTH) / 2
         yield Tag('circle', cx=f'{self.at.x:.3f}', cy=f'{self.at.y:.3f}', r=f'{r:.3f}',
-                   fill=self.color.svg(colorscheme.wire))
+                   fill=self.color.svg(colorscheme.wire) if item_colors(colorscheme) else colorscheme.wire)
 
 
 @sexp_type('no_connect')
@@ -100,10 +100,10 @@ class BusEntry:
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         width = self.stroke.width if (self.stroke.width or 0) > 0 else KICAD_SCH_LINE_WIDTH
         yield Tag('path', d=f'M {self.at.x:.3f} {self.at.y:.3f} l {self.size.x:.3f} {self.size.y:.3f}', fill='none',
-                  **replace(self.stroke, width=width).svg_attrs(colorscheme.wire))
+                  **replace(self.stroke, width=width).svg_attrs(colorscheme.wire, own_color=item_colors(colorscheme)))
 
 
-def _polyline_svg(self, default_color, default_width=KICAD_SCH_LINE_WIDTH):
+def _polyline_svg(self, colorscheme, default_color, default_width=KICAD_SCH_LINE_WIDTH):
     if len(self.points) < 2:
         warnings.warn(f'Schematic {type(self)} with less than two points')
         return Tag('path', d='')
@@ -111,22 +111,30 @@ def _polyline_svg(self, default_color, default_width=KICAD_SCH_LINE_WIDTH):
     # KiCad draws lines whose width is not positive with the default width
     width = self.stroke.width if (self.stroke.width or 0) > 0 else default_width
     d = 'M ' + ' L '.join(f'{pt.x:.3f} {pt.y:.3f}' for pt in self.points)
-    return Tag('path', d=d, fill='none', **replace(self.stroke, width=width).svg_attrs(default_color))
+    return Tag('path', d=d, fill='none',
+               **replace(self.stroke, width=width).svg_attrs(default_color, own_color=item_colors(colorscheme)))
 
 
-def _fill_svg(fill, colorscheme):
+def _fill_svg(fill, colorscheme, stroked=True, stroke=None):
     if fill is None or fill.type == Atom.none:
         return 'none'
     elif fill.type == Atom.outline:
-        return colorscheme.lines
-    elif fill.type == Atom.color and fill.color:
-        return fill.color.svg(colorscheme.fill)
-    return colorscheme.fill
+        # KiCad fills shapes of schematics with an outline fill with the color of their stroke (fixupSchFillMode())
+        color = stroke.color if stroke is not None else None
+    elif fill.type == Atom.color:
+        color = fill.color
+    else:
+        return colorscheme.fill
+    if not item_colors(colorscheme):
+        return black_and_white_fill(color, stroked, colorscheme)
+    # Without a color of its own, KiCad fills the shape with the line color
+    return color.svg(colorscheme.lines) if color else colorscheme.lines
 
 
 def _shape_svg(self, colorscheme, name='path', **attrs):
-    return Tag(name, **attrs, fill=_fill_svg(self.fill, colorscheme),
-               **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
+    stroked = self.stroke.width is None or self.stroke.width >= 0
+    return Tag(name, **attrs, fill=_fill_svg(self.fill, colorscheme, stroked, self.stroke),
+               **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme)))
 
 
 def _polyline_bounds(self):
@@ -149,7 +157,7 @@ class Wire:
         return _polyline_bounds(self)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield _polyline_svg(self, colorscheme.wire)
+        yield _polyline_svg(self, colorscheme, colorscheme.wire)
 
 
 @sexp_type('bus')
@@ -162,7 +170,7 @@ class Bus:
         return _polyline_bounds(self)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield _polyline_svg(self, colorscheme.bus, KICAD_SCH_BUS_WIDTH)
+        yield _polyline_svg(self, colorscheme, colorscheme.bus, KICAD_SCH_BUS_WIDTH)
 
 
 @sexp_type('polyline')
@@ -190,7 +198,7 @@ class Polyline:
             d += ' Z' if (last.x, last.y) == (self.points[0].x, self.points[0].y) else f' L {last.x:.3f} {last.y:.3f}'
             yield _shape_svg(self, colorscheme, d=d, fill_rule='evenodd')
         else:
-            yield _polyline_svg(self, colorscheme.lines)
+            yield _polyline_svg(self, colorscheme, colorscheme.lines)
 
 
 @sexp_type('circle')
@@ -623,6 +631,7 @@ class SymbolInstance:
 
 
 
+
         at_xform = xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
         if self.mirror.y:
             xform += f'scale(-1 -1)'
@@ -772,8 +781,8 @@ class Subsheet:
         stroke = replace(self.stroke, width=width, type=Atom.solid)
         yield Tag('rect', x=f'{self.at.x:.3f}', y=f'{self.at.y:.3f}',
                   width=f'{self.size.x:.3f}', height=f'{self.size.y:.3f}',
-                  **stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH),
-                  fill=self.fill.color.svg(colorscheme.fill))
+                  **stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme)),
+                  fill=self.fill.color.svg(colorscheme.fill) if item_colors(colorscheme) else colorscheme.fill)
 
         children = []
         for pin in self.pins:
@@ -781,8 +790,8 @@ class Subsheet:
 
         #xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
         yield Tag('g', children=children, #transform=xform,
-                  fill=self.fill.color.svg(colorscheme.fill),
-                  **stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
+                  fill=self.fill.color.svg(colorscheme.fill) if item_colors(colorscheme) else colorscheme.fill,
+                  **stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme)))
 
 
 @sexp_type('rule_area')
