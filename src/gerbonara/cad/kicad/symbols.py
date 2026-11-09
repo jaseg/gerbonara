@@ -21,7 +21,8 @@ from ...utils import rotate_point, Tag, arc_bounds
 from ... import __version__
 from ...newstroke import Newstroke
 from .schematic_colors import *
-from .primitives import kicad_mid_to_center_arc, kicad_arc_svg_flags, Margins, lib_to_sheet_vector
+from .primitives import kicad_mid_to_center_arc, kicad_arc_svg_flags, Margins, lib_to_sheet_vector, \
+    kicad_symbol_text_svg
 from . import primitives
 
 
@@ -163,82 +164,77 @@ class Pin:
         yield Tag('path', d=path_d, fill='none', stroke=colorscheme.lines, stroke_width=KICAD_SCH_LINE_WIDTH,
                   stroke_linecap='round', stroke_linejoin='round')
 
-        rot = self.at.rotation + p_rotation
-        trot = self.at.rotation
-        # With a positive pin name offset, names go inside the body, that far beyond the pin's inner end. With an
-        # offset of 0, names go above the middle of the pin and numbers below it.
-        spec = self.unit.symbol.pin_names if self.unit is not None and self.unit.symbol is not None else None
-        offset = spec.offset if spec is not None and spec.offset is not None else 0.508
-        names_inside = offset > 0
-        ax, ay = (self.length + offset if names_inside else self.length/2), 0
-        ax, ay = rotate_point(ax, ay, math.radians(-self.at.rotation))
+        yield from self._text_svg(colorscheme, p_mirror, p_rotation, alternate)
 
-        #lx, ly = self.at.x, -self.at.y
-        #lx, ly = rotate_point(lx, ly, math.radians(p_rotation))
-        #if p_mirror.y:
-        #    lx, ly = -lx, ly
-        #elif p_mirror.x:
-        #    lx, ly = lx, -ly
-        #yield Tag('circle', cx=lx, cy=ly, r='0.5', stroke='blue', stroke_width='0.1', fill='none', z_index='100')
+    def _text_svg(self, colorscheme, p_mirror, p_rotation, alternate=None):
+        """ Pin name and number, placed like KiCad's PIN_LAYOUT_CACHE does it """
+        symbol = self.unit.symbol if self.unit is not None else None
+        names, numbers = (symbol.pin_names, symbol.pin_numbers) if symbol is not None else (None, None)
+        offset = names.offset if names is not None and names.offset is not None else 0.508
+        # KiCad shows the name of the alternate function that the placed symbol selects
+        name = alternate.name if alternate is not None else self.name.value if self.name is not None else ''
+        number = self.number.value if self.number is not None else ''
+        # KiCad shows a selected alternate function's name even if it is ~
+        hidden_names = ('',) if alternate is not None else ('', '~')
+        show_name = name not in hidden_names and not (names is not None and names.hide) and not self.name.effects.hide
+        show_number = number != '' and not (numbers is not None and numbers.hide) and not self.number.effects.hide
 
-        lx, ly = self.at.x + ax, -self.at.y - ay
-        lx, ly = rotate_point(lx, ly, math.radians(p_rotation))
-        if p_mirror.y:
-            lx, ly = -lx, ly
-        elif p_mirror.x:
-            lx, ly = lx, -ly
-        #yield Tag('circle', cx=lx, cy=ly, r='0.5', stroke='red', stroke_width='0.1', fill='none', z_index='100')
+        vec = lambda dx, dy: lib_to_sheet_vector(dx, dy, p_rotation, p_mirror.x, p_mirror.y)
+        a = math.radians(self.at.rotation or 0)
+        dx, dy = vec(math.cos(a), math.sin(a))  # direction from the connection point into the body
+        x0, y0 = vec(self.at.x, self.at.y)
+        x1, y1 = x0 + dx*self.length, y0 + dy*self.length
+        mx, my = (x0 + x1)/2, (y0 + y1)/2
+        vertical = abs(dy) > 0.5
+        # "above" the pin: up for horizontal pins, left for vertical ones (above in the frame of vertical text)
+        ux, uy = (-1, 0) if vertical else (0, -1)
 
-        h_align = 'left'
-        if p_mirror.y:
-            if trot in (0, 180):
-                trot = 180 - trot
-        elif p_mirror.x:
-            if p_rotation == 0:
-                if trot in (90, 270):
-                    trot = 360-trot
+        size = lambda text: text.effects.font.size.y if text is not None and text.effects.font.size is not None \
+            and text.effects.font.size.y is not None else 1.27
+        name_size, number_size = size(self.name), size(self.number)
+        # KiCad does not draw text of size 0
+        show_name, show_number = show_name and name_size > 0, show_number and number_size > 0
+        texts = []
+        # KiCad's icon for pins with alternate functions, next to the name, in the middle of the name's box, which is
+        # the box of its glyphs, grown by one and a half of KiCad's pen width for normal text on each side
+        icon_size = min(name_size, 1.5)
+        name_width, name_height = kicad_markup_glyph_width(name, name_size) + 3*name_size/8, name_size + 3*name_size/8
+        if show_name:
+            if offset > 0: # inside the body, starting the offset beyond the pin's inner end
+                inward = (dy < 0) if vertical else (dx > 0)
+                texts.append((name, name_size, x1 + dx*offset, y1 + dy*offset, 'left' if inward else 'right', 'middle',
+                              colorscheme.pin_names))
+                icon_d = self.length + offset + name_width + 0.75*icon_size
+                icon_x, icon_y = x0 + dx*icon_d, y0 + dy*icon_d
+            else: # above the middle of the pin
+                d = KICAD_TEXT_OFFSET + name_size/16
+                texts.append((name, name_size, mx + ux*d, my + uy*d, 'center', 'bottom', colorscheme.pin_names))
+                icon_d, icon_up = -(name_width/2 + 0.75*icon_size), KICAD_TEXT_OFFSET + name_height/2
+                icon_x, icon_y = mx + dx*icon_d + ux*icon_up, my + dy*icon_d + uy*icon_up
+            if self.alternates and getattr(colorscheme, 'alternate_icons', True):
+                yield _alternate_icon_svg(icon_x, icon_y, icon_size, vertical, colorscheme.pin_names)
+        if show_number:
+            d = 2*KICAD_TEXT_OFFSET + number_size/8
+            if show_name and offset == 0: # name above, number below
+                texts.append((number, number_size, mx - ux*d, my - uy*d, 'center', 'top', colorscheme.pin_numbers))
             else:
-                if trot in (0, 180):
-                    trot = 180 - trot
-        frot = (trot + p_rotation)%360
-        sx, sy = 1, 1
+                texts.append((number, number_size, mx + ux*d, my + uy*d, 'center', 'bottom', colorscheme.pin_numbers))
 
-        if frot == 180:
-            frot = 0
-            h_align = 'right'
-        elif frot == 270:
-            frot = 90
-            h_align = 'right'
+        for text, size, x, y, h_align, v_align, color in texts:
+            yield kicad_text_svg(text, x, y, size, h_align=h_align, v_align=v_align, vertical=vertical, stroke=color,
+                                 stroke_width=kicad_pen_width(size, strict=True))
 
-        font = Newstroke.load()
-        if self.name.value != '~' and not self.unit.symbol.pin_names.hide:
-            yield font.render_svg(self.name.value,
-                                  size=self.name.effects.font.size.y or 1.27,
-                                  x0=0,
-                                  y0=0 if names_inside else -0.4,
-                                  h_align=h_align if names_inside else 'center',
-                                  v_align='middle' if names_inside else 'bottom',
-                                  rotation=-frot,
-                                  stroke=colorscheme.pin_names,
-                                  transform=f'translate({lx:.3f} {ly:.3f})',
-                                  scale=(sx, sy),
-                                  mirror=(False, False),
-                                  )
 
-        if self.number.value != '~' and not self.unit.symbol.pin_numbers.hide:
-            yield font.render_svg(self.number.value,
-                                  size=self.number.effects.font.size.y or 1.27,
-                                  x0=(-0.4 if h_align == 'left' else 0.4) if names_inside else 0,
-                                  y0=-0.4 if names_inside else 0.4,
-                                  h_align={'left': 'right', 'right': 'left'}[h_align] if names_inside else 'center',
-                                  v_align='bottom' if names_inside else 'top',
-                                  rotation=-frot,
-                                  stroke=colorscheme.pin_numbers,
-                                  scale=(sx, sy),
-                                  transform=f'translate({lx:.3f} {ly:.3f})',
-                                  mirror=(False, False),
-                                  )
-
+def _alternate_icon_svg(x, y, size, vertical, color):
+    # KiCad's drawAltPinModesIcon(): two arrows to the right, the lower one coming out of a quarter circle, turned to
+    # point up for vertical names
+    r, head = size/4, size/8
+    top, bottom = (size/2, -r), (size/2, r)
+    arrow = lambda x, y: f'M {x - 1.2*head:.3f} {y - head:.3f} L {x:.3f} {y:.3f} L {x - 1.2*head:.3f} {y + head:.3f}'
+    d = (f'M {-size/2:.3f} {-r:.3f} L {top[0]:.3f} {top[1]:.3f} {arrow(*top)} '
+         f'M {-r:.3f} 0 A {r:.3f} {r:.3f} 0 0 0 0 {r:.3f} L {bottom[0]:.3f} {bottom[1]:.3f} {arrow(*bottom)}')
+    return Tag('path', d=d, fill='none', stroke=color, stroke_width=f'{size/10:.3f}', stroke_linecap='round',
+               stroke_linejoin='round', transform=f'translate({x:.3f} {y:.3f})' + (' rotate(270)' if vertical else ''))
 
 
 @sexp_type('fill')
@@ -500,8 +496,19 @@ class Text(TextMixin):
     effects: TextEffect = field(default_factory=TextEffect)
     custom_properties: Dict('custom_property') = field(default_factory=dict)
 
-    def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield from TextMixin.to_svg(self, colorscheme.text)
+    def to_svg(self, colorscheme=Colorscheme.KiCad, symbol=None):
+        if not self.visible or not self.text:
+            return
+        h_align = self.effects.justify.h_str if self.effects and self.effects.justify else 'center'
+        v_align = self.effects.justify.v_str if self.effects and self.effects.justify else 'middle'
+        frame = {}
+        if symbol is not None:
+            frame = dict(symbol_at=(symbol.at.x, symbol.at.y), symbol_rotation=symbol.at.rotation,
+                         mirror_x=symbol.mirror.x, mirror_y=symbol.mirror.y)
+        f = self.effects.font
+        yield kicad_symbol_text_svg(self.text, self.size, self.at.x, self.at.y, self.at.rotation, h_align, v_align,
+                                    **frame, stroke=colorscheme.text,
+                                    stroke_width=kicad_pen_width(self.size, f.thickness, f.bold))
 
 
 @sexp_type('rectangle')

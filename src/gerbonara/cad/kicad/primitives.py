@@ -296,6 +296,18 @@ def sheet_to_lib_vector(dx, dy, rotation=0, mirror_x=False, mirror_y=False):
     return a*dx + b*dy, c*dx + d*dy
 
 
+def kicad_symbol_text_svg(text, size, x, y, rotation=0, h_align='center', v_align='middle', symbol_at=(0, 0),
+                          symbol_rotation=0, mirror_x=False, mirror_y=False, **svg_attrs):
+    """ Text at (x, y) in a placed symbol's library coordinates, drawn like KiCad draws symbol fields and texts """
+    # KiCad lays the text's box out in the symbol's frame, transforms it with the symbol, and draws the text upright and
+    # centered on the result.
+    vec = lambda dx, dy: lib_to_sheet_vector(dx, -dy, symbol_rotation, mirror_x, mirror_y)
+    (x1, y1), (x2, y2) = (vec(*p) for p in kicad_text_box(text, size, x, -y, rotation, h_align, v_align))
+    vertical = (round(rotation or 0) % 180 == 90) != (round(symbol_rotation or 0) % 180 == 90)
+    return kicad_text_svg(text, symbol_at[0] + (x1+x2)/2, symbol_at[1] + (y1+y2)/2, size, h_align='center',
+                          v_align='middle', vertical=vertical, **svg_attrs)
+
+
 @sexp_type('ellipse')
 class Ellipse:
     center: Rename(XYCoord) = field(default_factory=XYCoord)

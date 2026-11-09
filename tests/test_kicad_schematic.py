@@ -18,6 +18,7 @@ from gerbonara.cad.kicad.sexp import build_sexp, parse_sexp, Atom
 from gerbonara.cad.kicad.sexp_mapper import sexp
 from gerbonara.cad.kicad.tmtheme import *
 from gerbonara.cad.kicad.schematic import Schematic
+from gerbonara.cad.kicad.base_types import kicad_text_width
 from gerbonara.newstroke import Newstroke
 from gerbonara.cad.kicad.schematic_colors import Colorscheme
 
@@ -97,9 +98,10 @@ def test_kicad_schematic_svg_export(kicad_sch_file):
 
 
 # Our SVG export compared to KiCad's as images: these documents as a whole, and at a high resolution, the area around
-# the first item of each kind, shape, direction and style in them. Between them, they have every pin shape, label shape
-# and direction, line style and fill that KiCad's demos have. The schematics are exported with kicad-cli in the KiCad
-# schematic container, so only the corpus of the container's KiCad version is used.
+# the first item of each kind, shape, direction and style in them, and the names of pins that select an alternate
+# function. Between them, they have every pin shape, label shape and direction, line style and fill that KiCad's demos
+# have. The schematics are exported with kicad-cli in the KiCad schematic container, so only the corpus of the
+# container's KiCad version is used.
 KICAD_RENDER_DOCUMENTS = [
     'demos/pic_programmer/pic_programmer.kicad_sch',
     'demos/kit-dev-coldfire-xilinx_5213/kit-dev-coldfire-xilinx_5213.kicad_sch',
@@ -119,14 +121,22 @@ KICAD_RENDER_DOCUMENTS = [
     'demos/vme-wren/clocks.kicad_sch',
     'demos/jetson-agx-thor-baseboard/jetson-agx-thor-baseboard.kicad_sch',
     'qa/data/eeschema/issue19646/Resolver.kicad_sch',
+    'demos/jetson-agx-thor-baseboard/expansion_connector.kicad_sch',
+    'demos/jetson-agx-thor-baseboard/power.kicad_sch',
+    'demos/jetson-agx-thor-baseboard/som_io.kicad_sch',
     'qa/data/eeschema/issue13431.kicad_sch',
 ]
 
 
-class _NoText(Colorscheme.KiCad):
-    # No text, as we remove it from KiCad's export, and like KiCad's black and white export otherwise
-    fill = text = values = labels = pin_names = pin_numbers = 'none'
-    item_colors = False
+class _BlackAndWhite(Colorscheme.KiCad):
+    # Like KiCad's black and white export
+    fill = 'none'
+    item_colors = alternate_icons = False
+
+
+class _NoText(_BlackAndWhite):
+    # No text, as we remove it from KiCad's export
+    text = values = labels = pin_names = pin_numbers = 'none'
 
 
 def _area(box, anchor, margin=1.5, size=20):
@@ -195,18 +205,46 @@ def _render_features(sch):
         for shape in getattr(sch, kind, []):
             fill = shape.fill.type if shape.fill is not None else 'none'
             add(f'{shape.stroke.type} {fill} filled {kind[:-1]}', shape)
+    for box in sch.text_boxes:
+        fill = box.fill.type if box.fill is not None else 'none'
+        add(f'{box.stroke.type} {fill} filled text box', box)
+    for table in sch.tables:
+        if table.cells:
+            add('table', table)
+    for flag in sch.netclass_flags:
+        add(f'{flag.shape} netclass flag at {round(flag.at.rotation or 0)} degrees', flag)
 
     return features
 
 
-def _kicad_and_our_render(sch_file, tmpfile, img_support):
+def _render_text_features(sch):
+    # {description: area} of the first pin pointing in each direction whose name is that of an alternate function
+    features = {}
+    for sym in sch.symbols:
+        selected = {pin.name: pin.alternate for pin in sym.pins if pin.alternate}
+        lib = sch.lookup_symbol(sym.lib_name, sym.lib_id)
+        for pin in (pin for unit in lib.units for pin in unit.pins if pin.number.value in selected):
+            a = math.radians(pin.at.rotation or 0)
+            # Up to the end of the name inside the body
+            ends = [pin.length, pin.length + 0.508 + kicad_text_width(selected[pin.number.value], 1.27)]
+            (x0, y0), *ends = [sym.transform_point(pin.at.x + d*math.cos(a), pin.at.y + d*math.sin(a))
+                               for d in [0] + ends]
+            direction = ('right' if x0 > ends[0][0] else 'left') if abs(x0 - ends[0][0]) > 1e-6 else \
+                ('down' if y0 > ends[0][1] else 'up')
+            features.setdefault(f'name of the selected alternate function of a pin pointing {direction}',
+                                _area(sum_bounds((pt, pt) for pt in [(x0, y0)] + ends), (x0, y0)))
+    return features
+
+
+def _kicad_and_our_render(sch_file, tmpfile, img_support, colorscheme=_NoText):
     ref_svg, out_svg = tmpfile('KiCad render', '.svg'), tmpfile('Gerbonara render', '.svg')
     img_support.kicad_sch_export(sch_file, ref_svg)
-    out_svg.write_text(str(Schematic.open(sch_file).to_svg(colorscheme=_NoText)))
+    out_svg.write_text(str(Schematic.open(sch_file).to_svg(colorscheme=colorscheme)))
     for svg in (ref_svg, out_svg):
         with svg_soup(svg) as soup:
             # KiCad draws each text's strokes in a <g class="stroked-text">. Images are scaled differently.
-            for elem in soup.find_all('g', class_='stroked-text') + soup.find_all('image'):
+            text = soup.find_all('g', class_='stroked-text') if colorscheme is _NoText else []
+            for elem in text + soup.find_all('image'):
                 elem.decompose()
     return ref_svg, out_svg
 
@@ -226,8 +264,6 @@ def _compare_area(ref_svg, out_svg, area, name, tmpfile, img_support, dpi):
 def test_kicad_schematic_render(kicad_sch_render_file, tmpfile, img_support):
     if kicad_sch_render_file.name == 'clocks.kicad_sch':
         pytest.skip("KiCad's export draws symbol IC18 twice")
-    if kicad_sch_render_file.name == 'ibis.kicad_sch':
-        pytest.skip('Text boxes are not exported yet')
     ref_svg, out_svg = _kicad_and_our_render(kicad_sch_render_file, tmpfile, img_support)
     mean, _max, hist = _compare_area(ref_svg, out_svg, None, 'document', tmpfile, img_support, dpi=150)
     assert mean < 1e-3
@@ -235,10 +271,48 @@ def test_kicad_schematic_render(kicad_sch_render_file, tmpfile, img_support):
 
 
 def test_kicad_schematic_render_features(kicad_sch_render_file, tmpfile, img_support):
-    ref_svg, out_svg = _kicad_and_our_render(kicad_sch_render_file, tmpfile, img_support)
+    sch = Schematic.open(kicad_sch_render_file)
     failed = []
-    for what, area in _render_features(Schematic.open(kicad_sch_render_file)).items():
-        mean, _max, hist = _compare_area(ref_svg, out_svg, area, what, tmpfile, img_support, dpi=1200)
-        if not (mean < 5e-3 and hist[3:].sum() < 1e-4*hist.size):
-            failed.append(f'{what} at {area}: mean {float(mean):.5f}, {hist[3:].sum()/hist.size:.5f} of pixels differ')
+    # Without text, and the names of pins of alternate functions with their text
+    for colorscheme, features, dpi, max_differing in ((_NoText, _render_features(sch), 1200, 1e-4),
+                                                      (_BlackAndWhite, _render_text_features(sch), 600, 1e-3)):
+        if not features:
+            continue
+        ref_svg, out_svg = _kicad_and_our_render(kicad_sch_render_file, tmpfile, img_support, colorscheme)
+        for what, area in features.items():
+            mean, _max, hist = _compare_area(ref_svg, out_svg, area, what, tmpfile, img_support, dpi=dpi)
+            if not (mean < 5e-3 and hist[3:].sum() < max_differing*hist.size):
+                failed.append(f'{what} at {area}: mean {float(mean):.5f}, {hist[3:].sum()/hist.size:.5f} of pixels '
+                              'differ')
     assert not failed, '\n'.join(failed)
+
+
+class _TextOnly(Colorscheme.KiCad):
+    wire = bus = lines = no_connect = fill = 'none'
+
+
+def test_kicad_schematic_text_placement(kicad_sch_reference, tmpfile, img_support):
+    # Only the texts of KiCad's own SVG export of a schematic and of ours, compared as images. KiCad draws each text's
+    # strokes in a <g class="stroked-text">, so everything else is removed from its export, and we only draw texts.
+    sch_file, svg_file = kicad_sch_reference
+    ref_svg, out_svg = tmpfile('KiCad texts', '.svg'), tmpfile('Gerbonara texts', '.svg')
+
+    ref_svg.write_bytes(svg_file.read_bytes())
+    with svg_soup(ref_svg) as soup:
+        for elem in soup.find_all(['path', 'rect', 'circle', 'polyline', 'polygon', 'text', 'image']):
+            if not elem.find_parent('g', class_='stroked-text'):
+                elem.decompose()
+        coords = [float(v) for path in soup.find_all('path') for v in re.findall(r'-?\d+(?:\.\d+)?', path['d'])]
+        # The area around the texts, to compare it at a high resolution
+        x, y = min(coords[0::2]) - 2, min(coords[1::2]) - 2
+        w, h = max(coords[0::2]) + 2 - x, max(coords[1::2]) + 2 - y
+        soup.svg['viewBox'], soup.svg['width'], soup.svg['height'] = f'{x} {y} {w} {h}', f'{w}mm', f'{h}mm'
+
+    out_svg.write_text(str(Schematic.open(sch_file).to_svg(colorscheme=_TextOnly)))
+    with svg_soup(out_svg) as soup:
+        soup.svg['viewBox'], soup.svg['width'], soup.svg['height'] = f'{x} {y} {w} {h}', f'{w}mm', f'{h}mm'
+
+    mean, _max, hist = img_support.svg_difference(ref_svg, out_svg, diff_out=tmpfile('Difference', '.png'),
+                                                 background='white', dpi=600)
+    assert mean < 5e-3
+    assert hist[4:].sum() < 1e-3*hist.size

@@ -361,6 +361,93 @@ class Bezier:
         yield _shape_svg(self, colorscheme, d=f'M {p0.x:.3f} {p0.y:.3f} C ' + ' '.join(f'{p.x:.3f} {p.y:.3f}' for p in rest))
 
 
+def _justify(item, default_h='center', default_v='middle'):
+    j = item.effects.justify if item.effects is not None else None
+    h = str(j.h) if j is not None and j.h is not None else default_h
+    v = str(j.v) if j is not None and j.v is not None else default_v
+    return h, ('middle' if v == 'center' else v)
+
+
+def _text_size(item):
+    f = item.effects.font if item.effects is not None else None
+    return (f.size.y or 1.27) if f is not None and f.size is not None else 1.27
+
+
+def _pen_width(item):
+    f = item.effects.font if item.effects is not None else None
+    return kicad_pen_width(_text_size(item), f.thickness if f else None, f.bold if f else False)
+
+
+def _is_vertical(item):
+    return round(item.at.rotation or 0) % 180 == 90
+
+
+def _wrap_text(text, size, width):
+    out = []
+    for para in kicad_unescape(text or '').split('\n'):
+        line = ''
+        for word in para.split(' '):
+            candidate = f'{line} {word}' if line else word
+            if line and kicad_text_width(candidate, size) > width:
+                out.append(line)
+                line = word
+            else:
+                line = candidate
+        out.append(line)
+    return '\n'.join(out)
+
+
+def _text_box_rect(box):
+    # (x, y, w, h) of a text box or table cell
+    x, y = box.at.x, box.at.y
+    w, h = (box.size.x, box.size.y) if box.size is not None else (0, 0)
+    if w < 0:
+        x, w = x + w, -w
+    if h < 0:
+        y, h = y + h, -h
+    return x, y, w, h
+
+
+def _text_box_text(box):
+    # The arguments of kicad_text_svg() for the text of a text box or table cell, or None if it has no text
+    x, y, w, h = _text_box_rect(box)
+    size = _text_size(box)
+    m = box.margins
+    ml, mt, mr, mb = (m.left, m.top, m.right, m.bottom) if m is not None else (size*0.75,)*4
+    h_align, v_align = _justify(box, default_h='left', default_v='top')
+    tx = {'left': x + ml, 'center': x + w/2, 'right': x + w - mr}[h_align]
+    ty = {'top': y + mt, 'middle': y + h/2, 'bottom': y + h - mb}[v_align]
+    text = _wrap_text(box.text, size, w - ml - mr)
+    if not text.strip():
+        return None
+    return dict(text=text, x=tx, y=ty, size=size, h_align=h_align, v_align=v_align, stroke_width=_pen_width(box))
+
+
+def _text_box_bounds(box, r):
+    # The box of a text box or table cell grown by r, and of its text
+    x, y, w, h = _text_box_rect(box)
+    boxes = [((x - r, y - r), (x + w + r, y + h + r))]
+    if (text := _text_box_text(box)) and (bounds := kicad_text_bounds(**text)):
+        boxes.append(bounds)
+    return sum_bounds(boxes)
+
+
+def _text_box_svg(box, colorscheme, border=True):
+    x, y, w, h = _text_box_rect(box)
+    stroke = getattr(box, 'stroke', None)
+    # Table cells have no stroke of their own, but KiCad fills them like stroked shapes
+    has_pen = stroke is None or (stroke.width or 0) >= 0
+    fill = _fill_svg(box.fill, colorscheme, has_pen, stroke)
+    attrs = {}
+    if border and stroke is not None and has_pen:
+        attrs = stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme))
+    if attrs or fill != 'none':
+        yield Tag('rect', x=f'{x:.3f}', y=f'{y:.3f}', width=f'{w:.3f}', height=f'{h:.3f}', fill=fill, **attrs)
+
+    if (text := _text_box_text(box)):
+        yield kicad_text_svg(**text, stroke=colorscheme.text)
+
+
 def label_shape_path_d(shape, w, h):
     """ Outline of a global or hierarchical label, from the connection point towards +x """
     left, right = {
@@ -416,32 +503,20 @@ class DrawnProperty(TextMixin):
     def text(self, value):
         self.value = value
 
-    @property
-    def default_v_align(self):
-        return 'middle'
-
-    @property
-    def h_align(self):
-        align = self.effects.justify.h_str
-        if self.rotation in (90, 270):
-            align = {'left': 'right', 'right': 'left'}.get(align, align)
-        return align
-
-    @property
-    def rotation(self):
-        rot = self.at.rotation
-        rot += getattr(self.parent.at, 'rotation', 0)
-        return rot%360
-
-    @property
-    def mirrored(self):
-        if hasattr(self.parent, 'mirror'):
-            return self.parent.mirror.x, self.parent.mirror.y
-        return False, False
-
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        if self.visible:
-            yield from TextMixin.to_svg(self, colorscheme.values)
+        if not self.visible or not self.value:
+            return
+        h_align, v_align = _justify(self)
+        frame = {}
+        x, y = self.at.x, -self.at.y
+        if isinstance(self.parent, SymbolInstance):
+            sym = self.parent
+            frame = dict(symbol_at=(sym.at.x, sym.at.y), symbol_rotation=sym.at.rotation, mirror_x=sym.mirror.x,
+                         mirror_y=sym.mirror.y)
+            x, y = sheet_to_lib_vector(self.at.x - sym.at.x, self.at.y - sym.at.y, sym.at.rotation, sym.mirror.x,
+                                       sym.mirror.y)
+        yield kicad_symbol_text_svg(self.text, _text_size(self), x, y, self.at.rotation, h_align, v_align, **frame,
+                                    stroke_width=_pen_width(self), stroke=colorscheme.values)
 
 
 @dataclass
@@ -457,26 +532,29 @@ class TextLabel(TextMixin):
     locked: Named(YesNoAtom()) = None
     custom_properties: Dict('custom_property') = field(default_factory=dict)
 
-    def _svg_rotation(self):
-        # KiCad keeps text upright: at 180 or 270 degrees, it is drawn at 0 or 90 degrees with the justification its
-        # file stores.
-        return (270 if (self.at.rotation or 0) % 180 == 90 else 0), self.h_align
-
 
 @sexp_type('text')
 class Text(TextLabel):
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield from TextMixin.to_svg(self, colorscheme.text)
+        h_align, v_align = _justify(self)
+        # KiCad moves all schematic text up by 0.25 mm "to match KiCad 6" (SCH_TEXT::GetSchematicTextOffset)
+        yield kicad_text_svg(self.text, self.at.x, self.at.y - 0.25, _text_size(self), h_align=h_align,
+                             v_align=v_align, vertical=_is_vertical(self), stroke_width=_pen_width(self),
+                             stroke=colorscheme.text)
 
 
 @sexp_type('label')
 class LocalLabel(TextLabel):
-    @property
-    def _text_offset(self):
-        return (0, -2*self.line_width)
-
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield from TextMixin.to_svg(self, colorscheme.labels)
+        h_align, _v = _justify(self)
+        vertical = _is_vertical(self)
+        size, pen = _text_size(self), _pen_width(self)
+        dist = 0.15*size + pen
+        x, y = (self.at.x - dist, self.at.y) if vertical else (self.at.x, self.at.y - dist)
+        yield kicad_text_svg(self.text, x, y, size, h_align=h_align, v_align='bottom', vertical=vertical,
+                             stroke_width=pen, stroke=colorscheme.labels)
+        for prop in self.properties:
+            yield from prop.to_svg(colorscheme)
 
 
 def _label_pen_widths(label):
@@ -492,85 +570,60 @@ def _label_pen_widths(label):
     return [min(pen, size/4) for pen in pens]
 
 
-def _markup_runs(text, size, base_size=None):
-    # (text, size) of the runs of text with KiCad's overbar (~{...}), subscript (_{...}) and superscript (^{...})
-    # markup, which can be nested. KiCad does not draw the markup characters, and draws sub- and superscripts, also
-    # nested ones, at 0.8 times the text's size.
-    base_size = base_size or size
-    runs, plain, i = [], '', 0
-    while i < len(text):
-        if text[i] in '~_^' and text[i+1:i+2] == '{':
-            depth, j = 1, i + 2
-            while j < len(text) and depth:
-                depth += {'{': 1, '}': -1}.get(text[j], 0)
-                j += 1
-            if depth == 0:
-                runs.append((plain, size))
-                runs += _markup_runs(text[i+2:j-1], size if text[i] == '~' else 0.8*base_size, base_size)
-                plain, i = '', j
-                continue
-        plain += text[i]
-        i += 1
-    return [run for run in runs + [(plain, size)] if run[0]]
+def _label_text(label, text_offset, text_drop=0):
+    # The direction of the outline of a global or hierarchical label, and the arguments of kicad_text_svg() for its text
+    x, y = label.at.x, label.at.y
+    h_align, _v = _justify(label, default_h='left')
+    vertical = _is_vertical(label)
+    right = h_align != 'right'
+    dx, dy = ((0, -1) if right else (0, 1)) if vertical else ((1, 0) if right else (-1, 0))
+    rot = {(1, 0): 0, (0, -1): 90, (-1, 0): 180, (0, 1): 270}[dx, dy]
+    tx, ty = x + dx*text_offset, y + dy*text_offset
+    tx, ty = (tx + text_drop, ty) if vertical else (tx, ty + text_drop)
+    return rot, dict(text=label.text, x=tx, y=ty, size=label.size, h_align='left' if right else 'right',
+                     v_align='middle', vertical=vertical, stroke_width=_pen_width(label))
 
 
-def _markup_glyph_width(text, size):
-    # Width of the box of the glyphs of text with KiCad's markup, which is a fifth of the size of the last run narrower
-    # than the advance width
-    font = Newstroke.load()
-    x = end = 0
-    for run, run_size in _markup_runs(text, size):
-        w = font.bounding_box(kicad_unescape(run), size=run_size, space_width=16/21)[1][0]
-        end = max(end, x + w - 0.2*run_size)
-        x += w
-    return end
-
-
-def _label_text(label, text_offset):
-    # Where the text of a global or hierarchical label goes, and how it is rendered
-    x, y, rot = label.at.x, label.at.y, round(label.at.rotation or 0) % 360
-    dx, dy = {0: (1, 0), 90: (0, -1), 180: (-1, 0), 270: (0, 1)}.get(rot, (1, 0))
-    return (x + dx*text_offset, y + dy*text_offset), dict(size=label.size,
-                                                         h_align='left' if rot in (0, 90) else 'right',
-                                                         v_align='middle',
-                                                         rotation=-90 if rot in (90, 270) else 0,
-                                                         scale=(1, 1))
-
-
-def _label_svg(label, colorscheme, text_offset, frame_d):
-    x, y, rot = label.at.x, label.at.y, round(label.at.rotation or 0) % 360
-    (tx, ty), text_args = _label_text(label, text_offset)
-    text = Newstroke.load().render_svg(label.text, **text_args, stroke=colorscheme.labels,
-                                       transform=f'translate({tx:.3f} {ty:.3f})')
+def _label_svg(label, colorscheme, text_offset, frame_d, text_drop=0):
+    x, y = label.at.x, label.at.y
+    rot, text_args = _label_text(label, text_offset, text_drop)
+    text = kicad_text_svg(**text_args, stroke=colorscheme.labels)
     frame = Tag('path', fill='none', stroke_width=_label_pen_widths(label)[0], stroke=colorscheme.lines, d=frame_d,
                 stroke_linejoin='round',
                 transform=f'translate({x:.3f} {y:.3f}) rotate({-rot})')
-    return Tag('g', children=[frame, text])
+    return Tag('g', children=[frame, text, *(t for prop in label.properties for t in prop.to_svg(colorscheme))])
 
 
-def _label_bounds(label, text_offset, frame_d):
-    # The box of what _label_svg() draws
-    x, y, rot = label.at.x, label.at.y, round(label.at.rotation or 0) % 360
+def _label_bounds(label, text_offset, frame_d, text_drop=0):
+    # The box of the outline and the text that _label_svg() draws
+    x, y = label.at.x, label.at.y
+    rot, text_args = _label_text(label, text_offset, text_drop)
     c, s = round(math.cos(math.radians(rot))), round(math.sin(math.radians(rot)))
     coords = [float(v) for v in re.findall(r'-?\d+(?:\.\d+)?', frame_d)]
     frame = [(x + c*px + s*py, y - s*px + c*py) for px, py in zip(coords[0::2], coords[1::2])]
-    (tx, ty), text_args = _label_text(label, text_offset)
-    text = [(tx + px, ty + py) for stroke in Newstroke.load().render(label.text, **text_args) for px, py in stroke]
-    boxes = []
-    for points, r in ((frame, _label_pen_widths(label)[0]/2), (text, 0.1*label.size)):
-        if points:
-            boxes.append(((min(px for px, py in points) - r, min(py for px, py in points) - r),
-                          (max(px for px, py in points) + r, max(py for px, py in points) + r)))
+    r = _label_pen_widths(label)[0]/2
+    boxes = [((min(px for px, py in frame) - r, min(py for px, py in frame) - r),
+              (max(px for px, py in frame) + r, max(py for px, py in frame) + r))]
+    if (text := kicad_text_bounds(**text_args)):
+        boxes.append(text)
     return sum_bounds(boxes)
 
 
 @sexp_type('global_label')
 class GlobalLabel(TextLabel):
+    def _layout(self):
+        # Like KiCad's SCH_GLOBALLABEL::GetSchematicTextOffset(): the label box expansion, plus three quarters of the
+        # text height for the triangle of input, bidirectional and tri-state labels, and the text a little lower
+        offset = 0.375*self.size
+        if self.shape in (Atom.input, Atom.bidirectional, Atom.tri_state):
+            offset += 0.75*self.size
+        return offset, self._shape_d(), 0.0715*self.size
+
     def bounding_box(self, default=None):
-        return _label_bounds(self, self.size*0.6, self._shape_d())
+        return _label_bounds(self, *self._layout())
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield _label_svg(self, colorscheme, self.size*0.6, self._shape_d())
+        yield _label_svg(self, colorscheme, *self._layout())
 
     def _shape_d(self):
         # Like KiCad's SCH_GLOBALLABEL::CreateGraphicShape(): drawn towards -x, then turned towards +x
@@ -578,7 +631,7 @@ class GlobalLabel(TextLabel):
         half = self.size/2 + margin
         pen = _label_pen_widths(self)[1]
         # KiCad's text box is the box of the glyphs, grown by one and a half pen widths on each side
-        x, y = _markup_glyph_width(self.text, self.size) + 3*pen + 2*margin + pen, half + pen
+        x, y = kicad_markup_glyph_width(self.text, self.size) + 3*pen + 2*margin + pen, half + pen
         points = [[0, 0], [0, -y], [-x, -y], [-x, 0], [-x, y], [0, y]]
         x_offset = 0
         if self.shape in (Atom.input, Atom.bidirectional, Atom.tri_state):
@@ -602,9 +655,46 @@ class HierarchicalLabel(TextLabel):
 class NetclassFlag(TextLabel):
     length: Named(float) = 2.54
 
+    def _flag_point(self, u, v):
+        # KiCad draws the flag downwards and turns it by the spin style
+        # (KiCad's RotatePoint() turns (x, y) into (y, -x) for +90 degrees)
+        h_align, _v = _justify(self, default_h='left')
+        turn = {(False, True): (-1, 0, 0, -1), (False, False): (1, 0, 0, 1),
+                (True, True): (0, -1, 1, 0), (True, False): (0, 1, -1, 0)}[_is_vertical(self), h_align != 'right']
+        return self.at.x + turn[0]*u + turn[1]*v, self.at.y + turn[2]*u + turn[3]*v
+
+    def bounding_box(self, default=None):
+        # The flag without its fields. Its shapes are at most twice 0.508 wide on either side, and reach 0.508 beyond
+        # its length.
+        length, sym = self.length or 2.54, 0.508
+        points = [self._flag_point(u, v) for u in (-2*sym, 2*sym) for v in (0, length + sym)]
+        r = _label_pen_widths(self)[0]/2
+        return ((min(x for x, y in points) - r, min(y for x, y in points) - r),
+                (max(x for x, y in points) + r, max(y for x, y in points) + r))
+
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        # FIXME
-        yield from TextMixin.to_svg(self, colorscheme.text)
+        pt = self._flag_point
+        length, sym = self.length or 2.54, 0.508
+        style = {'fill': 'none', 'stroke': colorscheme.lines, 'stroke_width': _label_pen_widths(self)[0],
+                 'stroke_linejoin': 'round', 'stroke_linecap': 'round'}
+        shape = str(self.shape)
+        if shape in ('dot', 'round'):
+            r = sym * (0.7 if shape == 'dot' else 1)
+            (x1, y1), (cx, cy) = pt(0, length - r), pt(0, length)
+            yield Tag('path', d=f'M {self.at.x:.3f} {self.at.y:.3f} L {x1:.3f} {y1:.3f}', **style)
+            yield Tag('circle', cx=f'{cx:.3f}', cy=f'{cy:.3f}', r=f'{r:.3f}',
+                      **{**style, 'fill': colorscheme.lines if shape == 'dot' else 'none'})
+        else:
+            if shape == 'diamond':
+                pts = [(0, 0), (0, length - sym), (-2*sym, length), (0, length + sym), (2*sym, length), (0, length - sym)]
+            else: # rectangle
+                r = sym * 0.8
+                pts = [(0, 0), (0, length - r), (-2*r, length - r), (-2*r, length + r), (2*r, length + r),
+                       (2*r, length - r), (0, length - r)]
+            d = 'M ' + ' L '.join(f'{x:.3f} {y:.3f}' for x, y in (pt(u, v) for u, v in pts))
+            yield Tag('path', d=d, **style)
+        for prop in self.properties:
+            yield from prop.to_svg(colorscheme)
 
 
 # Older name of netclass_flag that KiCad still reads
@@ -782,7 +872,7 @@ class SymbolInstance:
 
         # Where the dashes of circles, arcs and rectangles start depends on how the symbol is turned and mirrored
         oriented = (symbols.Circle, symbols.Arc, symbols.Rectangle)
-        children = [foo for unit in units for elem in unit.graphical_elements
+        children = [foo for unit in units for elem in unit.graphical_elements if not isinstance(elem, symbols.Text)
                     for foo in (elem.to_svg(colorscheme, orientation=(rot, self.mirror)) if isinstance(elem, oriented)
                                 else elem.to_svg(colorscheme))]
         yield Tag('g', children=children, transform=xform, fill=colorscheme.fill, stroke=colorscheme.lines)
@@ -792,6 +882,10 @@ class SymbolInstance:
         children = [foo for unit in units for pin in unit.pins
                     for foo in pin.to_svg(colorscheme, self.mirror, rot, alternate(pin))]
         yield Tag('g', children=children, transform=at_xform, fill=colorscheme.fill, stroke=colorscheme.lines)
+
+        for unit in units:
+            for text in unit.texts:
+                yield from text.to_svg(colorscheme, symbol=self)
 
         for prop in self.properties:
             yield from prop.to_svg(colorscheme)
@@ -898,29 +992,14 @@ class SubsheetPin:
                   stroke_width=_label_pen_widths(self)[0], stroke_linejoin='round',
                   transform=f'translate({self.at.x:.3f} {self.at.y:.3f}) rotate({180-self.at.rotation})')
 
-        lx, ly = self.at.x, self.at.y
-        dx, dy = rotate_point(-(size+1), 0, math.radians(self.at.rotation))
-        lx += dx
-        ly += dy
-        frot = self.at.rotation
-        h_align = 'right'
-        if frot == 180:
-            frot = 0
-            h_align = 'left'
-
-        font = Newstroke.load()
-        yield font.render_svg(self.name,
-                              size=size,
-                              x0=0,
-                              y0=0,
-                              h_align=h_align,
-                              v_align='middle',
-                              rotation=-frot,
-                              transform=f'translate({lx:.3f} {ly:.3f})',
-                              scale=(1, 1),
-                              mirror=(False, False),
-                              stroke=colorscheme.labels,
-                              )
+        # pins sit on the sheet's edge, pointing out of it; the text goes inwards
+        rot = round(self.at.rotation or 0) % 360
+        dx, dy = {0: (-1, 0), 180: (1, 0), 90: (0, 1), 270: (0, -1)}.get(rot, (-1, 0))
+        vertical = rot in (90, 270)
+        inward_aligned = (dy < 0) if vertical else (dx > 0)
+        yield kicad_text_svg(self.name, self.at.x + dx*(size+1), self.at.y + dy*(size+1), size,
+                             h_align='left' if inward_aligned else 'right', v_align='middle', vertical=vertical,
+                             stroke=colorscheme.labels)
 
 @sexp_type('fill')
 class SubsheetFill:
@@ -1037,6 +1116,13 @@ class TextBox(TextMixin):
     def render(self, variables={}, cache=None):
         yield from gr.TextBox.render(self, variables=variables)
 
+    def bounding_box(self, default=None):
+        w = self.stroke.width
+        return _text_box_bounds(self, max(w, 0)/2 if w else KICAD_SCH_LINE_WIDTH/2)
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        yield from _text_box_svg(self, colorscheme)
+
 
 @sexp_type('border')
 class TableBorder:
@@ -1084,6 +1170,72 @@ class Table:
     cells: Named(Array(TableCell)) = field(default_factory=list)
     uuid: UUID = None
     custom_properties: Dict('custom_property') = field(default_factory=dict)
+
+    def bounding_box(self, default=None):
+        if not self.cells:
+            return default
+        strokes = [item.stroke for item in (self.border, self.separators) if item is not None and item.stroke]
+        r = max([KICAD_SCH_LINE_WIDTH] + [stroke.width for stroke in strokes if stroke.width])/2
+        return sum_bounds(_text_box_bounds(cell, r) for cell in self.cells)
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        if not self.cells:
+            return
+        for cell in self.cells:
+            yield from _text_box_svg(cell, colorscheme, border=False)
+
+        # Like KiCad's SCH_TABLE::DrawBorders(): the separators cell by cell, and the border side by side
+        ncols = len(self.column_widths)
+        nrows = len(self.cells) // ncols if ncols else 0
+        if not ncols or not nrows:
+            return
+        cell = lambda row, col: self.cells[row*ncols + col]
+        def corners(c):
+            x1, x2 = sorted((c.at.x, c.at.x + c.size.x))
+            y1, y2 = sorted((c.at.y, c.at.y + c.size.y))
+            return (x1, y1), (x2, y1), (x2, y2), (x1, y2)
+        # A stroke width of 0 means KiCad's default line width
+        # Lines whose width is 0, or negative, have KiCad's default line width
+        width = lambda stroke: stroke.width if (stroke.width or 0) > 0 else 0
+        stroke_attrs = lambda stroke: replace(stroke or Stroke(0), width=width(stroke or Stroke(0))).svg_attrs(
+            colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme))
+        line = lambda a, b, stroke: Tag('path', d=f'M {a[0]:.3f} {a[1]:.3f} L {b[0]:.3f} {b[1]:.3f}', fill='none',
+                                        **stroke_attrs(stroke))
+        sep, border = self.separators, self.border
+        header = border is not None and border.header
+        # The cells of the header row are separated with the stroke of the border, the others with that of the
+        # separators, if they are separated
+        strokes = lambda separated: [border.stroke if row == 0 and header else (sep.stroke if separated else False)
+                                     for row in range(nrows)]
+        col_strokes, row_strokes = strokes(sep is not None and sep.cols), strokes(sep is not None and sep.rows)
+
+        for col in range(ncols - 1):
+            for row in range(nrows):
+                if (stroke := col_strokes[row]) is False:
+                    continue
+                c = cell(row, col)
+                span = c.span.columns if c.span is not None else 1
+                if span == 0 or col + span == ncols:
+                    continue
+                _tl, tr, br, _bl = corners(c)
+                yield line(tr, br, stroke)
+
+        for row in range(nrows - 1):
+            if (stroke := row_strokes[row]) is False:
+                continue
+            for col in range(ncols):
+                c = cell(row, col)
+                span = c.span.rows if c.span is not None else 1
+                if span == 0 or row + span == nrows:
+                    continue
+                _tl, _tr, br, bl = corners(c)
+                yield line(br, bl, stroke)
+
+        if border is not None and border.external and ((border.stroke.width or 0) if border.stroke else 0) >= 0:
+            tl, tr, br, bl = corners(cell(0, 0))[0], corners(cell(0, ncols - 1))[1], \
+                corners(cell(nrows - 1, ncols - 1))[2], corners(cell(nrows - 1, 0))[3]
+            for a, b in ((tl, tr), (tr, br), (br, bl), (bl, tl)):
+                yield line(a, b, border.stroke)
 
 
 @sexp_type('from')
@@ -1230,10 +1382,14 @@ class Schematic:
         yield from self.buses
         yield from self.ellipses
         yield from self.ellipse_arcs
+        yield from self.text_boxes
+        yield from self.tables
         yield from self.texts
         yield from self.local_labels
         yield from self.global_labels
         yield from self.hierarchical_labels
+        yield from self.netclass_flags
+        yield from self.directive_labels
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         children = []
