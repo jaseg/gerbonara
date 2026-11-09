@@ -5,7 +5,7 @@ Library for handling KiCad's schematic files (`*.kicad_sch`).
 import math
 import string
 from pathlib import Path
-from dataclasses import field, KW_ONLY
+from dataclasses import field, replace, KW_ONLY
 from itertools import chain
 import re
 import fnmatch
@@ -16,6 +16,7 @@ from .sexp import *
 from .base_types import *
 from .primitives import *
 from .symbols import Symbol
+from . import symbols
 from . import graphical_primitives as gr
 
 from .. import primitives as cad_pr
@@ -97,24 +98,20 @@ class BusEntry:
         return (x1-r, y1-r), (x2+r, y2+r)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield Tag('path', d=f'M {self.at.x:.3f} {self.at.y:.3f} l {self.size.x:.3f} {self.size.y:.3f}',
-                  fill='none', stroke=self.stroke.svg_color(colorscheme.wire),
-                  stroke_width=self.stroke.width if (self.stroke.width or 0) > 0 else KICAD_SCH_LINE_WIDTH,
-                  stroke_linecap='round')
+        width = self.stroke.width if (self.stroke.width or 0) > 0 else KICAD_SCH_LINE_WIDTH
+        yield Tag('path', d=f'M {self.at.x:.3f} {self.at.y:.3f} l {self.size.x:.3f} {self.size.y:.3f}', fill='none',
+                  **replace(self.stroke, width=width).svg_attrs(colorscheme.wire))
 
 
 def _polyline_svg(self, default_color, default_width=KICAD_SCH_LINE_WIDTH):
-    da = Dasher(self, default_width)
     if len(self.points) < 2:
         warnings.warn(f'Schematic {type(self)} with less than two points')
         return Tag('path', d='')
 
-    p0, *rest = self.points
-    da.move(p0.x, p0.y)
-    for pn in rest:
-        da.line(pn.x, pn.y)
-
-    return da.svg(stroke=self.stroke.svg_color(default_color))
+    # KiCad draws lines whose width is not positive with the default width
+    width = self.stroke.width if (self.stroke.width or 0) > 0 else default_width
+    d = 'M ' + ' L '.join(f'{pt.x:.3f} {pt.y:.3f}' for pt in self.points)
+    return Tag('path', d=d, fill='none', **replace(self.stroke, width=width).svg_attrs(default_color))
 
 
 def _fill_svg(fill, colorscheme):
@@ -175,10 +172,15 @@ class Polyline:
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
 
+    # KiCad 6 drew graphic lines dashed by default, see Schematic.__after_parse__()
+    legacy_dashed = False
+
     def bounding_box(self, default=None):
         return _polyline_bounds(self)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
+        if self.legacy_dashed and self.stroke.type == Atom.default:
+            self = replace(self, stroke=replace(self.stroke, type=Atom.dash))
         # KiCad does not stroke shapes with a negative width, but lines of two points it draws with its default width
         if len(self.points) > 2 and self.stroke.width is not None and self.stroke.width < 0:
             return
@@ -207,8 +209,14 @@ class Rectangle:
     uuid: UUID = field(default_factory=UUID)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
-        x1, y1, x2, y2 = self.start.x, self.start.y, self.end.x, self.end.y
-        yield _shape_svg(self, colorscheme, d=f'M {x1:.3f} {y1:.3f} H {x2:.3f} V {y2:.3f} H {x1:.3f} Z')
+        # From the top left corner clockwise, like the SVG rect that KiCad draws, or as a line from the top left if it is
+        # flat, so that dashes start at the same place
+        x1, x2 = sorted((self.start.x, self.end.x))
+        y1, y2 = sorted((self.start.y, self.end.y))
+        if x1 == x2 or y1 == y2:
+            yield _shape_svg(self, colorscheme, d=f'M {x1:.3f} {y1:.3f} L {x2:.3f} {y2:.3f}')
+        else:
+            yield _shape_svg(self, colorscheme, d=f'M {x1:.3f} {y1:.3f} H {x2:.3f} V {y2:.3f} H {x1:.3f} Z')
 
 
 @sexp_type('arc')
@@ -221,12 +229,17 @@ class Arc:
     uuid: UUID = field(default_factory=UUID)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
+        start, end = self.start, self.end
         try:
-            _c, r, sweep, large = kicad_arc_svg_flags(self.start, self.mid, self.end)
-            to = f'A {r:.3f} {r:.3f} 0 {int(large)} {int(sweep)}'
+            _c, r, sweep, large = kicad_arc_svg_flags(start, self.mid, end)
         except ValueError: # start, mid and end on one line
-            to = 'L'
-        yield _shape_svg(self, colorscheme, d=f'M {self.start.x:.3f} {self.start.y:.3f} {to} {self.end.x:.3f} {self.end.y:.3f}')
+            yield _shape_svg(self, colorscheme, d=f'M {start.x:.3f} {start.y:.3f} L {end.x:.3f} {end.y:.3f}')
+            return
+        # Counter-clockwise, like KiCad's SVG plotter draws arcs, so that dashes start at the same end
+        if sweep:
+            start, end = end, start
+        arc = f'M {start.x:.3f} {start.y:.3f} A {r:.3f} {r:.3f} 0 {int(large)} 0 {end.x:.3f} {end.y:.3f}'
+        yield _shape_svg(self, colorscheme, d=arc)
 
 
 @sexp_type('bezier')
@@ -608,7 +621,11 @@ class SymbolInstance:
         if rot:
             xform += f'rotate({rot})'
 
-        children = [foo for unit in units for elem in unit.graphical_elements for foo in elem.to_svg(colorscheme)]
+        # Where the dashes of circles, arcs and rectangles start depends on how the symbol is turned and mirrored
+        oriented = (symbols.Circle, symbols.Arc, symbols.Rectangle)
+        children = [foo for unit in units for elem in unit.graphical_elements
+                    for foo in (elem.to_svg(colorscheme, orientation=(rot, self.mirror)) if isinstance(elem, oriented)
+                                else elem.to_svg(colorscheme))]
         yield Tag('g', children=children, transform=xform, fill=colorscheme.fill, stroke=colorscheme.lines)
 
         selected = {pin.name: pin.alternate for pin in self.pins if pin.alternate}
@@ -738,9 +755,12 @@ class Subsheet:
         for prop in self._properties:
             yield from prop.to_svg(colorscheme)
 
+        # KiCad draws the borders of sheets solid, and with its default width if theirs is not positive
+        width = self.stroke.width if (self.stroke.width or 0) > 0 else KICAD_SCH_LINE_WIDTH
+        stroke = replace(self.stroke, width=width, type=Atom.solid)
         yield Tag('rect', x=f'{self.at.x:.3f}', y=f'{self.at.y:.3f}',
                   width=f'{self.size.x:.3f}', height=f'{self.size.y:.3f}',
-                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH),
+                  **stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH),
                   fill=self.fill.color.svg(colorscheme.fill))
 
         children = []
@@ -750,7 +770,7 @@ class Subsheet:
         #xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
         yield Tag('g', children=children, #transform=xform,
                   fill=self.fill.color.svg(colorscheme.fill),
-                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
+                  **stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
 
 
 @sexp_type('rule_area')
@@ -879,6 +899,11 @@ class Schematic:
     embedded_fonts: Named(YesNoAtom()) = False
     _ : SEXP_END = None
     original_filename: str = None
+
+    def __after_parse__(self, parent=None):
+        # KiCad reads graphic lines of the default style in files of KiCad 6 and older as dashed
+        for line in self.polylines:
+            line.legacy_dashed = self._version <= 20211123
 
     @property
     def version(self):

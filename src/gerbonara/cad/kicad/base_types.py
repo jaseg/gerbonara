@@ -156,12 +156,15 @@ class Stroke:
                 'stroke_width': w}
 
         if self.type not in (Atom.default, Atom.solid):
-            attrs['stroke_dasharray'] = {
-                    Atom.dash: f'{w*5:.3f},{w*5:.3f}',
-                    Atom.dot: f'{w*2:.3f},{w*2:.3f}',
-                    Atom.dash_dot: f'{w*5:.3f},{w*3:.3f},{w:.3f},{w*3:.3f}',
-                    Atom.dash_dot_dot: f'{w*5:.3f},{w*3:.3f},{w:.3f},{w*3:.3f},{w:.3f},{w*3:.3f}',
-                    }[self.type]
+            # KiCad's dash pattern after ISO 128-2, which it draws with round caps: dashes of 11 line widths, gaps of 4
+            # and dots of 0.2
+            dash, gap, dot = 11*w, 4*w, 0.2*w
+            attrs['stroke_dasharray'] = ','.join(f'{l:.4f}' for l in {
+                    Atom.dash: [dash, gap],
+                    Atom.dot: [dot, gap],
+                    Atom.dash_dot: [dash, gap, dot, gap],
+                    Atom.dash_dot_dot: [dash, gap, dot, gap, dot, gap],
+                    }[self.type])
 
         return attrs
 
