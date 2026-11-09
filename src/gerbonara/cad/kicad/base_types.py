@@ -1,3 +1,4 @@
+import re
 import string
 import time
 from dataclasses import field, replace
@@ -9,7 +10,7 @@ from itertools import cycle
 from .sexp import *
 from .sexp_mapper import *
 from ...newstroke import Newstroke
-from ...utils import rotate_point, sum_bounds, Tag, MM
+from ...utils import rotate_point, sum_bounds, Tag, MM, Inch
 from ...layers import LayerStack
 from ... import apertures as ap
 from ... import graphic_objects as go
@@ -36,6 +37,24 @@ LAYER_MAP_K2G = {
         }
 
 LAYER_MAP_G2K = {v: k for k, v in LAYER_MAP_K2G.items()}
+
+# KiCad's paper sizes in landscape orientation, in mm
+KICAD_PAPER_SIZES = {
+    'A5': (210, 148),
+    'A4': (297, 210),
+    'A3': (420, 297),
+    'A2': (594, 420),
+    'A1': (841, 594),
+    'A0': (1189, 841),
+    'A': (MM(11, Inch), MM(8.5, Inch)),
+    'B': (MM(17, Inch), MM(11, Inch)),
+    'C': (MM(22, Inch), MM(17, Inch)),
+    'D': (MM(34, Inch), MM(22, Inch)),
+    'E': (MM(44, Inch), MM(34, Inch)),
+    'USLetter': (MM(11, Inch), MM(8.5, Inch)),
+    'USLegal': (MM(14, Inch), MM(8.5, Inch)),
+    'USLedger': (MM(17, Inch), MM(11, Inch)),
+    }
 
 
 class BBoxMixin:
@@ -82,7 +101,7 @@ class Color:
     a: float = None
     
     def __bool__(self):
-        return self.r or self.b or self.g or not math.isclose(self.a, 0, abs_tol=1e-3)
+        return bool(self.r or self.b or self.g or not math.isclose(self.a or 0, 0, abs_tol=1e-3))
 
     def svg(self, default=None):
         if default and not self:
@@ -91,35 +110,61 @@ class Color:
         return f'rgba({self.r} {self.g} {self.b} {self.a})'
 
 
+_KICAD_ESCAPES = {'dblquote': '"', 'quote': "'", 'lt': '<', 'gt': '>', 'backslash': '\\', 'slash': '/', 'bar': '|',
+                  'comma': ',', 'colon': ':', 'space': ' ', 'dollar': '$', 'tab': '\t', 'return': '\n', 'brace': '{'}
+
+
+_KICAD_ESCAPE_RE = re.compile(r'(?<![$~^_])\{(' + '|'.join(_KICAD_ESCAPES) + r')\}')
+
+
+def kicad_unescape(text):
+    """ Undo KiCad's escaping of special characters like KiCad's UnescapeString() does. """
+    return _KICAD_ESCAPE_RE.sub(lambda m: _KICAD_ESCAPES[m[1]], text) if text else text
+
+
+# KiCad's default widths of lines and wires, and of buses, in schematics and symbols
+KICAD_SCH_LINE_WIDTH = MM(0.006, Inch)
+KICAD_SCH_BUS_WIDTH = MM(0.012, Inch)
+# KiCad's default size of pin decorations, and the size of the cross on no connect pins
+KICAD_PIN_SYMBOL_SIZE = MM(0.025, Inch)
+KICAD_TARGET_PIN_RADIUS = MM(0.015, Inch)
+
+
 @sexp_type('stroke')
 class Stroke:
     width: Named(float) = 0.254
     type: Named(AtomChoice(Atom.dash, Atom.dot, Atom.dash_dot_dot, Atom.dash_dot, Atom.default, Atom.solid)) = Atom.default
     color: Color = None
 
-    def svg_color(self, default=None):
-        if self.color:
+    def svg_color(self, default=None, own_color=True):
+        if self.color and own_color:
             return self.color.svg(default)
         else:
             return default
     
-    def svg_attrs(self, default_color=None):
-        w = self.width
-        if not (color := self.color or default_color):
+    def svg_attrs(self, default_color=None, default_width=0.254, own_color=True):
+        # KiCad does not stroke shapes with a negative width
+        if self.width is not None and self.width < 0:
+            return {'stroke': 'none'}
+        w = self.width or default_width
+        if not (color := self.svg_color(default_color, own_color)):
             return {}
 
         attrs = {'stroke': color,
                 'stroke_linecap': 'round',
                 'stroke_linejoin': 'round',
-                'stroke_width': self.width or 0.254}
+                'stroke_width': w}
 
         if self.type not in (Atom.default, Atom.solid):
-            attrs['stroke_dasharray'] = {
-                    Atom.dash: f'{w*5:.3f},{w*5:.3f}',
-                    Atom.dot: f'{w*2:.3f},{w*2:.3f}',
-                    Atom.dash_dot: f'{w*5:.3f},{w*3:.3f}{w:.3f},{w*3:.3f}',
-                    Atom.dash_dot_dot: f'{w*5:.3f},{w*3:.3f}{w:.3f},{w*3:.3f}{w:.3f},{w*3:.3f}',
-                    }[self.type]
+            # KiCad's dash pattern after ISO 128-2, which it draws with round caps: dashes of 11 line widths, gaps of 4
+            # and dots of 0.2
+            dash, gap, dot = 11*w, 4*w, 0.2*w
+            attrs['stroke_dasharray'] = ','.join(f'{l:.4f}' for l in {
+                    Atom.dash: [dash, gap],
+                    Atom.dot: [dot, gap],
+                    Atom.dash_dot: [dash, gap, dot, gap],
+                    Atom.dash_dot_dot: [dash, gap, dot, gap, dot, gap],
+                    }[self.type])
 
         return attrs
 
@@ -137,9 +182,9 @@ class WidthMixin:
 
 
 class Dasher:
-    def __init__(self, obj):
+    def __init__(self, obj, default_width=0.254):
         if obj.stroke:
-            w = obj.stroke.width if obj.stroke.width not in (None, 0, 0.0) else 0.254
+            w = obj.stroke.width if obj.stroke.width and obj.stroke.width > 0 else default_width
             t = obj.stroke.type
         else:
             w = obj.width or 0
@@ -226,7 +271,7 @@ class Dasher:
         if 'stroke' not in kwargs:
             kwargs['stroke'] = 'black'
         if 'stroke_width' not in kwargs:
-            kwargs['stroke_width'] = 0.254
+            kwargs['stroke_width'] = self.width
         if 'stroke_linecap' not in kwargs:
             kwargs['stroke_linecap'] = 'round'
 
@@ -446,19 +491,13 @@ class TextMixin:
 
     @property
     def h_align(self):
-        return 'left' if self.effects.justify.h else 'center'
+        return self.effects.justify.h_str
 
     @property
     def mirrored(self):
         return False, False
 
-    def to_svg(self, color='black', variables={}):
-        if not self.effects or self.effects.hide or not self.effects.font:
-            return
-
-        font = Newstroke.load()
-        text = string.Template(self.text).safe_substitute(variables)
-        aperture = ap.CircleAperture(self.line_width or 0.2, unit=MM)
+    def _svg_rotation(self):
         rot = self.rotation
         h_align = self.h_align
         mx, my = self.mirrored
@@ -481,6 +520,16 @@ class TextMixin:
         if rot == 90:
             rot = 270
             h_align = {'left': 'right', 'right': 'left'}.get(h_align, h_align)
+        return rot, h_align
+
+    def to_svg(self, color='black', variables={}):
+        if not self.effects or self.effects.hide or not self.effects.font:
+            return
+
+        font = Newstroke.load()
+        text = string.Template(self.text).safe_substitute(variables)
+        aperture = ap.CircleAperture(self.line_width or 0.2, unit=MM)
+        rot, h_align = self._svg_rotation()
 
         yield font.render_svg(text,
                               size=self.size or 1.27,
@@ -568,6 +617,19 @@ class PageSettings:
     width: float = None
     height: float = None
     portrait: Flag() = False
+
+    @property
+    def size(self):
+        """ (width, height) in mm """
+        if self.page_format == 'User' and self.width and self.height:
+            w, h = float(self.width), float(self.height)
+        else:
+            w, h = KICAD_PAPER_SIZES.get(str(self.page_format), KICAD_PAPER_SIZES['A4'])
+        # Like KiCad's PAGE_INFO::SetPortrait(), which turns landscape pages upright and leaves portrait pages as they
+        # are. KiCad's standard sizes are all landscape. KiCad only writes the flag for them, not for user sizes.
+        if self.portrait and w > h:
+            w, h = h, w
+        return w, h
 
 
 @sexp_type('property')

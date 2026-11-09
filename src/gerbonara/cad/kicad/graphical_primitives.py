@@ -2,6 +2,7 @@
 import string
 import math
 import base64
+import struct
 import textwrap
 
 from .sexp import *
@@ -11,7 +12,7 @@ from .primitives import *
 from ... import graphic_objects as go
 from ... import apertures as ap
 from ...newstroke import Newstroke
-from ...utils import rotate_point, MM, arc_bounds
+from ...utils import rotate_point, MM, Inch, arc_bounds, Tag
 
 @sexp_type('layer')
 class TextLayer:
@@ -367,6 +368,25 @@ class Base64Blob:
         yield [Atom.data, *textwrap.wrap(encoded, 76)]
 
 
+def png_size(data):
+    """ (width, height, dpi) of PNG data, or None if it is not PNG. KiCad defaults to 300 dpi. """
+    if data[:8] != b'\x89PNG\r\n\x1a\n':
+        return None
+    w, h = struct.unpack('>II', data[16:24])
+    dpi, pos = 300, 8
+    while pos + 8 <= len(data):
+        n, kind = struct.unpack('>I4s', data[pos:pos+8])
+        if kind == b'pHYs' and n >= 9:
+            ppu, _ppu_y, unit = struct.unpack('>IIB', data[pos+8:pos+17])
+            if unit == 1 and ppu: # pixels per meter
+                dpi = ppu / 1000 * MM(1, Inch)
+            break
+        if kind == b'IDAT':
+            break
+        pos += 12 + n
+    return w, h, dpi
+
+
 @sexp_type('image')
 class Image:
     at: AtPos = field(default_factory=AtPos)
@@ -378,6 +398,28 @@ class Image:
 
     def offset(self, x=0, y=0):
         self.at = self.at.with_offset(x, y)
+
+    @property
+    def size(self):
+        """ (width, height) in mm, or None if the image is not a PNG. """
+        if not (info := png_size(self.data or b'')):
+            return None
+        w, h, dpi = info
+        scale = self.scale or 1
+        return MM(w / dpi * scale, Inch), MM(h / dpi * scale, Inch)
+
+    def bounding_box(self, default=None):
+        if not (size := self.size):
+            return default
+        w, h = size
+        return (self.at.x - w/2, self.at.y - h/2), (self.at.x + w/2, self.at.y + h/2)
+
+    def to_svg(self, colorscheme=None):
+        if not (bbox := self.bounding_box()):
+            return
+        (x1, y1), (x2, y2) = bbox
+        yield Tag('image', x=f'{x1:.3f}', y=f'{y1:.3f}', width=f'{x2-x1:.3f}', height=f'{y2-y1:.3f}',
+                  href=f'data:image/png;base64,{base64.b64encode(self.data).decode()}')
 
 
 @sexp_type('dimension')

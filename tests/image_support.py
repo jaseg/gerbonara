@@ -103,9 +103,10 @@ def svg_soup(filename):
 
 
 class ImageSupport:
-    def __init__(self, cachedir, kicad_container):
+    def __init__(self, cachedir, kicad_container, kicad_sch_container=None):
         self.cache_root = cachedir
         self.kicad_container = kicad_container
+        self.kicad_sch_container = kicad_sch_container
 
 
     def cachedir(self, scope, filename, suffix):
@@ -202,6 +203,36 @@ class ImageSupport:
             print(f'Re-using cache for {mod_file.name}')
         shutil.copy(cachefile, out_svg)
 
+
+    def kicad_sch_export(self, sch_file, out_svg):
+        """ The first page of a schematic, exported by kicad-cli in black and white without the drawing sheet """
+        sch_file = Path(sch_file)
+        args = ['--black-and-white', '--exclude-drawing-sheet', '--no-background-color', '--pages', '1']
+        params = f'{self.kicad_sch_container} {args}'.encode()
+        digest = hashlib.blake2b(sch_file.read_bytes() + params).hexdigest()
+        cachefile = self.cachedir('kicad-schematic-export', digest, 'svg')
+
+        if not cachefile.is_file():
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Only the schematics of the directory, so that KiCad renders them with its default settings and not
+                # with those of a project file next to them
+                indir, outdir = Path(tmpdir) / 'in', Path(tmpdir) / 'out'
+                other_files = lambda d, names: [n for n in names
+                                                if not (Path(d, n).is_dir() or n.endswith('.kicad_sch'))]
+                shutil.copytree(sch_file.parent, indir, ignore=other_files)
+                outdir.mkdir()
+                os.chmod(outdir, 0o1777)
+                cmd = ['podman', 'run', '--rm', '--userns=keep-id',
+                       '--mount', f'type=bind,src={indir},dst=/in,ro=true',
+                       '--mount', f'type=bind,src={outdir},dst=/out',
+                       self.kicad_sch_container,
+                       'kicad-cli', 'sch', 'export', 'svg', *args, '--output', '/out', f'/in/{sch_file.name}']
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+                # Parallel test workers may read the cache file while it is written, so it is replaced in one go
+                tmpfile = cachefile.with_name(f'{cachefile.name}.{os.getpid()}.tmp')
+                shutil.copy(outdir / sch_file.with_suffix('.svg').name, tmpfile)
+                os.replace(tmpfile, cachefile)
+        shutil.copy(cachefile, out_svg)
 
     def bulk_populate_kicad_fp_export_cache(self, pretty_dir):
         def cachefile(mod_file):

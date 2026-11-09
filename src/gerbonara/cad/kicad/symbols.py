@@ -21,7 +21,7 @@ from ...utils import rotate_point, Tag, arc_bounds
 from ... import __version__
 from ...newstroke import Newstroke
 from .schematic_colors import *
-from .primitives import kicad_mid_to_center_arc, Margins
+from .primitives import kicad_mid_to_center_arc, kicad_arc_svg_flags, Margins
 
 
 PIN_ETYPE = AtomChoice(Atom.input, Atom.output, Atom.bidirectional, Atom.tri_state, Atom.passive, Atom.free,
@@ -72,29 +72,25 @@ class Pin:
 
     def bounding_box(self, default=None):
         font = Newstroke.load()
-        strokes = list(font.render(self.name, size=2.54))
-        min_x = min(x for st in strokes for x, y in st)
-        min_y = min(y for st in strokes for x, y in st)
-        max_x = max(x for st in strokes for x, y in st)
-        max_y = max(y for st in strokes for x, y in st)
-        w, h = max_x - min_x, max_y - min_y
+        (_x1, _y1), (w, _y2) = font.bounding_box(self.name.value or '', size=2.54)
+        h = 2.54
         l = self.length + 0.2 + w
 
         x1, y1 = x2, y2 = self.at.x, self.at.y
         if self.at.rotation == 0:
-            x2 += w
+            x2 += l
             y1 -= h/2
             y2 += h/2
-        if self.at.rotation == 90:
-            y2 += w
+        elif self.at.rotation == 90:
+            y2 += l
             x1 -= h/2
             x2 += h/2
-        if self.at.rotation == 180:
-            x1 -= w
+        elif self.at.rotation == 180:
+            x1 -= l
             y1 -= h/2
             y2 += h/2
-        if self.at.rotation == 270:
-            y1 -= w
+        elif self.at.rotation == 270:
+            y1 -= l
             x1 -= h/2
             x2 += h/2
         else:
@@ -102,55 +98,77 @@ class Pin:
 
         return (x1, y1), (x2, y2)
 
-    def to_svg(self, colorscheme, p_mirror, p_rotation):
+    def to_svg(self, colorscheme, p_mirror, p_rotation, alternate=None):
         if self.hide:
             return
 
-        psx, psy = (-1 if p_mirror.x else 1), (-1 if p_mirror.y else 1)
-        x1, y1 = self.at.x, self.at.y
-        x2, y2 = self.at.x+self.length, self.at.y
-        if p_mirror.y:
-            p_xf = f'scale(-1 -1)'
-        elif p_mirror.x:
-            p_xf = f'scale(1 1)'
+        # Like KiCad's SCH_PIN::PlotPinType(), in the frame of the placed symbol, without its translation: from the
+        # root of the pin at the body to its connection point, with decorations sized by KiCad's default pin symbol
+        # size, and always above or left of the pin on the sheet where they are one-sided.
+        sheet = lambda x, y: sheet_vector(x, y, p_rotation, p_mirror)
+        a = math.radians(self.at.rotation or 0)
+        px, py = sheet(self.at.x, self.at.y)
+        x1, y1 = sheet(self.at.x + self.length*math.cos(a), self.at.y + self.length*math.sin(a))
+        # From the root to the connection point, also for pins of length 0
+        ux, uy = sheet(math.cos(a), math.sin(a))
+        sign = lambda v: (v > 1e-6) - (v < -1e-6)
+        mx, my = sign(-ux), sign(-uy)
+        d = KICAD_PIN_SYMBOL_SIZE
+        # An alternate function selected on the placed symbol replaces the pin's shape and type
+        style, etype = (alternate.shape, alternate.etype) if alternate is not None else (self.style, self.etype)
+
+        lines = []
+        if style in ('inverted', 'inverted_clock'):
+            yield Tag('circle', cx=f'{x1 + mx*d:.3f}', cy=f'{y1 + my*d:.3f}', r=f'{d:.3f}', fill='none',
+                      stroke=colorscheme.lines, stroke_width=KICAD_SCH_LINE_WIDTH)
+            lines.append([(x1 + mx*2*d, y1 + my*2*d), (px, py)])
+        elif style == 'edge_clock_high':
+            if my == 0:
+                lines.append([(x1, y1 + d), (x1 + mx*2*d, y1), (x1, y1 - d)])
+            else:
+                lines.append([(x1 + d, y1), (x1, y1 + my*2*d), (x1 - d, y1)])
+            lines.append([(x1 + mx*2*d, y1 + my*2*d), (px, py)])
         else:
-            p_xf = f'scale(1 -1)'
-        p_xf += f'rotate({p_rotation})'
-        xform = {'transform': f'{p_xf} translate({self.at.x:.3f} {self.at.y:.3f}) rotate({self.at.rotation})'}
-        style = {'stroke_width': 0.254, 'stroke': colorscheme.lines, 'stroke_linecap': 'round'}
+            lines.append([(x1, y1), (px, py)])
 
-        yield Tag('path', **xform, **style, d=f'M 0 0 L {self.length:.3f} 0')
+        if style in ('clock', 'inverted_clock', 'clock_low'):
+            if my == 0:
+                lines.append([(x1, y1 + d), (x1 - mx*2*d, y1), (x1, y1 - d)])
+            else:
+                lines.append([(x1 + d, y1), (x1, y1 - my*2*d), (x1 - d, y1)])
 
-        eps = 1
-        for tag in {
-                'line': [],
-                'inverted': [
-                    Tag('circle', **xform, **style, cx=x2-eps/3-0.2, cy=y2, r=eps/3)],
-                'clock': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],
-                'inverted_clock': [
-                    Tag('circle', **xform, **style, cx=x2-eps/3-0.2, cy=y2, r=eps/3),
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],
-                'input_low': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}')],
-                'clock_low': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}'),
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],
-                'output_low': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps} L {x2-eps} {y2}')],
-                'edge_clock_high': [
-                    Tag('path', **xform, **style, d=f'M {x2} {y2} L {x2-eps} {y2-eps} L {x2-eps} {y2}'),
-                    Tag('path', **xform, **style, d=f'M {x2} {y2-eps/2} L {x2+eps/2} {y2} L {x2} {y2+eps/2}')],
-                'non_logic': [
-                    Tag('path', **xform, **style, d=f'M {x2-eps/2} {y2-eps/2} L {x2+eps/2} {y2+eps/2}'),
-                    Tag('path', **xform, **style, d=f'M {x2-eps/2} {y2+eps/2} L {x2+eps/2} {y2-eps/2}')],
-                # FIXME...
-        }.get(self.style, []):
-            yield tag
+        if style in ('input_low', 'clock_low'):
+            if my == 0:
+                lines.append([(x1 + mx*2*d, y1), (x1 + mx*2*d, y1 - 2*d), (x1, y1)])
+            else:
+                lines.append([(x1, y1 + my*2*d), (x1 - 2*d, y1 + my*2*d), (x1, y1)])
+
+        if style == 'output_low':
+            if my == 0:
+                lines.append([(x1, y1 - 2*d), (x1 + mx*2*d, y1)])
+            else:
+                lines.append([(x1 - 2*d, y1), (x1, y1 + my*2*d)])
+        elif style == 'non_logic':
+            lines.append([(x1 - (mx + my)*d, y1 - (my - mx)*d), (x1 + (mx + my)*d, y1 + (my - mx)*d)])
+            lines.append([(x1 - (mx - my)*d, y1 - (my + mx)*d), (x1 + (mx - my)*d, y1 + (my + mx)*d)])
+
+        if etype in ('no_connect', 'unconnected'):
+            r = KICAD_TARGET_PIN_RADIUS
+            lines.append([(px - r, py - r), (px + r, py + r)])
+            lines.append([(px + r, py - r), (px - r, py + r)])
+
+        path_d = ' '.join('M ' + ' L '.join(f'{x:.3f} {y:.3f}' for x, y in line) for line in lines)
+        yield Tag('path', d=path_d, fill='none', stroke=colorscheme.lines, stroke_width=KICAD_SCH_LINE_WIDTH,
+                  stroke_linecap='round', stroke_linejoin='round')
 
         rot = self.at.rotation + p_rotation
         trot = self.at.rotation
-        ax, ay = self.length+0.2, 0
+        # With a positive pin name offset, names go inside the body, that far beyond the pin's inner end. With an
+        # offset of 0, names go above the middle of the pin and numbers below it.
+        spec = self.unit.symbol.pin_names if self.unit is not None and self.unit.symbol is not None else None
+        offset = spec.offset if spec is not None and spec.offset is not None else 0.508
+        names_inside = offset > 0
+        ax, ay = (self.length + offset if names_inside else self.length/2), 0
         ax, ay = rotate_point(ax, ay, math.radians(-self.at.rotation))
 
         #lx, ly = self.at.x, -self.at.y
@@ -195,9 +213,9 @@ class Pin:
             yield font.render_svg(self.name.value,
                                   size=self.name.effects.font.size.y or 1.27,
                                   x0=0,
-                                  y0=0,
-                                  h_align=h_align,
-                                  v_align='middle',
+                                  y0=0 if names_inside else -0.4,
+                                  h_align=h_align if names_inside else 'center',
+                                  v_align='middle' if names_inside else 'bottom',
                                   rotation=-frot,
                                   stroke=colorscheme.pin_names,
                                   transform=f'translate({lx:.3f} {ly:.3f})',
@@ -208,10 +226,10 @@ class Pin:
         if self.number.value != '~' and not self.unit.symbol.pin_numbers.hide:
             yield font.render_svg(self.number.value,
                                   size=self.number.effects.font.size.y or 1.27,
-                                  x0=-0.4 if h_align == 'left' else 0.4,
-                                  y0=-0.4,
-                                  h_align={'left': 'right', 'right': 'left'}[h_align],
-                                  v_align='bottom',
+                                  x0=(-0.4 if h_align == 'left' else 0.4) if names_inside else 0,
+                                  y0=-0.4 if names_inside else 0.4,
+                                  h_align={'left': 'right', 'right': 'left'}[h_align] if names_inside else 'center',
+                                  v_align='bottom' if names_inside else 'top',
                                   rotation=-frot,
                                   stroke=colorscheme.pin_numbers,
                                   scale=(sx, sy),
@@ -226,15 +244,36 @@ class Fill:
     type: Named(AtomChoice(Atom.none, Atom.outline, Atom.background, Atom.color)) = Atom.none
     color: Color = None
 
-    def svg(self, fg, bg):
+    def svg(self, fg, bg, own_color=True, stroked=True):
         if self.type == 'outline':
             return fg
         elif self.type == 'background':
             return bg
-        elif self.type == 'color' and self.color is not None:
-            return self.color.svg(bg)
+        elif self.type == 'color':
+            if not own_color:
+                return black_and_white_fill(self.color, stroked, Colorscheme.KiCad, fg=fg, bg=bg)
+            # Without a fill color of its own, KiCad fills the shape with the line color
+            return self.color.svg(fg) if self.color else fg
         else:
             return 'none'
+
+
+def sheet_vector(x, y, rotation, mirror):
+    # Library coordinates turned and mirrored like a placed symbol is, see SymbolInstance.to_svg()
+    sx, sy = (-1, -1) if mirror.y else ((1, 1) if mirror.x else (1, -1))
+    c, s = math.cos(math.radians(rotation or 0)), math.sin(math.radians(rotation or 0))
+    return sx*(c*x - s*y), sy*(s*x + c*y)
+
+
+def _sheet_sweep(sweep, orientation):
+    # The sweep flag of an arc on the sheet, which mirroring the symbol turns around
+    rotation, mirror = orientation
+    return sweep if bool(mirror.x) != bool(mirror.y) else not sweep
+
+
+def _symbol_fill_svg(shape, colorscheme):
+    stroked = shape.stroke.width is None or shape.stroke.width >= 0
+    return shape.fill.svg(colorscheme.lines, colorscheme.fill, item_colors(colorscheme), stroked)
 
 
 @sexp_type('circle')
@@ -248,10 +287,19 @@ class Circle:
         x, y, r = self.center.x, self.center.y, self.radius
         return (x-r, y-r), (x+r, y+r)
 
-    def to_svg(self, colorscheme=Colorscheme.KiCad):
-        yield Tag('circle', cx=f'{self.center.x:.3f}', cy=f'{self.center.y:.3f}', r=f'{self.radius:.3f}',
-                  fill=self.fill.svg(colorscheme.lines, colorscheme.fill),
-                  **self.stroke.svg_attrs(colorscheme.lines))
+    def to_svg(self, colorscheme=Colorscheme.KiCad, orientation=None):
+        attrs = dict(fill=_symbol_fill_svg(self, colorscheme),
+                     **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme)))
+        if orientation is None or 'stroke_dasharray' not in attrs:
+            yield Tag('circle', cx=f'{self.center.x:.3f}', cy=f'{self.center.y:.3f}', r=f'{self.radius:.3f}', **attrs)
+            return
+        # KiCad draws circles on the sheet, so that their dashes start on the right and run clockwise there
+        x, y, r = self.center.x, self.center.y, self.radius
+        dx, dy = next((dx, dy) for dx, dy in ((r, 0), (-r, 0), (0, r), (0, -r))
+                      if all(abs(a - b) < 1e-6 for a, b in zip(sheet_vector(dx, dy, *orientation), (r, 0))))
+        sweep = int(not _sheet_sweep(False, orientation))
+        yield Tag('path', d=f'M {x+dx:.3f} {y+dy:.3f} A {r:.4f} {r:.4f} 0 1 {sweep} {x-dx:.3f} {y-dy:.3f} '
+                            f'A {r:.4f} {r:.4f} 0 1 {sweep} {x+dx:.3f} {y+dy:.3f} Z', **attrs)
 
 
 @sexp_type('radius')
@@ -270,30 +318,49 @@ class Arc:
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
 
+    @property
+    def midpoint(self):
+        # KiCad 6 symbols may give arcs as (radius (at center) (length r) (angles a1 a2)), running counter-clockwise
+        if self.mid is not None and self.mid.x is not None:
+            return self.mid
+        if self.radius is None:
+            raise ValueError('Arc has neither a midpoint nor a radius')
+        a1, a2 = self.radius.angles.x, self.radius.angles.y
+        if a2 < a1:
+            a2 += 360
+        a = math.radians((a1 + a2) / 2)
+        return XYCoord(self.radius.at.x + self.radius.length*math.cos(a), self.radius.at.y + self.radius.length*math.sin(a))
+
+    def _arc(self):
+        return kicad_arc_svg_flags(self.start, self.midpoint, self.end)
+
     def bounding_box(self, default=None):
-        (cx, cy), r = kicad_mid_to_center_arc(self.mid, self.start, self.end)
-        x1, y1 = self.start.x, self.start.y
-        x2, y2 = self.mid.x-x1, self.mid.y-x2
-        x3, y3 = (self.end.x - x1)/2, (self.end.y - y1)/2
-        clockwise = math.atan2(x2*y3-x3*y2, x2*x3+y2*y3) > 0
-        return arc_bounds(x1, y1, self.end.x, self.end.y, cx, cy, clockwise)
+        try:
+            (cx, cy), _r, sweep, _large = self._arc()
+        except ValueError: # start, mid and end on one line
+            return ((min(self.start.x, self.end.x), min(self.start.y, self.end.y)),
+                    (max(self.start.x, self.end.x), max(self.start.y, self.end.y)))
+        # Symbol coordinates have the y axis pointing up like arc_bounds expects, so increasing angle means counter-
+        # clockwise.
+        return arc_bounds(self.start.x, self.start.y, self.end.x, self.end.y, cx, cy, not sweep)
 
-
-    def to_svg(self, colorscheme=Colorscheme.KiCad):
-        (cx, cy), r = kicad_mid_to_center_arc(self.mid, self.start, self.end)
-
-        x1r = self.start.x - cx
-        y1r = self.start.y - cy
-        x2r = self.end.x - cx
-        y2r = self.end.y - cy
-        a1 = math.atan2(x1r, y1r)
-        a2 = math.atan2(x2r, y2r)
-        da = (a2 - a1 + math.pi) % (2*math.pi) - math.pi
-
-        large_arc = int(da > math.pi)
-        d = f'M {self.start.x:.3f} {self.start.y:.3f} A {r:.3f} {r:.3f} 0 {large_arc} 0 {self.end.x:.3f} {self.end.y:.3f}'
-        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill),
-                  **self.stroke.svg_attrs(colorscheme.lines))
+    def to_svg(self, colorscheme=Colorscheme.KiCad, orientation=None):
+        fill = _symbol_fill_svg(self, colorscheme)
+        stroke = self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme))
+        start, end = self.start, self.end
+        try:
+            (cx, cy), r, sweep, large = self._arc()
+        except ValueError: # start, mid and end on one line
+            yield Tag('path', d=f'M {start.x:.3f} {start.y:.3f} L {end.x:.3f} {end.y:.3f}', fill='none', **stroke)
+            return
+        # Counter-clockwise on the sheet, like KiCad's SVG plotter draws arcs, so that dashes start at the same end
+        if orientation is not None and _sheet_sweep(sweep, orientation):
+            start, end, sweep = end, start, not sweep
+        arc = f'M {start.x:.3f} {start.y:.3f} A {r:.4f} {r:.4f} 0 {int(large)} {int(sweep)} {end.x:.3f} {end.y:.3f}'
+        # KiCad fills arcs as pie wedges
+        if fill != 'none':
+            yield Tag('path', d=f'{arc} L {cx:.3f} {cy:.3f} Z', fill=fill, stroke='none')
+        yield Tag('path', d=arc, fill='none', **stroke)
 
 
 @sexp_type('bezier')
@@ -314,22 +381,23 @@ class Bezier:
             return
         p0, *rest = self.points
         d = f'M {p0.x:.3f} {p0.y:.3f} C ' + ' '.join(f'{p.x:.3f} {p.y:.3f}' for p in rest)
-        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill), **self.stroke.svg_attrs(colorscheme.lines))
+        yield Tag('path', d=d, fill=_symbol_fill_svg(self, colorscheme),
+                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme)))
 
 
 @sexp_type('polyline')
 class Polyline:
-    pts: PointList = field(default_factory=PointList)
+    pts: PointList = field(default_factory=list)
     stroke: Stroke = field(default_factory=Stroke)
     fill: Fill = field(default_factory=Fill)
 
     @property
     def points(self):
-        return self.pts.xy
+        return self.pts
 
     @points.setter
     def points(self, value):
-        self.pts.xy = value
+        self.pts = value
 
     @property
     def closed(self):
@@ -353,8 +421,15 @@ class Polyline:
         if not rest:
             return
 
-        d = ' '.join([f'M {p0.x:.3f} {p0.y:.3f}', *(f'L {pn.x:.3f} {pn.y:.3f}' for pn in rest)])
-        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill), **self.stroke.svg_attrs(colorscheme.lines))
+        # Closed if the last point is the first, and filled even-odd, like KiCad's SVG plotter does it
+        if (rest[-1].x, rest[-1].y) == (p0.x, p0.y) and len(rest) > 1:
+            rest = rest[:-1]
+            close = ' Z'
+        else:
+            close = ''
+        d = ' '.join([f'M {p0.x:.3f} {p0.y:.3f}', *(f'L {pn.x:.3f} {pn.y:.3f}' for pn in rest)]) + close
+        yield Tag('path', d=d, fill=_symbol_fill_svg(self, colorscheme), fill_rule='evenodd',
+                  **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH, item_colors(colorscheme)))
 
     def is_rectangle(self):
         # A rectangle has 5 points and is closed
@@ -419,11 +494,26 @@ class Rectangle:
     def to_polyline(self):
         x1, y1 = self.start.x, self.start.y
         x2, y2 = self.end.x, self.end.y
-        return Polyline(PointList([XYCoord(x1, y1), XYCoord(x2, y1), XYCoord(x2, y2), XYCoord(x1, y2), XYCoord(x1, y1)]),
+        return Polyline([XYCoord(x1, y1), XYCoord(x2, y1), XYCoord(x2, y2), XYCoord(x1, y2), XYCoord(x1, y1)],
                         self.stroke, self.fill)
 
-    def to_svg(self, colorscheme=Colorscheme.KiCad):
-        return self.to_polyline().to_svg(colorscheme)
+    def to_svg(self, colorscheme=Colorscheme.KiCad, orientation=None):
+        polyline = self.to_polyline()
+        if orientation is not None:
+            # KiCad draws rectangles on the sheet from their top left corner clockwise, or as a line from the top left
+            # if they are flat, so that their dashes start at the same place
+            corners = polyline.points[:4]
+            sheet = [sheet_vector(pt.x, pt.y, *orientation) for pt in corners]
+            key = lambda i: (round(sheet[i][0], 6), round(sheet[i][1], 6))
+            first, last = min(range(4), key=key), max(range(4), key=key)
+            if self.start.x == self.end.x or self.start.y == self.end.y:
+                polyline.points = [corners[first], corners[last]]
+            else:
+                order = [(first + i) % 4 for i in range(4)]
+                if abs(sheet[order[1]][1] - sheet[first][1]) > 1e-6: # the next corner is below, not to the right
+                    order = [first] + order[1:][::-1]
+                polyline.points = [corners[i] for i in order] + [corners[first]]
+        return polyline.to_svg(colorscheme)
 
 
 @sexp_type('property')
