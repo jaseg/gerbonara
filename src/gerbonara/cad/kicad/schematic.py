@@ -509,39 +509,6 @@ def _label_pen_widths(label):
     return [min(pen, size/4) for pen in pens]
 
 
-def _markup_runs(text, size, base_size=None):
-    # (text, size) of the runs of text with KiCad's overbar (~{...}), subscript (_{...}) and superscript (^{...})
-    # markup, which can be nested. KiCad does not draw the markup characters, and draws sub- and superscripts, also
-    # nested ones, at 0.8 times the text's size.
-    base_size = base_size or size
-    runs, plain, i = [], '', 0
-    while i < len(text):
-        if text[i] in '~_^' and text[i+1:i+2] == '{':
-            depth, j = 1, i + 2
-            while j < len(text) and depth:
-                depth += {'{': 1, '}': -1}.get(text[j], 0)
-                j += 1
-            if depth == 0:
-                runs.append((plain, size))
-                runs += _markup_runs(text[i+2:j-1], size if text[i] == '~' else 0.8*base_size, base_size)
-                plain, i = '', j
-                continue
-        plain += text[i]
-        i += 1
-    return [run for run in runs + [(plain, size)] if run[0]]
-
-
-def _markup_glyph_width(text, size):
-    # Width of the box of the glyphs of text with KiCad's markup, which is a fifth of the size of the last run narrower
-    # than the advance width
-    x = end = 0
-    for run, run_size in _markup_runs(text, size):
-        w = kicad_text_width(run, run_size)
-        end = max(end, x + w - 0.2*run_size)
-        x += w
-    return end
-
-
 def _label_text(label, text_offset, text_drop=0):
     # The direction of the outline of a global or hierarchical label, and the arguments of kicad_text_svg() for its text
     x, y = label.at.x, label.at.y
@@ -603,7 +570,7 @@ class GlobalLabel(TextLabel):
         half = self.size/2 + margin
         pen = _label_pen_widths(self)[1]
         # KiCad's text box is the box of the glyphs, grown by one and a half pen widths on each side
-        x, y = _markup_glyph_width(self.text, self.size) + 3*pen + 2*margin + pen, half + pen
+        x, y = kicad_markup_glyph_width(self.text, self.size) + 3*pen + 2*margin + pen, half + pen
         points = [[0, 0], [0, -y], [-x, -y], [-x, 0], [-x, y], [0, y]]
         x_offset = 0
         if self.shape in (Atom.input, Atom.bidirectional, Atom.tri_state):

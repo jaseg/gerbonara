@@ -164,16 +164,19 @@ class Pin:
         yield Tag('path', d=path_d, fill='none', stroke=colorscheme.lines, stroke_width=KICAD_SCH_LINE_WIDTH,
                   stroke_linecap='round', stroke_linejoin='round')
 
-        yield from self._text_svg(colorscheme, p_mirror, p_rotation)
+        yield from self._text_svg(colorscheme, p_mirror, p_rotation, alternate)
 
-    def _text_svg(self, colorscheme, p_mirror, p_rotation):
+    def _text_svg(self, colorscheme, p_mirror, p_rotation, alternate=None):
         """ Pin name and number, placed like KiCad's PIN_LAYOUT_CACHE does it """
         symbol = self.unit.symbol if self.unit is not None else None
         names, numbers = (symbol.pin_names, symbol.pin_numbers) if symbol is not None else (None, None)
         offset = names.offset if names is not None and names.offset is not None else 0.508
-        name = self.name.value if self.name is not None else ''
+        # KiCad shows the name of the alternate function that the placed symbol selects
+        name = alternate.name if alternate is not None else self.name.value if self.name is not None else ''
         number = self.number.value if self.number is not None else ''
-        show_name = name not in ('', '~') and not (names is not None and names.hide) and not self.name.effects.hide
+        # KiCad shows a selected alternate function's name even if it is ~
+        hidden_names = ('',) if alternate is not None else ('', '~')
+        show_name = name not in hidden_names and not (names is not None and names.hide) and not self.name.effects.hide
         show_number = number != '' and not (numbers is not None and numbers.hide) and not self.number.effects.hide
 
         vec = lambda dx, dy: lib_to_sheet_vector(dx, dy, p_rotation, p_mirror.x, p_mirror.y)
@@ -192,14 +195,24 @@ class Pin:
         # KiCad does not draw text of size 0
         show_name, show_number = show_name and name_size > 0, show_number and number_size > 0
         texts = []
+        # KiCad's icon for pins with alternate functions, next to the name, in the middle of the name's box, which is
+        # the box of its glyphs, grown by one and a half of KiCad's pen width for normal text on each side
+        icon_size = min(name_size, 1.5)
+        name_width, name_height = kicad_markup_glyph_width(name, name_size) + 3*name_size/8, name_size + 3*name_size/8
         if show_name:
             if offset > 0: # inside the body, starting the offset beyond the pin's inner end
                 inward = (dy < 0) if vertical else (dx > 0)
                 texts.append((name, name_size, x1 + dx*offset, y1 + dy*offset, 'left' if inward else 'right', 'middle',
                               colorscheme.pin_names))
+                icon_d = self.length + offset + name_width + 0.75*icon_size
+                icon_x, icon_y = x0 + dx*icon_d, y0 + dy*icon_d
             else: # above the middle of the pin
                 d = KICAD_TEXT_OFFSET + name_size/16
                 texts.append((name, name_size, mx + ux*d, my + uy*d, 'center', 'bottom', colorscheme.pin_names))
+                icon_d, icon_up = -(name_width/2 + 0.75*icon_size), KICAD_TEXT_OFFSET + name_height/2
+                icon_x, icon_y = mx + dx*icon_d + ux*icon_up, my + dy*icon_d + uy*icon_up
+            if self.alternates and getattr(colorscheme, 'alternate_icons', True):
+                yield _alternate_icon_svg(icon_x, icon_y, icon_size, vertical, colorscheme.pin_names)
         if show_number:
             d = 2*KICAD_TEXT_OFFSET + number_size/8
             if show_name and offset == 0: # name above, number below
@@ -210,6 +223,18 @@ class Pin:
         for text, size, x, y, h_align, v_align, color in texts:
             yield kicad_text_svg(text, x, y, size, h_align=h_align, v_align=v_align, vertical=vertical, stroke=color,
                                  stroke_width=kicad_pen_width(size, strict=True))
+
+
+def _alternate_icon_svg(x, y, size, vertical, color):
+    # KiCad's drawAltPinModesIcon(): two arrows to the right, the lower one coming out of a quarter circle, turned to
+    # point up for vertical names
+    r, head = size/4, size/8
+    top, bottom = (size/2, -r), (size/2, r)
+    arrow = lambda x, y: f'M {x - 1.2*head:.3f} {y - head:.3f} L {x:.3f} {y:.3f} L {x - 1.2*head:.3f} {y + head:.3f}'
+    d = (f'M {-size/2:.3f} {-r:.3f} L {top[0]:.3f} {top[1]:.3f} {arrow(*top)} '
+         f'M {-r:.3f} 0 A {r:.3f} {r:.3f} 0 0 0 0 {r:.3f} L {bottom[0]:.3f} {bottom[1]:.3f} {arrow(*bottom)}')
+    return Tag('path', d=d, fill='none', stroke=color, stroke_width=f'{size/10:.3f}', stroke_linecap='round',
+               stroke_linejoin='round', transform=f'translate({x:.3f} {y:.3f})' + (' rotate(270)' if vertical else ''))
 
 
 @sexp_type('fill')

@@ -29,4 +29,7 @@ class Colorscheme:
         # Whether items are drawn with the stroke and fill colors they give themselves. KiCad's black and white export
         # ignores them, and does not fill shapes with a fill color if they have an outline.
         item_colors = True
+        # Whether pins with alternate functions get KiCad's icon for them, which KiCad's schematic editor shows, but not
+        # its exports
+        alternate_icons = True
 

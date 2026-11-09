@@ -509,6 +509,39 @@ def kicad_text_width(text, size):
                for line in kicad_unescape(text).split('\n'))
 
 
+def kicad_markup_runs(text, size, base_size=None):
+    # (text, size) of the runs of text with KiCad's overbar (~{...}), subscript (_{...}) and superscript (^{...})
+    # markup, which can be nested. KiCad does not draw the markup characters, and draws sub- and superscripts, also
+    # nested ones, at 0.8 times the text's size.
+    base_size = base_size or size
+    runs, plain, i = [], '', 0
+    while i < len(text):
+        if text[i] in '~_^' and text[i+1:i+2] == '{':
+            depth, j = 1, i + 2
+            while j < len(text) and depth:
+                depth += {'{': 1, '}': -1}.get(text[j], 0)
+                j += 1
+            if depth == 0:
+                runs.append((plain, size))
+                runs += kicad_markup_runs(text[i+2:j-1], size if text[i] == '~' else 0.8*base_size, base_size)
+                plain, i = '', j
+                continue
+        plain += text[i]
+        i += 1
+    return [run for run in runs + [(plain, size)] if run[0]]
+
+
+def kicad_markup_glyph_width(text, size):
+    # Width of the box of the glyphs of text with KiCad's markup, which is a fifth of the size of the last run narrower
+    # than the advance width
+    x = end = 0
+    for run, run_size in kicad_markup_runs(text, size):
+        w = kicad_text_width(run, run_size)
+        end = max(end, x + w - 0.2*run_size)
+        x += w
+    return end
+
+
 def kicad_pen_width(size, thickness=None, bold=False, strict=False):
     """ KiCad's pen width for text: its thickness, else a fifth of its size for bold text and KiCad's default line width
     for normal text, limited to a quarter of its size (0.18 with strict, as for pin names and numbers) """
