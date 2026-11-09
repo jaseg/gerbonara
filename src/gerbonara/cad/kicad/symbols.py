@@ -341,7 +341,7 @@ class Arc:
         stroke = self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH)
         start, end = self.start, self.end
         try:
-            _c, r, sweep, large = self._arc()
+            (cx, cy), r, sweep, large = self._arc()
         except ValueError: # start, mid and end on one line
             yield Tag('path', d=f'M {start.x:.3f} {start.y:.3f} L {end.x:.3f} {end.y:.3f}', fill='none', **stroke)
             return
@@ -349,7 +349,10 @@ class Arc:
         if orientation is not None and _sheet_sweep(sweep, orientation):
             start, end, sweep = end, start, not sweep
         arc = f'M {start.x:.3f} {start.y:.3f} A {r:.3f} {r:.3f} 0 {int(large)} {int(sweep)} {end.x:.3f} {end.y:.3f}'
-        yield Tag('path', d=arc, fill=fill, **stroke)
+        # KiCad fills arcs as pie wedges
+        if fill != 'none':
+            yield Tag('path', d=f'{arc} L {cx:.3f} {cy:.3f} Z', fill=fill, stroke='none')
+        yield Tag('path', d=arc, fill='none', **stroke)
 
 
 @sexp_type('bezier')
@@ -410,8 +413,14 @@ class Polyline:
         if not rest:
             return
 
-        d = ' '.join([f'M {p0.x:.3f} {p0.y:.3f}', *(f'L {pn.x:.3f} {pn.y:.3f}' for pn in rest)])
-        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill),
+        # Closed if the last point is the first, and filled even-odd, like KiCad's SVG plotter does it
+        if (rest[-1].x, rest[-1].y) == (p0.x, p0.y) and len(rest) > 1:
+            rest = rest[:-1]
+            close = ' Z'
+        else:
+            close = ''
+        d = ' '.join([f'M {p0.x:.3f} {p0.y:.3f}', *(f'L {pn.x:.3f} {pn.y:.3f}' for pn in rest)]) + close
+        yield Tag('path', d=d, fill=self.fill.svg(colorscheme.lines, colorscheme.fill), fill_rule='evenodd',
                   **self.stroke.svg_attrs(colorscheme.lines, KICAD_SCH_LINE_WIDTH))
 
     def is_rectangle(self):

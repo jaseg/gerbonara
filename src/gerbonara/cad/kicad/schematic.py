@@ -181,10 +181,16 @@ class Polyline:
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         if self.legacy_dashed and self.stroke.type == Atom.default:
             self = replace(self, stroke=replace(self.stroke, type=Atom.dash))
-        # KiCad does not stroke shapes with a negative width, but lines of two points it draws with its default width
-        if len(self.points) > 2 and self.stroke.width is not None and self.stroke.width < 0:
-            return
-        yield _polyline_svg(self, colorscheme.lines)
+        # KiCad reads polylines of more than two points as shapes, which can be filled, and which it does not stroke
+        # with a negative width. Lines of two points it draws with its default width then.
+        if len(self.points) > 2:
+            # Closed if the last point is the first, like KiCad's SVG plotter does it
+            d = 'M ' + ' L '.join(f'{pt.x:.3f} {pt.y:.3f}' for pt in self.points[:-1])
+            last = self.points[-1]
+            d += ' Z' if (last.x, last.y) == (self.points[0].x, self.points[0].y) else f' L {last.x:.3f} {last.y:.3f}'
+            yield _shape_svg(self, colorscheme, d=d, fill_rule='evenodd')
+        else:
+            yield _polyline_svg(self, colorscheme.lines)
 
 
 @sexp_type('circle')
@@ -231,7 +237,7 @@ class Arc:
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         start, end = self.start, self.end
         try:
-            _c, r, sweep, large = kicad_arc_svg_flags(start, self.mid, end)
+            (cx, cy), r, sweep, large = kicad_arc_svg_flags(start, self.mid, end)
         except ValueError: # start, mid and end on one line
             yield _shape_svg(self, colorscheme, d=f'M {start.x:.3f} {start.y:.3f} L {end.x:.3f} {end.y:.3f}')
             return
@@ -239,7 +245,12 @@ class Arc:
         if sweep:
             start, end = end, start
         arc = f'M {start.x:.3f} {start.y:.3f} A {r:.3f} {r:.3f} 0 {int(large)} 0 {end.x:.3f} {end.y:.3f}'
-        yield _shape_svg(self, colorscheme, d=arc)
+        # KiCad fills arcs as pie wedges
+        shape = _shape_svg(self, colorscheme, d=arc)
+        if shape.attrs.get('fill', 'none') != 'none':
+            yield Tag('path', d=f'{arc} L {cx:.3f} {cy:.3f} Z', fill=shape.attrs['fill'], stroke='none')
+            shape.attrs['fill'] = 'none'
+        yield shape
 
 
 @sexp_type('bezier')
@@ -611,6 +622,7 @@ class SymbolInstance:
                  and (unit.style_global or unit.demorgan_style == style)]
 
 
+
         at_xform = xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
         if self.mirror.y:
             xform += f'scale(-1 -1)'
@@ -787,7 +799,7 @@ class RuleArea:
             return
         p0, *rest = self.polyline.points
         d = f'M {p0.x:.3f} {p0.y:.3f} ' + ' '.join(f'L {p.x:.3f} {p.y:.3f}' for p in rest) + ' Z'
-        yield _shape_svg(self.polyline, colorscheme, d=d)
+        yield _shape_svg(self.polyline, colorscheme, d=d, fill_rule='evenodd')
 
 
 @sexp_type('text_box')
