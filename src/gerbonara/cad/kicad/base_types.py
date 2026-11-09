@@ -171,7 +171,9 @@ class Stroke:
 
 @sexp_type('fill')
 class Fill:
-    type: Named(AtomChoice(Atom.none, Atom.outline, Atom.background, Atom.color)) = Atom.none
+    # hatch, reverse_hatch and cross_hatch are new in KiCad 10.99
+    type: Named(AtomChoice(Atom.none, Atom.outline, Atom.background, Atom.color, Atom.hatch, Atom.reverse_hatch,
+                           Atom.cross_hatch)) = Atom.none
     color: Color = None
 
 
@@ -613,6 +615,32 @@ class EditTime:
 
     def bump(self):
         self.value = time.time()
+
+
+@sexp_type('start_shape')
+class LineStart:
+    style: AtomChoice(Atom.arrow, Atom.arrow_open, Atom.circle, Atom.square, Atom.none) = Atom.none
+    length: Named(float) = None
+    width: Named(float) = None
+    stroke: Stroke = None
+
+
+@sexp_type('end_shape')
+class LineEnd(LineStart):
+    pass
+
+
+@sexp_type('file')
+class EmbeddedFile:
+    name: Named(str) = ''
+    type: Named(AtomChoice(Atom.datasheet, Atom.font, Atom.model, Atom.worksheet, Atom.other)) = Atom.other
+    data: Named(Array(object)) = field(default_factory=list)
+    checksum: Named(str) = None
+
+
+@sexp_type('embedded_files')
+class EmbeddedFiles:
+    files: List(EmbeddedFile) = field(default_factory=list)
 
 
 @sexp_type('paper')

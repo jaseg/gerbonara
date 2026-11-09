@@ -15,6 +15,7 @@ import warnings
 from .sexp import *
 from .base_types import *
 from .primitives import *
+from . import primitives
 from .symbols import Symbol, _lookup_symbol
 from . import symbols
 from . import graphical_primitives as gr
@@ -43,6 +44,8 @@ class Junction:
     diameter: Named(float) = 0
     color: Color = field(default_factory=lambda: Color(0, 0, 0, 0))
     uuid: UUID = field(default_factory=UUID)
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def bounding_box(self, default=None):
         r = (self.diameter/2 or 0.5)
@@ -63,6 +66,8 @@ class Junction:
 class NoConnect:
     at: Rename(XYCoord) = field(default_factory=XYCoord)
     uuid: UUID = field(default_factory=UUID)
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def bounding_box(self, default=None):
         r = 0.635
@@ -87,6 +92,10 @@ class BusEntry:
     size: Rename(XYCoord) = field(default_factory=lambda: XYCoord(2.54, 2.54))
     stroke: Stroke = field(default_factory=Stroke)
     uuid: UUID = field(default_factory=UUID)
+    start_shape: LineStart = None
+    end_shape: LineEnd = None
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def bounding_box(self, default=None):
         x1, y1 = self.at.x, self.at.y
@@ -159,6 +168,10 @@ class Wire:
     points: PointList = field(default_factory=list)
     stroke: Stroke = field(default_factory=Stroke)
     uuid: UUID = field(default_factory=UUID)
+    start_shape: LineStart = None
+    end_shape: LineEnd = None
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def bounding_box(self, default=None):
         return _polyline_bounds(self)
@@ -172,6 +185,7 @@ class Bus:
     points: PointList = field(default_factory=list)
     stroke: Stroke = field(default_factory=Stroke)
     uuid: UUID = field(default_factory=UUID)
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def bounding_box(self, default=None):
         return _polyline_bounds(self)
@@ -186,6 +200,10 @@ class Polyline:
     stroke: Stroke = field(default_factory=Stroke)
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
+    start_shape: LineStart = None
+    end_shape: LineEnd = None
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     # KiCad 6 drew graphic lines dashed by default, see Schematic.__after_parse__()
     legacy_dashed = False
@@ -215,6 +233,8 @@ class Circle:
     stroke: Stroke = field(default_factory=Stroke)
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def bounding_box(self, default=None):
         c, r = self.center, self.radius
@@ -232,6 +252,8 @@ class Rectangle:
     stroke: Stroke = field(default_factory=Stroke)
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def bounding_box(self, default=None):
         return _shape_bounds(self, [(self.start.x, self.start.y), (self.end.x, self.end.y)])
@@ -255,6 +277,10 @@ class Arc:
     stroke: Stroke = field(default_factory=Stroke)
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
+    start_shape: LineStart = None
+    end_shape: LineEnd = None
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def bounding_box(self, default=None):
         start, end = self.start, self.end
@@ -287,12 +313,40 @@ class Arc:
         yield shape
 
 
+@sexp_type('ellipse')
+class Ellipse(primitives.Ellipse):
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: OmitDefault(Fill) = None
+    uuid: UUID = field(default_factory=UUID)
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        yield _shape_svg(self, colorscheme, d=self.svg_path_d())
+
+
+@sexp_type('ellipse_arc')
+class EllipseArc(primitives.EllipseArc):
+    stroke: Stroke = field(default_factory=Stroke)
+    fill: OmitDefault(Fill) = None
+    uuid: UUID = field(default_factory=UUID)
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        yield _shape_svg(self, colorscheme, d=self.svg_path_d())
+
+
 @sexp_type('bezier')
 class Bezier:
     points: PointList = field(default_factory=list)
     stroke: Stroke = field(default_factory=Stroke)
     fill: OmitDefault(Fill) = None
     uuid: UUID = field(default_factory=UUID)
+    start_shape: LineStart = None
+    end_shape: LineEnd = None
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def bounding_box(self, default=None):
         # The control polygon contains the curve.
@@ -342,6 +396,7 @@ class DrawnProperty(TextMixin):
     do_not_autoplace: Named(LegacyCompatibleFlag()) = None
     hide: OmitDefault(Named(LegacyCompatibleFlag())) = False
     effects: TextEffect = field(default_factory=TextEffect)
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
     _: SEXP_END = None
     parent: object = None
 
@@ -399,6 +454,8 @@ class TextLabel(TextMixin):
     effects: TextEffect = field(default_factory=TextEffect)
     uuid: UUID = field(default_factory=UUID)
     properties: List(DrawnProperty) = field(default_factory=list)
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def _svg_rotation(self):
         # KiCad keeps text upright: at 180 or 270 degrees, it is drawn at 0 or 90 degrees with the justification its
@@ -550,11 +607,25 @@ class NetclassFlag(TextLabel):
         yield from TextMixin.to_svg(self, colorscheme.text)
 
 
+# Older name of netclass_flag that KiCad still reads
+@sexp_type('directive_label')
+class DirectiveLabel(NetclassFlag):
+    pass
+
+
 @sexp_type('pin')
 class Pin:
     name: str = '1'
     uuid: UUID = field(default_factory=UUID)
     alternate: Named(str) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
+
+
+@sexp_type('pin_map_override')
+class PinMapOverride:
+    mode: Named(AtomChoice(Atom.library_default, Atom.named_map, Atom.identity, Atom.delegate)) = None
+    map: Named(str) = None
+    edits: Dict('edit') = field(default_factory=dict)
 
 
 @sexp_type('field')
@@ -573,6 +644,8 @@ class Variant:
     on_board: Named(YesNoAtom()) = None
     in_pos_files: Named(YesNoAtom()) = None
     fields: List(VariantField) = field(default_factory=list)
+    symbol_override: Named(str) = None
+    pin_map_override: PinMapOverride = None
 
 
 # Suddenly, we're doing syntax like this is yaml or something.
@@ -622,6 +695,9 @@ class SymbolInstance:
     on_board: Named(YesNoAtom()) = True
     in_pos_files: Named(YesNoAtom()) = None
     dnp: Named(YesNoAtom()) = False
+    pin_map_override: PinMapOverride = None
+    # KiCad 10.99: whether the symbol's footprint passes through pins to another sheet
+    passthrough: Named(AtomChoice(Atom.default, Atom.block, Atom.force)) = None
     fields_autoplaced: Named(YesNoAtom()) = True
     uuid: UUID = field(default_factory=UUID)
     default_instance: DefaultSymbolInstance = None
@@ -631,6 +707,8 @@ class SymbolInstance:
     # AFAICT this property, too,  is completely redundant. It ultimately just lists paths and references of at most
     # three other uses of the same symbol in this schematic.
     instances: Named(Array(SymbolCrosslinkProject)) = field(default_factory=list)
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
     _ : SEXP_END = None
     schematic: object = field(repr=False, default=None)
 
@@ -804,6 +882,8 @@ class SubsheetPin:
     at: AtPos = field(default_factory=AtPos)
     effects: TextEffect = field(default_factory=TextEffect)
     uuid: UUID = field(default_factory=UUID)
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
     _ : SEXP_END = None
     subsheet: object = None
 
@@ -863,6 +943,7 @@ class Subsheet:
     pins: List(SubsheetPin) = field(default_factory=list)
     # AFAICT this is completely redundant, just like the one in SymbolInstance
     instances: Named(Array(SubsheetCrosslinkProject)) = field(default_factory=list)
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
     _ : SEXP_END = None
     sheet_name: object = field(default_factory=lambda: DrawnProperty(key='Sheetname', value=''))
     file_name: object = field(default_factory=lambda: DrawnProperty(key='Sheetfile', value=''))
@@ -927,6 +1008,8 @@ class RuleArea:
     on_board: Named(YesNoAtom()) = None
     dnp: Named(YesNoAtom()) = None
     polyline: Polyline = None
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         if self.polyline is None or len(self.polyline.points) < 3:
@@ -948,6 +1031,8 @@ class TextBox(TextMixin):
     fill: OmitDefault(Fill) = None
     effects: TextEffect = field(default_factory=TextEffect)
     uuid: UUID = field(default_factory=UUID)
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def render(self, variables={}, cache=None):
         yield from gr.TextBox.render(self, variables=variables)
@@ -984,6 +1069,8 @@ class TableCell:
     fill: OmitDefault(Fill) = None
     effects: TextEffect = field(default_factory=TextEffect)
     uuid: UUID = field(default_factory=UUID)
+    locked: Named(YesNoAtom()) = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
 
 # Cells are listed row by row, including the ones covered by another cell's span.
@@ -996,6 +1083,40 @@ class Table:
     row_heights: Named(Array(float)) = field(default_factory=list)
     cells: Named(Array(TableCell)) = field(default_factory=list)
     uuid: UUID = None
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
+
+
+@sexp_type('from')
+class NetChainEnd:
+    reference: str = ''
+    pin: str = ''
+
+
+@sexp_type('to')
+class NetChainStart(NetChainEnd):
+    pass
+
+
+@sexp_type('net_chain')
+class NetChain:
+    name: str = ''
+    start: NetChainEnd = None
+    end: NetChainStart = None
+    net_class: Named(str) = None
+    color: Color = None
+    nets: Named(Array(str)) = field(default_factory=list)
+    # Some files list member items by uuid here. KiCad skips them, we keep them.
+    uuids: List(UUID) = field(default_factory=list)
+
+
+# Unlike PCB groups, schematic groups write (locked yes) after the name.
+@sexp_type('group')
+class SchematicGroup:
+    name: str = ''
+    uuid: UUID = field(default_factory=UUID)
+    locked: Named(YesNoAtom()) = None
+    members: Named(Array(str)) = field(default_factory=list)
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
 
 @sexp_type('lib_symbols')
@@ -1024,6 +1145,7 @@ class Schematic:
     no_connects: List(NoConnect) = field(default_factory=list)
     rule_areas: List(RuleArea) = field(default_factory=list)
     netclass_flags: List(NetclassFlag) = field(default_factory=list)
+    directive_labels: List(DirectiveLabel) = field(default_factory=list)
     bus_aliases: List(BusAlias) = field(default_factory=list)
     bus_entries: List(BusEntry) = field(default_factory=list)
     wires: List(Wire) = field(default_factory=list)
@@ -1034,6 +1156,9 @@ class Schematic:
     rectangles: List(Rectangle) = field(default_factory=list)
     arcs: List(Arc) = field(default_factory=list)
     beziers: List(Bezier) = field(default_factory=list)
+    ellipses: List(Ellipse) = field(default_factory=list)
+    ellipse_arcs: List(EllipseArc) = field(default_factory=list)
+    net_chains: List(NetChain) = field(default_factory=list)
     texts: List(Text) = field(default_factory=list)
     text_boxes: List(TextBox) = field(default_factory=list)
     tables: List(Table) = field(default_factory=list)
@@ -1042,10 +1167,11 @@ class Schematic:
     hierarchical_labels: List(HierarchicalLabel) = field(default_factory=list)
     symbols: List(SymbolInstance) = field(default_factory=list)
     subsheets: List(Subsheet) = field(default_factory=list)
-    groups: List(Group) = field(default_factory=list)
+    groups: List(SchematicGroup) = field(default_factory=list)
     sheet_instances: Named(Array(SubsheetCrosslinkSheet)) = field(default_factory=list)
     symbol_instances: Named(Array(SymbolCrosslinkSheet)) = field(default_factory=list)
     embedded_fonts: Named(YesNoAtom()) = False
+    embedded_files: EmbeddedFiles = None
     _ : SEXP_END = None
     original_filename: str = None
 
@@ -1102,6 +1228,8 @@ class Schematic:
         yield from self.bus_entries
         yield from self.wires
         yield from self.buses
+        yield from self.ellipses
+        yield from self.ellipse_arcs
         yield from self.texts
         yield from self.local_labels
         yield from self.global_labels

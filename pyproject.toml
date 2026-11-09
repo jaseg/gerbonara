@@ -67,7 +67,8 @@ norecursedirs = ["*"]
 kicad_symbols_tag = "9.0.6"
 kicad_footprints_tag = "9.0.6"
 # KiCad versions whose demo and QA files are used as testdata. PCBs are only tested with the first one.
-kicad_source_tag = "9.0.6 10.0.8"
+# 9903ced is KiCad's 10.99 development version, master as of 2026-11-07.
+kicad_source_tag = "9.0.6 10.0.8 9903ced42eb17697564fa63c48d0346ed1680669"
 # Tag of the KiCad container that schematics are rendered with, for comparing our SVG export to KiCad's
 kicad_schematic_container_tag = "10.0.8"
 # Tag to use for container for footprint svg export

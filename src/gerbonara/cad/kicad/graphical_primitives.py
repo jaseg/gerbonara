@@ -395,6 +395,7 @@ class Image:
     locked: Flag() = False
     uuid: UUID = field(default_factory=UUID)
     data: Base64Blob = ''
+    custom_properties: Dict('custom_property') = field(default_factory=dict)
 
     def offset(self, x=0, y=0):
         self.at = self.at.with_offset(x, y)

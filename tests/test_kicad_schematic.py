@@ -30,6 +30,9 @@ def test_load_kicad_schematic(kicad_sch_file):
     # Refers to a sub-sheet that is missing from KiCad's repository
     if kicad_sch_file.parts[-2:] == ('pcbnew', 'component_classes.kicad_sch'):
         pytest.skip()
+    # Invalid on purpose
+    if kicad_sch_file.name in ['broken.kicad_sch', 'sibling.kicad_sch']:
+        pytest.skip()
     sch = Schematic.open(kicad_sch_file)
     print('Loaded schematic with', len(sch.wires), 'wires and', len(sch.symbols), 'symbols.')
     for subsh in sch.subsheets:
@@ -67,6 +70,8 @@ def test_kicad_schematic_round_trip(kicad_sch_file):
     if kicad_sch_file.name in [
             # Properties with two (effects ...), the subject of KiCad issue 20173
             'Kicad 9 - multi channel test.kicad_sch',
+            # Invalid on purpose
+            'broken.kicad_sch',
             ]:
         pytest.skip()
 
@@ -82,6 +87,9 @@ def test_kicad_schematic_round_trip(kicad_sch_file):
 
 
 def test_kicad_schematic_svg_export(kicad_sch_file):
+    if kicad_sch_file.name in ['broken.kicad_sch']: # Invalid on purpose
+        pytest.skip()
+
     sch = Schematic.open(kicad_sch_file)
     root = ET.fromstring(str(sch.to_svg()))
     w, h = sch.page_settings.size
