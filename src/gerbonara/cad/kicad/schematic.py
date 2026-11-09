@@ -397,13 +397,43 @@ def _wrap_text(text, size, width):
     return '\n'.join(out)
 
 
-def _text_box_svg(box, colorscheme, border=True):
+def _text_box_rect(box):
+    # (x, y, w, h) of a text box or table cell
     x, y = box.at.x, box.at.y
     w, h = (box.size.x, box.size.y) if box.size is not None else (0, 0)
     if w < 0:
         x, w = x + w, -w
     if h < 0:
         y, h = y + h, -h
+    return x, y, w, h
+
+
+def _text_box_text(box):
+    # The arguments of kicad_text_svg() for the text of a text box or table cell, or None if it has no text
+    x, y, w, h = _text_box_rect(box)
+    size = _text_size(box)
+    m = box.margins
+    ml, mt, mr, mb = (m.left, m.top, m.right, m.bottom) if m is not None else (size*0.75,)*4
+    h_align, v_align = _justify(box, default_h='left', default_v='top')
+    tx = {'left': x + ml, 'center': x + w/2, 'right': x + w - mr}[h_align]
+    ty = {'top': y + mt, 'middle': y + h/2, 'bottom': y + h - mb}[v_align]
+    text = _wrap_text(box.text, size, w - ml - mr)
+    if not text.strip():
+        return None
+    return dict(text=text, x=tx, y=ty, size=size, h_align=h_align, v_align=v_align, stroke_width=_pen_width(box))
+
+
+def _text_box_bounds(box, r):
+    # The box of a text box or table cell grown by r, and of its text
+    x, y, w, h = _text_box_rect(box)
+    boxes = [((x - r, y - r), (x + w + r, y + h + r))]
+    if (text := _text_box_text(box)) and (bounds := kicad_text_bounds(**text)):
+        boxes.append(bounds)
+    return sum_bounds(boxes)
+
+
+def _text_box_svg(box, colorscheme, border=True):
+    x, y, w, h = _text_box_rect(box)
     stroke = getattr(box, 'stroke', None)
     # Table cells have no stroke of their own, but KiCad fills them like stroked shapes
     has_pen = stroke is None or (stroke.width or 0) >= 0
@@ -414,16 +444,8 @@ def _text_box_svg(box, colorscheme, border=True):
     if attrs or fill != 'none':
         yield Tag('rect', x=f'{x:.3f}', y=f'{y:.3f}', width=f'{w:.3f}', height=f'{h:.3f}', fill=fill, **attrs)
 
-    size = _text_size(box)
-    m = box.margins
-    ml, mt, mr, mb = (m.left, m.top, m.right, m.bottom) if m is not None else (size*0.75,)*4
-    h_align, v_align = _justify(box, default_h='left', default_v='top')
-    tx = {'left': x + ml, 'center': x + w/2, 'right': x + w - mr}[h_align]
-    ty = {'top': y + mt, 'middle': y + h/2, 'bottom': y + h - mb}[v_align]
-    text = _wrap_text(box.text, size, w - ml - mr)
-    if text.strip():
-        yield kicad_text_svg(text, tx, ty, size, h_align=h_align, v_align=v_align, stroke_width=_pen_width(box),
-                             stroke=colorscheme.text)
+    if (text := _text_box_text(box)):
+        yield kicad_text_svg(**text, stroke=colorscheme.text)
 
 
 def label_shape_path_d(shape, w, h):
@@ -633,14 +655,25 @@ class HierarchicalLabel(TextLabel):
 class NetclassFlag(TextLabel):
     length: Named(float) = 2.54
 
-    def to_svg(self, colorscheme=Colorscheme.KiCad):
-        h_align, _v = _justify(self, default_h='left')
-        right = h_align != 'right'
+    def _flag_point(self, u, v):
         # KiCad draws the flag downwards and turns it by the spin style
         # (KiCad's RotatePoint() turns (x, y) into (y, -x) for +90 degrees)
+        h_align, _v = _justify(self, default_h='left')
         turn = {(False, True): (-1, 0, 0, -1), (False, False): (1, 0, 0, 1),
-                (True, True): (0, -1, 1, 0), (True, False): (0, 1, -1, 0)}[_is_vertical(self), right]
-        pt = lambda u, v: (self.at.x + turn[0]*u + turn[1]*v, self.at.y + turn[2]*u + turn[3]*v)
+                (True, True): (0, -1, 1, 0), (True, False): (0, 1, -1, 0)}[_is_vertical(self), h_align != 'right']
+        return self.at.x + turn[0]*u + turn[1]*v, self.at.y + turn[2]*u + turn[3]*v
+
+    def bounding_box(self, default=None):
+        # The flag without its fields. Its shapes are at most twice 0.508 wide on either side, and reach 0.508 beyond
+        # its length.
+        length, sym = self.length or 2.54, 0.508
+        points = [self._flag_point(u, v) for u in (-2*sym, 2*sym) for v in (0, length + sym)]
+        r = _label_pen_widths(self)[0]/2
+        return ((min(x for x, y in points) - r, min(y for x, y in points) - r),
+                (max(x for x, y in points) + r, max(y for x, y in points) + r))
+
+    def to_svg(self, colorscheme=Colorscheme.KiCad):
+        pt = self._flag_point
         length, sym = self.length or 2.54, 0.508
         style = {'fill': 'none', 'stroke': colorscheme.lines, 'stroke_width': _label_pen_widths(self)[0],
                  'stroke_linejoin': 'round', 'stroke_linecap': 'round'}
@@ -1083,6 +1116,10 @@ class TextBox(TextMixin):
     def render(self, variables={}, cache=None):
         yield from gr.TextBox.render(self, variables=variables)
 
+    def bounding_box(self, default=None):
+        w = self.stroke.width
+        return _text_box_bounds(self, max(w, 0)/2 if w else KICAD_SCH_LINE_WIDTH/2)
+
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         yield from _text_box_svg(self, colorscheme)
 
@@ -1133,6 +1170,13 @@ class Table:
     cells: Named(Array(TableCell)) = field(default_factory=list)
     uuid: UUID = None
     custom_properties: Dict('custom_property') = field(default_factory=dict)
+
+    def bounding_box(self, default=None):
+        if not self.cells:
+            return default
+        strokes = [item.stroke for item in (self.border, self.separators) if item is not None and item.stroke]
+        r = max([KICAD_SCH_LINE_WIDTH] + [stroke.width for stroke in strokes if stroke.width])/2
+        return sum_bounds(_text_box_bounds(cell, r) for cell in self.cells)
 
     def to_svg(self, colorscheme=Colorscheme.KiCad):
         if not self.cells:
