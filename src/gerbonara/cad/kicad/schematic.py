@@ -623,14 +623,7 @@ class SymbolInstance:
         children = []
         rot = self.at.rotation
 
-        sym = self.schematic.lookup_symbol(self.lib_name, self.lib_id)
-
-        style = self.body_style or self.convert or 1
-        units = [unit for unit in sym.units if (unit.unit_global or unit.unit_index == self.unit)
-                 and (unit.style_global or unit.demorgan_style == style)]
-
-
-
+        units = self._units()
 
         at_xform = xform = f'translate({self.at.x:.3f} {self.at.y:.3f})'
         if self.mirror.y:
@@ -657,6 +650,71 @@ class SymbolInstance:
 
         for prop in self.properties:
             yield from prop.to_svg(colorscheme)
+
+        if self.dnp:
+            yield from self._dnp_svg(units, colorscheme)
+
+    def _units(self):
+        sym = self.schematic.lookup_symbol(self.lib_name, self.lib_id)
+        style = self.body_style or self.convert or 1
+        return [unit for unit in sym.units if (unit.unit_global or unit.unit_index == self.unit)
+                and (unit.style_global or unit.demorgan_style == style)]
+
+    def _dnp_svg(self, units, colorscheme):
+        # Like KiCad's SCH_SYMBOL::PlotDNP(): a cross over the box of the symbol's body, that is its graphics and the
+        # roots of its pins, grown by part of how far its pins reach beyond it
+        body, pins = [], []
+        for unit in units:
+            for elem in unit.graphical_elements:
+                if isinstance(elem, symbols.Rectangle):
+                    elem = elem.to_polyline()
+                if isinstance(elem, symbols.Bezier) and len(elem.points) == 4:
+                    # KiCad measures Bézier curves by points on the curve, not by their control points
+                    (ax, ay), (bx, by), (cx, cy), (dx, dy) = [(pt.x, pt.y) for pt in elem.points]
+                    curve = lambda t, a, b, c, d: (1-t)**3*a + 3*(1-t)**2*t*b + 3*(1-t)*t**2*c + t**3*d
+                    points = [(curve(t/64, ax, bx, cx, dx), curve(t/64, ay, by, cy, dy)) for t in range(65)]
+                    box = (min(x for x, y in points), min(y for x, y in points)), \
+                          (max(x for x, y in points), max(y for x, y in points))
+                elif isinstance(elem, (symbols.Polyline, symbols.Circle, symbols.Arc)):
+                    box = elem.bounding_box()
+                else:
+                    continue
+                (x1, y1), (x2, y2) = box
+                w = max(0, elem.stroke.width or 0) / 2
+                body += [(x1 - w, y1 - w), (x2 + w, y2 + w)]
+                # The boxes of filled arcs include their center
+                if isinstance(elem, symbols.Arc) and elem.fill is not None and elem.fill.type != 'none':
+                    try:
+                        body.append(elem._arc()[0])
+                    except ValueError:
+                        pass
+            for pin in unit.pins:
+                if not pin.hide:
+                    a = math.radians(pin.at.rotation or 0)
+                    root = (pin.at.x + pin.length*math.cos(a), pin.at.y + pin.length*math.sin(a))
+                    body.append(root)
+                    pins += [(pin.at.x, pin.at.y), root]
+                    # KiCad's exports count pins with the circle that KiCad marks unconnected pins with, except no
+                    # connect pins
+                    if pin.etype not in ('no_connect', 'unconnected'):
+                        r = KICAD_TARGET_PIN_RADIUS
+                        pins += [(pin.at.x - r, pin.at.y - r), (pin.at.x + r, pin.at.y + r)]
+        if not body:
+            return
+
+        def box(points):
+            points = [symbols.sheet_vector(x, y, self.at.rotation, self.mirror) for x, y in points]
+            xs, ys = [x for x, y in points], [y for x, y in points]
+            return min(xs), min(ys), max(xs), max(ys)
+        bx1, by1, bx2, by2 = box(body)
+        px1, py1, px2, py2 = box(body + pins)
+        mx, my = max(bx1 - px1, px2 - bx2), max(by1 - py1, py2 - by2)
+        mx = max(mx*0.6, my*0.3)
+        my = max(my*0.6, mx*0.3)
+        x1, y1, x2, y2 = self.at.x + bx1 - mx, self.at.y + by1 - my, self.at.x + bx2 + mx, self.at.y + by2 + my
+        yield Tag('path', d=f'M {x1:.3f} {y1:.3f} L {x2:.3f} {y2:.3f} M {x2:.3f} {y1:.3f} L {x1:.3f} {y2:.3f}',
+                  fill='none', stroke=colorscheme.lines, stroke_width=f'{3*KICAD_SCH_LINE_WIDTH:.4f}',
+                  stroke_linecap='round')
 
 
 @sexp_type('path')
