@@ -298,8 +298,8 @@ class Circle:
         dx, dy = next((dx, dy) for dx, dy in ((r, 0), (-r, 0), (0, r), (0, -r))
                       if all(abs(a - b) < 1e-6 for a, b in zip(sheet_vector(dx, dy, *orientation), (r, 0))))
         sweep = int(not _sheet_sweep(False, orientation))
-        yield Tag('path', d=f'M {x+dx:.3f} {y+dy:.3f} A {r:.3f} {r:.3f} 0 1 {sweep} {x-dx:.3f} {y-dy:.3f} '
-                            f'A {r:.3f} {r:.3f} 0 1 {sweep} {x+dx:.3f} {y+dy:.3f} Z', **attrs)
+        yield Tag('path', d=f'M {x+dx:.3f} {y+dy:.3f} A {r:.4f} {r:.4f} 0 1 {sweep} {x-dx:.3f} {y-dy:.3f} '
+                            f'A {r:.4f} {r:.4f} 0 1 {sweep} {x+dx:.3f} {y+dy:.3f} Z', **attrs)
 
 
 @sexp_type('radius')
@@ -356,7 +356,7 @@ class Arc:
         # Counter-clockwise on the sheet, like KiCad's SVG plotter draws arcs, so that dashes start at the same end
         if orientation is not None and _sheet_sweep(sweep, orientation):
             start, end, sweep = end, start, not sweep
-        arc = f'M {start.x:.3f} {start.y:.3f} A {r:.3f} {r:.3f} 0 {int(large)} {int(sweep)} {end.x:.3f} {end.y:.3f}'
+        arc = f'M {start.x:.3f} {start.y:.3f} A {r:.4f} {r:.4f} 0 {int(large)} {int(sweep)} {end.x:.3f} {end.y:.3f}'
         # KiCad fills arcs as pie wedges
         if fill != 'none':
             yield Tag('path', d=f'{arc} L {cx:.3f} {cy:.3f} Z', fill=fill, stroke='none')

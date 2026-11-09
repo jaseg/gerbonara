@@ -252,7 +252,7 @@ class Arc:
         # Counter-clockwise, like KiCad's SVG plotter draws arcs, so that dashes start at the same end
         if sweep:
             start, end = end, start
-        arc = f'M {start.x:.3f} {start.y:.3f} A {r:.3f} {r:.3f} 0 {int(large)} 0 {end.x:.3f} {end.y:.3f}'
+        arc = f'M {start.x:.3f} {start.y:.3f} A {r:.4f} {r:.4f} 0 {int(large)} 0 {end.x:.3f} {end.y:.3f}'
         # KiCad fills arcs as pie wedges
         shape = _shape_svg(self, colorscheme, d=arc)
         if shape.attrs.get('fill', 'none') != 'none':
